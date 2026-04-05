@@ -5,6 +5,8 @@
 **适用范围**：`awiki-cli` Go 重写、命令面收敛、SQLite/凭证迁移、runtime/listener、skills/docs/schema、发布切换。  
 **最后更新**：2026-04-04
 
+> **Phase 0 冻结结果说明**：`docs/plan/phase-0/` 下的冻结文档是后续实现的直接约束。当本文与 Phase 0 冻结文档冲突时，以 Phase 0 冻结文档为准。
+
 ---
 
 ## 1. 目标与输入基线
@@ -807,6 +809,7 @@ v2 本地 SQLite 设计参考以下来源：
 5. 首版必须兼容导入 `../awiki-agent-id-message/` 的凭证与 SQLite 数据。
 6. 首版不追求覆盖 v1 所有边角脚本，而是先覆盖架构文档定义的 canonical 命令面。
 7. 首版发布主渠道为 GitHub Releases；npm wrapper 为可选增强项。
+8. Go 核心实现必须保持 pure Go，禁止依赖 CGO；如果后续需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中实现。
 
 ---
 
