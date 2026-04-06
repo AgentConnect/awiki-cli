@@ -4,18 +4,18 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
 type authContext struct {
-	record          *identity.StoredIdentity
-	identityManager *identity.Manager
-	privateKey      anpsdk.PrivateKeyMaterial
+	record     *identity.StoredIdentity
+	session    *authsdk.Session
+	privateKey anpsdk.PrivateKeyMaterial
 }
 
 func newAuthContext(record *identity.StoredIdentity, manager *identity.Manager) (*authContext, error) {
@@ -26,10 +26,18 @@ func newAuthContext(record *identity.StoredIdentity, manager *identity.Manager) 
 	if err != nil {
 		return nil, err
 	}
+	var session *authsdk.Session
+	if manager != nil {
+		paths, err := manager.PathsForIdentity(record.IdentityName)
+		if err != nil {
+			return nil, err
+		}
+		session = authsdk.NewSession(paths.DIDDocumentPath, paths.Key1PrivatePath, record.IdentityName, record.DID, record.JWTToken, func(token string) error { return manager.UpdateJWT(record.IdentityName, token) })
+	}
 	return &authContext{
-		record:          record,
-		identityManager: manager,
-		privateKey:      privateKey,
+		record:     record,
+		session:    session,
+		privateKey: privateKey,
 	}, nil
 }
 
@@ -42,59 +50,6 @@ func loadPrivateKeyMaterial(pemText string) (anpsdk.PrivateKeyMaterial, error) {
 		Type:  anpsdk.KeyTypeSecp256k1,
 		Bytes: append([]byte(nil), block.Bytes...),
 	}, nil
-}
-
-func (a *authContext) authHeaders(requestURL string, method string, body []byte, forceNew bool) (map[string]string, error) {
-	if !forceNew && strings.TrimSpace(a.record.JWTToken) != "" {
-		return map[string]string{"Authorization": "Bearer " + a.record.JWTToken}, nil
-	}
-	if a.record.DIDDocument == nil {
-		return nil, fmt.Errorf("identity %s is missing a DID document", a.record.IdentityName)
-	}
-	headers := map[string]string{"Content-Type": "application/json"}
-	return anpsdk.GenerateHTTPSignatureHeaders(
-		a.record.DIDDocument,
-		requestURL,
-		method,
-		a.privateKey,
-		headers,
-		body,
-		anpsdk.HttpSignatureOptions{},
-	)
-}
-
-func (a *authContext) captureResponseToken(response *http.Response) {
-	if response == nil {
-		return
-	}
-	token := bearerFromHeaders(response.Header)
-	if token == "" || a.identityManager == nil {
-		return
-	}
-	if token == a.record.JWTToken {
-		return
-	}
-	if err := a.identityManager.UpdateJWT(a.record.IdentityName, token); err == nil {
-		a.record.JWTToken = token
-	}
-}
-
-func bearerFromHeaders(headers http.Header) string {
-	if authorization := strings.TrimSpace(headers.Get("Authorization")); strings.HasPrefix(authorization, "Bearer ") {
-		return strings.TrimPrefix(authorization, "Bearer ")
-	}
-	if info := strings.TrimSpace(headers.Get("Authentication-Info")); info != "" {
-		for _, part := range strings.Split(info, ",") {
-			key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
-			if !ok {
-				continue
-			}
-			if key == "access_token" {
-				return strings.Trim(strings.TrimSpace(value), "\"")
-			}
-		}
-	}
-	return ""
 }
 
 func verificationMethodID(didDocument map[string]any) string {

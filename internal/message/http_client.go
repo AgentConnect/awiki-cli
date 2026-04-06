@@ -1,15 +1,14 @@
 package message
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 )
 
@@ -173,72 +172,19 @@ func (t *HTTPTransport) rpcMapCall(ctx context.Context, method string, params ma
 }
 
 func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[string]any, out any) error {
-	payload := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      generateOperationID(),
-		"method":  method,
-		"params":  params,
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
 	requestURL := t.baseMessageURL + MessageRPCEndpoint
-	headers, err := t.auth.authHeaders(requestURL, http.MethodPost, body, false)
-	if err != nil {
-		return err
-	}
-	headers["Content-Type"] = "application/json"
-	response, err := t.doPost(ctx, requestURL, body, headers)
-	if err != nil && t.auth.record.JWTToken != "" {
-		var firstErr *ServiceError
-		if errors.As(err, &firstErr) && firstErr.StatusCode == http.StatusUnauthorized {
-			headers, headerErr := t.auth.authHeaders(requestURL, http.MethodPost, body, true)
-			if headerErr != nil {
-				return err
-			}
-			headers["Content-Type"] = "application/json"
-			response, err = t.doPost(ctx, requestURL, body, headers)
-		}
-	}
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	t.auth.captureResponseToken(response)
-	raw, err := io.ReadAll(response.Body)
-	if err != nil {
-		return err
-	}
-	var rpcResult rpcResponse
-	if err := json.Unmarshal(raw, &rpcResult); err != nil {
-		return fmt.Errorf("parse message rpc response: %w", err)
-	}
-	if rpcResult.Error != nil {
-		return &ServiceError{RPCCode: rpcResult.Error.Code, Message: rpcResult.Error.Message, Data: rpcResult.Error.Data}
-	}
-	if out == nil {
+	err := t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
+	if err == nil {
+		t.auth.record.JWTToken = t.auth.session.CurrentJWT()
 		return nil
 	}
-	return json.Unmarshal(rpcResult.Result, out)
-}
-
-func (t *HTTPTransport) doPost(ctx context.Context, requestURL string, body []byte, headers map[string]string) (*http.Response, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	var rpcErr *authsdk.RPCError
+	if errors.As(err, &rpcErr) {
+		return &ServiceError{RPCCode: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
 	}
-	for key, value := range headers {
-		request.Header.Set(key, value)
+	var httpErr *authsdk.HTTPError
+	if errors.As(err, &httpErr) {
+		return &ServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}
 	}
-	response, err := t.httpClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	if response.StatusCode >= 400 {
-		defer response.Body.Close()
-		raw, _ := io.ReadAll(response.Body)
-		return nil, &ServiceError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(raw))}
-	}
-	return response, nil
+	return err
 }

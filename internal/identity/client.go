@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 )
 
@@ -75,6 +77,13 @@ func NewRemoteClient(resolved *appconfig.Resolved) (*RemoteClient, error) {
 		baseURL: strings.TrimRight(resolved.UserServiceURL, "/"),
 		client:  httpClient,
 	}, nil
+}
+
+func (c *RemoteClient) Client() *http.Client {
+	if c == nil {
+		return nil
+	}
+	return c.client
 }
 
 func newHTTPClient(caBundle string) (*http.Client, error) {
@@ -151,6 +160,10 @@ func (c *RemoteClient) RPCCall(ctx context.Context, endpoint string, method stri
 	return c.rpcCall(ctx, endpoint, method, params, bearer, out)
 }
 
+func (c *RemoteClient) AuthenticatedRPCCall(ctx context.Context, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
+	return c.authenticatedRPCCall(ctx, endpoint, method, params, auth, out)
+}
+
 func (c *RemoteClient) restPost(ctx context.Context, endpoint string, requestPayload any, bearer string, out any) error {
 	body, err := json.Marshal(requestPayload)
 	if err != nil {
@@ -189,6 +202,23 @@ func (c *RemoteClient) RestPost(ctx context.Context, endpoint string, requestPay
 	return c.restPost(ctx, endpoint, requestPayload, bearer, out)
 }
 
+func (c *RemoteClient) AuthenticatedRestPost(ctx context.Context, endpoint string, requestPayload any, auth *authsdk.Session, out any) error {
+	body, err := json.Marshal(requestPayload)
+	if err != nil {
+		return err
+	}
+	requestURL := c.baseURL + endpoint
+	if err := auth.DoJSON(ctx, c.client, http.MethodPost, requestURL, requestPayload, out); err != nil {
+		var httpErr *authsdk.HTTPError
+		if errors.As(err, &httpErr) {
+			return &ServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}
+		}
+		return err
+	}
+	_ = body
+	return nil
+}
+
 func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.Values, out any) error {
 	target := c.baseURL + endpoint
 	if len(query) > 0 {
@@ -218,4 +248,20 @@ func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.V
 
 func (c *RemoteClient) RestGet(ctx context.Context, endpoint string, query url.Values, out any) error {
 	return c.restGet(ctx, endpoint, query, out)
+}
+
+func (c *RemoteClient) authenticatedRPCCall(ctx context.Context, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
+	requestURL := c.baseURL + endpoint
+	if err := auth.DoJSONRPC(ctx, c.client, requestURL, http.MethodPost, method, params, out); err != nil {
+		var rpcErr *authsdk.RPCError
+		if errors.As(err, &rpcErr) {
+			return &ServiceError{RPCCode: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
+		}
+		var httpErr *authsdk.HTTPError
+		if errors.As(err, &httpErr) {
+			return &ServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}
+		}
+		return err
+	}
+	return nil
 }

@@ -168,6 +168,18 @@ func (m *Manager) resolveEntryName(requested string, index IndexPayload) (string
 	return "", IndexEntry{}, false
 }
 
+func (m *Manager) PathsForIdentity(name string) (Paths, error) {
+	index, err := m.LoadIndex()
+	if err != nil {
+		return Paths{}, err
+	}
+	_, entry, ok := m.resolveEntryName(name, index)
+	if !ok {
+		return Paths{}, fmt.Errorf("%w: %s", ErrIdentityNotFound, name)
+	}
+	return m.BuildPaths(entry.DirName), nil
+}
+
 func writeSecureJSON(path string, payload any) error {
 	raw, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

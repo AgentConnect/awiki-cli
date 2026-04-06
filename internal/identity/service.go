@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 )
 
@@ -322,8 +323,9 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	if err != nil {
 		return nil, err
 	}
-	if record.JWTToken == "" {
-		return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
+	auth, err := s.authSession(record)
+	if err != nil {
+		return nil, err
 	}
 	phone := strings.TrimSpace(params.Phone)
 	email := strings.TrimSpace(strings.ToLower(params.Email))
@@ -337,7 +339,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 		}
 		if strings.TrimSpace(params.OTP) == "" {
 			var result map[string]any
-			if err := s.remote.restPost(ctx, phoneBindSendEndpoint, map[string]any{"phone": normalizedPhone}, record.JWTToken, &result); err != nil {
+			if err := s.remote.AuthenticatedRestPost(ctx, phoneBindSendEndpoint, map[string]any{"phone": normalizedPhone}, auth, &result); err != nil {
 				return nil, err
 			}
 			return &CommandResult{
@@ -352,7 +354,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 			}, nil
 		}
 		var result map[string]any
-		if err := s.remote.restPost(ctx, phoneBindVerifyEndpoint, map[string]any{"phone": normalizedPhone, "code": sanitizeOTP(params.OTP)}, record.JWTToken, &result); err != nil {
+		if err := s.remote.AuthenticatedRestPost(ctx, phoneBindVerifyEndpoint, map[string]any{"phone": normalizedPhone, "code": sanitizeOTP(params.OTP)}, auth, &result); err != nil {
 			return nil, err
 		}
 		return &CommandResult{
@@ -373,7 +375,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	}
 	if !verified {
 		var sendResult map[string]any
-		if err := s.remote.restPost(ctx, emailSendEndpoint, map[string]any{"email": email}, record.JWTToken, &sendResult); err != nil {
+		if err := s.remote.AuthenticatedRestPost(ctx, emailSendEndpoint, map[string]any{"email": email}, auth, &sendResult); err != nil {
 			return nil, err
 		}
 		if !params.Wait {
@@ -546,11 +548,12 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		if err != nil {
 			return nil, err
 		}
-		if record.JWTToken == "" {
-			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
+		auth, err := s.authSession(record)
+		if err != nil {
+			return nil, err
 		}
 		var result map[string]any
-		if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_me", map[string]any{}, record.JWTToken, &result); err != nil {
+		if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "get_me", map[string]any{}, auth, &result); err != nil {
 			return nil, err
 		}
 		return &CommandResult{
@@ -586,8 +589,9 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 	if err != nil {
 		return nil, err
 	}
-	if record.JWTToken == "" {
-		return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
+	auth, err := s.authSession(record)
+	if err != nil {
+		return nil, err
 	}
 	payload := map[string]any{}
 	changedFields := make([]string, 0)
@@ -620,7 +624,7 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 		return nil, fmt.Errorf("%w: no profile fields were provided", ErrInvalidInput)
 	}
 	var result map[string]any
-	if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "update_me", payload, record.JWTToken, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "update_me", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(params.DisplayName) != "" {
@@ -674,6 +678,37 @@ func (s *Service) requireActiveIdentity() (*StoredIdentity, error) {
 		return nil, err
 	}
 	return record, nil
+}
+
+func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) {
+	if record == nil {
+		return nil, fmt.Errorf("%w: active identity is required", ErrAuthRequired)
+	}
+	paths, err := s.manager.PathsForIdentity(record.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	session := authsdk.NewSession(
+		paths.DIDDocumentPath,
+		paths.Key1PrivatePath,
+		record.IdentityName,
+		record.DID,
+		record.JWTToken,
+		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+	)
+	session.SetBearer(s.config.UserServiceURL, record.JWTToken)
+	if strings.TrimSpace(s.config.MessageServiceURL) != "" {
+		session.SetBearer(s.config.MessageServiceURL, record.JWTToken)
+	}
+	if strings.TrimSpace(record.JWTToken) == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := session.EnsureJWT(ctx, s.remote.client, strings.TrimRight(s.config.UserServiceURL, "/")+didAuthRPCEndpoint); err != nil {
+			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
+		}
+		record.JWTToken = session.CurrentJWT()
+	}
+	return session, nil
 }
 
 func normalizePhone(phone string) (string, error) {

@@ -24,6 +24,7 @@
   - Phase 3：SQLite 本地状态与迁移已实现首版
   - Phase 4：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
   - Phase 4.1：websocket listener / local daemon 服务端已实现首版
+  - Phase 4.2：ANP SDK 身份鉴权已接入 HTTP / websocket listener 主路径
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
 - 主要服务端依赖：
   - `../user-service/`
@@ -51,6 +52,7 @@
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
 **internal/anpsdk/registry.go**: ANP Go SDK 的本地源码依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
+**internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1。  
@@ -142,6 +144,11 @@
   - 后台 listener 进程、pid/status/socket 管理
   - 本地 daemon / unix socket bridge 服务端
   - 远端单 websocket 连接与 direct.incoming 下行落库
+- Phase 4.2（当前首版已落地 ANP SDK 鉴权）：
+  - 基于 `DIDWbaAuthHeader` 的 HTTP hop auth
+  - 401 后自动重试与 challenge 处理
+  - 从响应头捕获 bearer token 并回写 identity store
+  - listener 在 websocket 模式下可自动尝试 bootstrap JWT
 
 ### 尚未实现
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/message"
@@ -233,7 +234,28 @@ func (s *Supervisor) ensureSession(identityName string) (*session, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(record.JWTToken) == "" {
-		return nil, fmt.Errorf("identity %s is missing a JWT token; websocket mode requires an authenticated identity", identityName)
+		paths, pathErr := s.manager.PathsForIdentity(identityName)
+		if pathErr != nil {
+			return nil, pathErr
+		}
+		authSession := authsdk.NewSession(
+			paths.DIDDocumentPath,
+			paths.Key1PrivatePath,
+			record.IdentityName,
+			record.DID,
+			record.JWTToken,
+			func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+		)
+		httpClient, clientErr := identity.NewRemoteClient(s.resolved)
+		if clientErr != nil {
+			return nil, clientErr
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := authSession.EnsureJWT(ctx, httpClient.Client(), strings.TrimRight(s.resolved.UserServiceURL, "/")+"/user-service/did-auth/rpc"); err != nil {
+			return nil, fmt.Errorf("identity %s is missing a JWT token; websocket mode requires an authenticated identity", identityName)
+		}
+		record.JWTToken = authSession.CurrentJWT()
 	}
 	client, err := NewWSClient(s.resolved, record.JWTToken)
 	if err != nil {
