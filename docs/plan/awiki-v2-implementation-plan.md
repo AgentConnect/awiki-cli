@@ -809,7 +809,7 @@ v2 本地 SQLite 设计参考以下来源：
 5. 首版必须兼容导入 `../awiki-agent-id-message/` 的凭证与 SQLite 数据。
 6. 首版不追求覆盖 v1 所有边角脚本，而是先覆盖架构文档定义的 canonical 命令面。
 7. 首版发布主渠道为 GitHub Releases；npm wrapper 为可选增强项。
-8. Go 核心实现必须保持 pure Go，禁止依赖 CGO；如果后续需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中实现。
+8. Go 核心实现固定使用 Go 1.22，并保持 pure Go，禁止依赖 CGO；如果后续需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中实现。
 
 ---
 
@@ -818,4 +818,3 @@ v2 本地 SQLite 设计参考以下来源：
 - 当 `docs/architecture/awiki-v2-architecture.md` 或 `docs/architecture/awiki-command-v2.md` 发生影响实施范围的变化时，必须同步更新本文档。
 - 当 v1 SQLite schema 或凭证布局的参考基线发生变化时，需要同步更新“参考基线”章节。
 - 当新增一级命令或调整 canonical contract 时，必须同步更新 Phase、工作包、验收标准与测试计划。
-

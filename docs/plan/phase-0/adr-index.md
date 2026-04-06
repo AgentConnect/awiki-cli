@@ -28,7 +28,7 @@
 | ADR-0008 | SQLite 基线与 source of truth | Frozen | Phase 3+ | SQLite 以 `local_store.py` 为 source of truth；`e2ee_outbox` 是首版必保留表 |
 | ADR-0009 | runtime mode 与 listener 边界 | Frozen | Phase 1 / 6+ | transport 只在 `runtime` 暴露；websocket mode 下 listener 持有唯一远端连接 |
 | ADR-0010 | secure 首发范围 | Frozen | Phase 5+ | 首发只做 direct E2EE；group E2EE 不阻塞首发 |
-| ADR-0011 | Go 兼容性与构建策略 | Frozen | Phase 1+ | Go 核心必须 pure Go，无 CGO；系统兼容性壳层可放在 TS shell |
+| ADR-0011 | Go 兼容性与构建策略 | Frozen | Phase 1+ | Go 核心固定使用 Go 1.22，必须 pure Go，无 CGO；系统兼容性壳层可放在 TS shell |
 
 ---
 

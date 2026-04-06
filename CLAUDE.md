@@ -10,7 +10,7 @@
    - 用户相关 API 文档位于 `../user-service/docs/api/`。
    - 本项目是一个重写项目，重写参考实现位于同级 `../awiki-agent-id-message/`。
    - CLI 交互方式与工程组织可以参考同级飞书 CLI 仓库 `../cli/`。
-   - v2 当前实现语言是 **Go**，并且要求保持 **pure Go / no CGO**。
+   - v2 当前实现语言是 **Go 1.22**，并且要求保持 **pure Go / no CGO**。
    - 若需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中，不在 Go 核心里引入 CGO。
    - 如果命令实现涉及服务端 API 变化，需要同步更新对应服务仓库下的 API 文档。
 
@@ -38,7 +38,7 @@
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`，要求 pure Go。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -95,7 +95,8 @@
 
 ## 开发与验证约定
 
-- 本机若无 `go`，优先使用 Docker 的 `golang:1.24` 镜像执行：
+- 本机 Go 版本基线固定为 `1.22.x`。
+- 本机若无 `go`，优先使用 Docker 的 `golang:1.22` 镜像执行：
   - `go mod tidy`
   - `gofmt -w $(find cmd internal -name '*.go')`
   - `CGO_ENABLED=0 go build ./...`
