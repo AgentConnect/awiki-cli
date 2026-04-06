@@ -1,0 +1,290 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+const (
+	appName          = "awiki-cli"
+	legacySkillName  = "awiki-agent-id-message"
+	defaultService   = "https://awiki.ai"
+	defaultDIDDomain = "awiki.ai"
+)
+
+type Overrides struct {
+	Identity        string
+	IdentityChanged bool
+	Format          string
+	FormatChanged   bool
+}
+
+type Paths struct {
+	ConfigDir            string `json:"config_dir"`
+	DataDir              string `json:"data_dir"`
+	StateDir             string `json:"state_dir"`
+	CacheDir             string `json:"cache_dir"`
+	ConfigFile           string `json:"config_file"`
+	IdentityDir          string `json:"identity_dir"`
+	DatabaseFile         string `json:"database_file"`
+	LegacyCredentialsDir string `json:"legacy_credentials_dir"`
+	LegacyDataDir        string `json:"legacy_data_dir"`
+}
+
+type FileConfig struct {
+	Identity struct {
+		Active string `yaml:"active"`
+	} `yaml:"identity"`
+	Output struct {
+		Format  string `yaml:"format"`
+		NoColor bool   `yaml:"no_color"`
+	} `yaml:"output"`
+	Services struct {
+		UserServiceURL    string `yaml:"user_service_url"`
+		MessageServiceURL string `yaml:"message_service_url"`
+		DIDDomain         string `yaml:"did_domain"`
+		CABundle          string `yaml:"ca_bundle"`
+	} `yaml:"services"`
+}
+
+type EnvHit struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Tier   string `json:"tier"`
+	Target string `json:"target"`
+}
+
+type ValueSource struct {
+	Source string `json:"source"`
+	Key    string `json:"key,omitempty"`
+	Value  string `json:"value,omitempty"`
+}
+
+type Resolved struct {
+	Paths             Paths                  `json:"paths"`
+	ActiveIdentity    string                 `json:"active_identity,omitempty"`
+	OutputFormat      string                 `json:"output_format"`
+	NoColor           bool                   `json:"no_color"`
+	UserServiceURL    string                 `json:"user_service_url"`
+	MessageServiceURL string                 `json:"message_service_url"`
+	DIDDomain         string                 `json:"did_domain"`
+	CABundle          string                 `json:"ca_bundle,omitempty"`
+	ConfigExists      bool                   `json:"config_exists"`
+	ConfigError       string                 `json:"config_error,omitempty"`
+	EnvHits           []EnvHit               `json:"env_hits,omitempty"`
+	Sources           map[string]ValueSource `json:"sources"`
+}
+
+type option struct {
+	key    string
+	target string
+	tier   string
+}
+
+func Resolve(overrides Overrides) (*Resolved, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve user home: %w", err)
+	}
+	configDir, configDirSource := resolvePath(home, envOptionSet("config_dir", "AWIKI_CONFIG_DIR", "AVIKI_CONFIG_DIR"), filepath.Join(home, ".config", appName))
+	dataDir, dataDirSource := resolvePath(home, envOptionSet("data_dir", "AWIKI_DATA_DIR", "AVIKI_DATA_DIR"), filepath.Join(home, ".local", "share", appName))
+	stateDir, stateDirSource := resolvePath(home, envOptionSet("state_dir", "AWIKI_STATE_DIR", "AVIKI_STATE_DIR"), filepath.Join(home, ".local", "state", appName))
+	cacheDir, cacheDirSource := resolvePath(home, envOptionSet("cache_dir", "AWIKI_CACHE_DIR", "AVIKI_CACHE_DIR"), filepath.Join(home, ".cache", appName))
+
+	legacyWorkspace := os.Getenv("AWIKI_WORKSPACE")
+	legacyDataDir := filepath.Join(home, ".openclaw", "workspace", "data", legacySkillName)
+	if strings.TrimSpace(os.Getenv("AWIKI_DATA_DIR")) != "" {
+		legacyDataDir = os.Getenv("AWIKI_DATA_DIR")
+	} else if strings.TrimSpace(legacyWorkspace) != "" {
+		legacyDataDir = filepath.Join(legacyWorkspace, "data", legacySkillName)
+	}
+
+	paths := Paths{
+		ConfigDir:            configDir,
+		DataDir:              dataDir,
+		StateDir:             stateDir,
+		CacheDir:             cacheDir,
+		ConfigFile:           filepath.Join(configDir, "config.yaml"),
+		IdentityDir:          filepath.Join(configDir, "identities"),
+		DatabaseFile:         filepath.Join(dataDir, appName+".db"),
+		LegacyCredentialsDir: filepath.Join(home, ".openclaw", "credentials", legacySkillName),
+		LegacyDataDir:        legacyDataDir,
+	}
+
+	resolved := &Resolved{
+		Paths:             paths,
+		OutputFormat:      "json",
+		UserServiceURL:    defaultService,
+		MessageServiceURL: defaultService,
+		DIDDomain:         defaultDIDDomain,
+		Sources: map[string]ValueSource{
+			"config_dir": configDirSource,
+			"data_dir":   dataDirSource,
+			"state_dir":  stateDirSource,
+			"cache_dir":  cacheDirSource,
+		},
+	}
+	resolved.EnvHits = collectEnvHits()
+
+	fileConfig, configExists, configError := loadFileConfig(paths.ConfigFile)
+	resolved.ConfigExists = configExists
+	if configError != nil {
+		resolved.ConfigError = configError.Error()
+	}
+
+	resolved.ActiveIdentity, resolved.Sources["active_identity"] = chooseValue(overrides.Identity, overrides.IdentityChanged, fileConfig.Identity.Active,
+		envOptionSet("active_identity", "AWIKI_IDENTITY", "AVIKI_IDENTITY"), "")
+	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(overrides.Format, overrides.FormatChanged, fileConfig.Output.Format,
+		envOptionSet("output_format", "AWIKI_FORMAT", "AVIKI_FORMAT"), "json")
+	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(fileConfig.Output.NoColor,
+		envOptionSet("no_color", "AWIKI_NO_COLOR", "AVIKI_NO_COLOR"), false)
+	resolved.UserServiceURL, resolved.Sources["user_service_url"] = chooseValue("", false, fileConfig.Services.UserServiceURL,
+		append(envOptionSet("user_service_url", "AWIKI_USER_SERVICE_URL", "AVIKI_USER_SERVICE_URL"), option{key: "E2E_USER_SERVICE_URL", target: "user_service_url", tier: "legacy_env"}), defaultService)
+	resolved.MessageServiceURL, resolved.Sources["message_service_url"] = chooseValue("", false, fileConfig.Services.MessageServiceURL,
+		append(envOptionSet("message_service_url", "AWIKI_MESSAGE_SERVICE_URL", "AVIKI_MESSAGE_SERVICE_URL"), option{key: "E2E_MOLT_MESSAGE_URL", target: "message_service_url", tier: "legacy_env"}), defaultService)
+	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue("", false, fileConfig.Services.DIDDomain,
+		append(envOptionSet("did_domain", "AWIKI_DID_DOMAIN", "AVIKI_DID_DOMAIN"), option{key: "E2E_DID_DOMAIN", target: "did_domain", tier: "legacy_env"}), defaultDIDDomain)
+	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue("", false, fileConfig.Services.CABundle,
+		append(envOptionSet("ca_bundle", "AWIKI_CA_BUNDLE", "AVIKI_CA_BUNDLE"), option{key: "E2E_CA_BUNDLE", target: "ca_bundle", tier: "legacy_env"}), "")
+
+	if resolved.OutputFormat == "" {
+		resolved.OutputFormat = "json"
+	}
+	return resolved, nil
+}
+
+func Snapshot(resolved *Resolved) map[string]any {
+	if resolved == nil {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"paths":               resolved.Paths,
+		"active_identity":     resolved.ActiveIdentity,
+		"output_format":       resolved.OutputFormat,
+		"no_color":            resolved.NoColor,
+		"user_service_url":    resolved.UserServiceURL,
+		"message_service_url": resolved.MessageServiceURL,
+		"did_domain":          resolved.DIDDomain,
+		"ca_bundle":           resolved.CABundle,
+		"config_exists":       resolved.ConfigExists,
+		"config_error":        resolved.ConfigError,
+		"env_hits":            resolved.EnvHits,
+		"sources":             resolved.Sources,
+	}
+}
+
+func loadFileConfig(path string) (FileConfig, bool, error) {
+	var config FileConfig
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return config, false, nil
+		}
+		return config, false, err
+	}
+	if err := yaml.Unmarshal(raw, &config); err != nil {
+		return config, true, err
+	}
+	return config, true, nil
+}
+
+func envOptionSet(target string, keys ...string) []option {
+	options := make([]option, 0, len(keys))
+	for _, key := range keys {
+		tier := "canonical_env"
+		if strings.HasPrefix(key, "AVIKI_") {
+			tier = "draft_alias_env"
+		}
+		options = append(options, option{key: key, target: target, tier: tier})
+	}
+	return options
+}
+
+func resolvePath(home string, options []option, defaultValue string) (string, ValueSource) {
+	for _, opt := range options {
+		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
+			return expandHome(home, value), ValueSource{Source: opt.tier, Key: opt.key, Value: value}
+		}
+	}
+	return defaultValue, ValueSource{Source: "default", Value: defaultValue}
+}
+
+func chooseValue(flagValue string, flagChanged bool, fileValue string, envOptions []option, defaultValue string) (string, ValueSource) {
+	if flagChanged && strings.TrimSpace(flagValue) != "" {
+		return strings.TrimSpace(flagValue), ValueSource{Source: "flag", Value: strings.TrimSpace(flagValue)}
+	}
+	if strings.TrimSpace(fileValue) != "" {
+		return strings.TrimSpace(fileValue), ValueSource{Source: "config_file", Value: strings.TrimSpace(fileValue)}
+	}
+	for _, opt := range envOptions {
+		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
+			return value, ValueSource{Source: opt.tier, Key: opt.key, Value: value}
+		}
+	}
+	return defaultValue, ValueSource{Source: "default", Value: defaultValue}
+}
+
+func chooseBool(fileValue bool, envOptions []option, defaultValue bool) (bool, ValueSource) {
+	if fileValue {
+		return true, ValueSource{Source: "config_file", Value: "true"}
+	}
+	for _, opt := range envOptions {
+		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
+			parsed := strings.EqualFold(value, "1") || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+			return parsed, ValueSource{Source: opt.tier, Key: opt.key, Value: value}
+		}
+	}
+	return defaultValue, ValueSource{Source: "default", Value: fmt.Sprintf("%t", defaultValue)}
+}
+
+func expandHome(home string, value string) string {
+	if strings.HasPrefix(value, "~/") {
+		return filepath.Join(home, strings.TrimPrefix(value, "~/"))
+	}
+	return value
+}
+
+func collectEnvHits() []EnvHit {
+	definitions := []EnvHit{
+		{Key: "AWIKI_CONFIG_DIR", Tier: "canonical_env", Target: "config_dir"},
+		{Key: "AWIKI_DATA_DIR", Tier: "canonical_env", Target: "data_dir"},
+		{Key: "AWIKI_STATE_DIR", Tier: "canonical_env", Target: "state_dir"},
+		{Key: "AWIKI_CACHE_DIR", Tier: "canonical_env", Target: "cache_dir"},
+		{Key: "AWIKI_IDENTITY", Tier: "canonical_env", Target: "active_identity"},
+		{Key: "AWIKI_FORMAT", Tier: "canonical_env", Target: "output_format"},
+		{Key: "AWIKI_NO_COLOR", Tier: "canonical_env", Target: "no_color"},
+		{Key: "AWIKI_USER_SERVICE_URL", Tier: "canonical_env", Target: "user_service_url"},
+		{Key: "AWIKI_MESSAGE_SERVICE_URL", Tier: "canonical_env", Target: "message_service_url"},
+		{Key: "AWIKI_DID_DOMAIN", Tier: "canonical_env", Target: "did_domain"},
+		{Key: "AWIKI_CA_BUNDLE", Tier: "canonical_env", Target: "ca_bundle"},
+		{Key: "AWIKI_WORKSPACE", Tier: "canonical_env", Target: "legacy_workspace"},
+		{Key: "AVIKI_CONFIG_DIR", Tier: "draft_alias_env", Target: "config_dir"},
+		{Key: "AVIKI_DATA_DIR", Tier: "draft_alias_env", Target: "data_dir"},
+		{Key: "AVIKI_STATE_DIR", Tier: "draft_alias_env", Target: "state_dir"},
+		{Key: "AVIKI_CACHE_DIR", Tier: "draft_alias_env", Target: "cache_dir"},
+		{Key: "AVIKI_IDENTITY", Tier: "draft_alias_env", Target: "active_identity"},
+		{Key: "AVIKI_FORMAT", Tier: "draft_alias_env", Target: "output_format"},
+		{Key: "AVIKI_NO_COLOR", Tier: "draft_alias_env", Target: "no_color"},
+		{Key: "AVIKI_USER_SERVICE_URL", Tier: "draft_alias_env", Target: "user_service_url"},
+		{Key: "AVIKI_MESSAGE_SERVICE_URL", Tier: "draft_alias_env", Target: "message_service_url"},
+		{Key: "AVIKI_DID_DOMAIN", Tier: "draft_alias_env", Target: "did_domain"},
+		{Key: "AVIKI_CA_BUNDLE", Tier: "draft_alias_env", Target: "ca_bundle"},
+		{Key: "E2E_USER_SERVICE_URL", Tier: "legacy_env", Target: "user_service_url"},
+		{Key: "E2E_MOLT_MESSAGE_URL", Tier: "legacy_env", Target: "message_service_url"},
+		{Key: "E2E_DID_DOMAIN", Tier: "legacy_env", Target: "did_domain"},
+		{Key: "E2E_CA_BUNDLE", Tier: "legacy_env", Target: "ca_bundle"},
+	}
+	hits := make([]EnvHit, 0)
+	for _, definition := range definitions {
+		if value := strings.TrimSpace(os.Getenv(definition.Key)); value != "" {
+			definition.Value = value
+			hits = append(hits, definition)
+		}
+	}
+	return hits
+}

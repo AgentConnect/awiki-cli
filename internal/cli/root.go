@@ -1,0 +1,302 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/agentconnect/awiki-cli/internal/buildinfo"
+	"github.com/agentconnect/awiki-cli/internal/cmdmeta"
+	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	doccheck "github.com/agentconnect/awiki-cli/internal/doctor"
+	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/spf13/cobra"
+)
+
+const rootLong = `awiki-cli — Agent-native identity and messaging CLI.
+
+Phase 1 currently provides the pure-Go CLI shell, global output contract,
+static schema introspection, built-in docs, and baseline environment checks.
+
+Use "awiki-cli schema" to inspect the frozen command contract and
+"awiki-cli doctor" to inspect paths, env compatibility, and migration hints.`
+
+func newRootCommand(app *App) *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "awiki-cli",
+		Short:         "awiki CLI phase-1 shell",
+		Long:          rootLong,
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			app.globals.FormatChanged = cmd.Flags().Changed("format")
+			app.globals.IdentityChanged = cmd.Flags().Changed("identity")
+			_, err := output.NormalizeFormat(app.globals.Format)
+			if err != nil {
+				return output.NewExitError("invalid_argument", 2, err.Error(), "Use --format json, pretty, ndjson, or table.")
+			}
+			return nil
+		},
+	}
+	rootCmd.PersistentFlags().StringVar(&app.globals.Format, "format", string(output.FormatJSON), "Output format: json | pretty | ndjson | table")
+	rootCmd.PersistentFlags().StringVar(&app.globals.JQ, "jq", "", "Apply a jq expression to the JSON envelope")
+	rootCmd.PersistentFlags().BoolVar(&app.globals.DryRun, "dry-run", false, "Render the execution plan without mutating state")
+	rootCmd.PersistentFlags().StringVar(&app.globals.Identity, "identity", "", "Select the active identity")
+	rootCmd.PersistentFlags().BoolVar(&app.globals.Verbose, "verbose", false, "Enable verbose output")
+
+	commandsByName := map[string]*cobra.Command{"": rootCmd}
+	specs := app.catalog.Specs()
+	sort.Slice(specs, func(i, j int) bool {
+		leftDepth := strings.Count(specs[i].Name, ".")
+		rightDepth := strings.Count(specs[j].Name, ".")
+		if leftDepth == rightDepth {
+			return specs[i].Name < specs[j].Name
+		}
+		return leftDepth < rightDepth
+	})
+
+	for _, spec := range specs {
+		command := app.commandFromSpec(spec)
+		parent := commandsByName[parentName(spec.Name)]
+		if parent == nil {
+			panic(fmt.Sprintf("missing parent command for %s", spec.Name))
+		}
+		parent.AddCommand(command)
+		commandsByName[strings.ToLower(spec.Name)] = command
+	}
+	return rootCmd
+}
+
+func parentName(name string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(name))
+	index := strings.LastIndex(trimmed, ".")
+	if index < 0 {
+		return ""
+	}
+	return trimmed[:index]
+}
+
+func (a *App) commandFromSpec(spec cmdmeta.CommandSpec) *cobra.Command {
+	command := &cobra.Command{
+		Use:     spec.Use,
+		Short:   spec.Short,
+		Long:    spec.Long,
+		Aliases: spec.Aliases,
+	}
+	for _, flag := range spec.Flags {
+		switch flag.Type {
+		case "string":
+			command.Flags().String(flag.Name, flag.Default, flag.Usage)
+		case "bool":
+			defaultValue := strings.EqualFold(flag.Default, "true")
+			command.Flags().Bool(flag.Name, defaultValue, flag.Usage)
+		case "int":
+			defaultValue := 0
+			if strings.TrimSpace(flag.Default) != "" {
+				if parsed, err := strconv.Atoi(flag.Default); err == nil {
+					defaultValue = parsed
+				}
+			}
+			command.Flags().Int(flag.Name, defaultValue, flag.Usage)
+		default:
+			command.Flags().String(flag.Name, flag.Default, flag.Usage)
+		}
+		if flag.Required {
+			_ = command.MarkFlagRequired(flag.Name)
+		}
+	}
+	if handler := a.handlerFor(spec); handler != nil {
+		command.RunE = handler
+	}
+	return command
+}
+
+func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string) error {
+	switch spec.Handler {
+	case "status":
+		return a.runStatus
+	case "docs":
+		return a.runDocs
+	case "schema":
+		return a.runSchema
+	case "doctor":
+		return a.runDoctor
+	case "version":
+		return a.runVersion
+	case "config.show":
+		return a.runConfigShow
+	case "completion.bash":
+		return func(cmd *cobra.Command, args []string) error { return cmd.Root().GenBashCompletion(cmd.OutOrStdout()) }
+	case "completion.zsh":
+		return func(cmd *cobra.Command, args []string) error { return cmd.Root().GenZshCompletion(cmd.OutOrStdout()) }
+	case "completion.fish":
+		return func(cmd *cobra.Command, args []string) error {
+			return cmd.Root().GenFishCompletion(cmd.OutOrStdout(), true)
+		}
+	case "completion.powershell":
+		return func(cmd *cobra.Command, args []string) error {
+			return cmd.Root().GenPowerShellCompletionWithDesc(cmd.OutOrStdout())
+		}
+	case "stub":
+		return a.runStub
+	default:
+		return nil
+	}
+}
+
+func (a *App) runStatus(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	legacyDetected := false
+	for _, check := range doccheck.Run(resolved).Checks {
+		if check.Name == "legacy_paths" && check.Status == "warn" {
+			legacyDetected = true
+		}
+	}
+
+	warnings := make([]string, 0)
+	for _, hit := range resolved.EnvHits {
+		if hit.Tier == "draft_alias_env" || hit.Tier == "legacy_env" {
+			warnings = append(warnings, fmt.Sprintf("Compatibility environment variable in use: %s", hit.Key))
+		}
+	}
+	if legacyDetected {
+		warnings = append(warnings, "Legacy awiki-agent-id-message paths detected; use doctor or migrate from-v1 before cutover.")
+	}
+
+	data := map[string]any{
+		"cli": map[string]any{
+			"phase":   "phase1-shell",
+			"version": buildinfo.Current(),
+		},
+		"paths": resolved.Paths,
+		"state": map[string]any{
+			"config_exists":         resolved.ConfigExists,
+			"identity_index_exists": fileExists(filepathJoin(resolved.Paths.IdentityDir, "index.json")),
+			"database_exists":       fileExists(resolved.Paths.DatabaseFile),
+			"legacy_v1_detected":    legacyDetected,
+		},
+		"active_identity": map[string]any{
+			"name":   resolved.ActiveIdentity,
+			"source": resolved.Sources["active_identity"],
+		},
+	}
+	summary := "Phase 1 CLI shell is ready"
+	if resolved.ActiveIdentity == "" {
+		summary = "Phase 1 CLI shell is ready; no active identity is configured yet"
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runDocs(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	if len(args) == 0 {
+		data := map[string]any{"topics": a.docs.All()}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Available documentation topics", nil, identityMetaFromResolved(resolved))
+	}
+	if len(args) > 1 {
+		return output.NewExitError("invalid_argument", 2, "docs accepts at most one topic.", "Run `awiki-cli docs` without arguments to list topics.")
+	}
+	topic, ok := a.docs.Lookup(args[0])
+	if !ok {
+		return output.NewExitError("not_found", 5, fmt.Sprintf("Unknown docs topic %q", args[0]), "Run `awiki-cli docs` to list available topics.")
+	}
+	data := map[string]any{"topic": topic}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, fmt.Sprintf("Documentation topic %s", topic.Name), nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runSchema(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	if len(args) == 0 {
+		data := map[string]any{
+			"commands": a.catalog.Specs(),
+			"phase":    "phase1-shell",
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Static command contract", nil, identityMetaFromResolved(resolved))
+	}
+	lookupTarget := strings.Join(args, " ")
+	spec, ok := a.catalog.Lookup(lookupTarget)
+	if !ok {
+		return output.NewExitError("not_found", 5, fmt.Sprintf("Unknown command schema target %q", lookupTarget), "Use `awiki-cli schema` to list command contracts.")
+	}
+	data := map[string]any{
+		"command":  spec,
+		"children": a.catalog.ChildrenOf(spec.Name),
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, fmt.Sprintf("Static contract for %s", spec.Name), nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runDoctor(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	report := doccheck.Run(resolved)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, report, report.Summary, nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runVersion(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, buildinfo.Current(), "Build information", nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, appconfig.Snapshot(resolved), "Resolved configuration", nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runStub(cmd *cobra.Command, args []string) error {
+	spec, ok := a.catalog.Lookup(strings.TrimPrefix(cmd.CommandPath(), "awiki-cli "))
+	if !ok {
+		return output.NewExitError("internal_error", 1, "Command metadata is missing.", "Run `awiki-cli schema` to inspect the current catalog.")
+	}
+	hint := fmt.Sprintf("%s is planned for %s. Use `awiki-cli schema %s` to inspect the frozen contract.", cmd.CommandPath(), strings.ToUpper(spec.Phase), spec.Name)
+	return output.NewExitError("internal_error", 1, fmt.Sprintf("%s is not implemented yet.", cmd.CommandPath()), hint)
+}
+
+func identityMetaFromResolved(resolved *appconfig.Resolved) *output.IdentityMeta {
+	if resolved == nil || strings.TrimSpace(resolved.ActiveIdentity) == "" {
+		return nil
+	}
+	return &output.IdentityMeta{Name: resolved.ActiveIdentity}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func filepathJoin(parts ...string) string {
+	return filepath.Join(parts...)
+}
+
+func normalizedFormat(raw string) output.Format {
+	format, err := output.NormalizeFormat(raw)
+	if err != nil {
+		return output.FormatJSON
+	}
+	return format
+}
