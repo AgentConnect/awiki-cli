@@ -98,9 +98,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 
 	legacyWorkspace := os.Getenv("AWIKI_WORKSPACE")
 	legacyDataDir := filepath.Join(home, ".openclaw", "workspace", "data", legacySkillName)
-	if strings.TrimSpace(os.Getenv("AWIKI_DATA_DIR")) != "" {
-		legacyDataDir = os.Getenv("AWIKI_DATA_DIR")
-	} else if strings.TrimSpace(legacyWorkspace) != "" {
+	if strings.TrimSpace(legacyWorkspace) != "" {
 		legacyDataDir = filepath.Join(legacyWorkspace, "data", legacySkillName)
 	}
 

@@ -13,6 +13,7 @@ import (
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	doccheck "github.com/agentconnect/awiki-cli/internal/doctor"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -152,6 +153,10 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDProfileSet
 	case "id.import-v1":
 		return a.runIDImportV1
+	case "debug.db.query":
+		return a.runDebugDBQuery
+	case "debug.db.import-v1":
+		return a.runDebugDBImportV1
 	case "completion.bash":
 		return func(cmd *cobra.Command, args []string) error { return cmd.Root().GenBashCompletion(cmd.OutOrStdout()) }
 	case "completion.zsh":
@@ -272,12 +277,30 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 	current, _ := service.Manager().Current()
 	legacy, _ := service.Manager().ScanLegacy()
 	data := appconfig.Snapshot(resolved)
+	database := map[string]any{
+		"database_file": resolved.Paths.DatabaseFile,
+		"exists":        fileExists(resolved.Paths.DatabaseFile),
+	}
+	if database["exists"] == true {
+		if db, err := store.OpenReadOnly(resolved.Paths.DatabaseFile); err == nil {
+			defer db.Close()
+			if version, err := store.CurrentSchemaVersion(db); err == nil {
+				database["schema_version"] = version
+				database["target_schema_version"] = store.SchemaVersion
+			} else {
+				database["schema_error"] = err.Error()
+			}
+		} else {
+			database["open_error"] = err.Error()
+		}
+	}
 	data["identity_store"] = map[string]any{
 		"identity_dir":     resolved.Paths.IdentityDir,
 		"index_file":       filepathJoin(resolved.Paths.IdentityDir, "index.json"),
 		"default_identity": current,
 		"legacy_scan":      legacy,
 	}
+	data["database"] = database
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Resolved configuration", nil, identityMetaFromResolved(resolved))
 }
 

@@ -120,6 +120,10 @@ func (m *Manager) save(input SaveInput) (*StoredIdentity, error) {
 	return m.Load(identityName)
 }
 
+func (m *Manager) Save(input SaveInput) (*StoredIdentity, error) {
+	return m.save(input)
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil

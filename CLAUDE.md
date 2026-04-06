@@ -21,6 +21,7 @@
 - 当前阶段：
   - Phase 1：CLI 产品壳已实现
   - Phase 2：配置 / identity / credential layout 已实现首版
+  - Phase 3：SQLite 本地状态与迁移已实现首版
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
 - 主要服务端依赖：
   - `../user-service/`
@@ -38,17 +39,18 @@
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，要求 pure Go。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
 **internal/config/config.go**: XDG 路径解析、AWIKI/AVIKI/E2E 环境变量兼容读取、config.yaml 解析。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
-**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径。  
+**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1。  
+**internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。  
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。  
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
@@ -58,6 +60,15 @@
 **internal/identity/service.go**: Phase 2 高层 identity 业务流，封装本地 store + 远端 API。  
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
 **internal/identity/store_test.go**: identity store 与 legacy import 测试。  
+**internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  
+**internal/store/open.go**: pure Go SQLite 打开、WAL / foreign_keys / busy_timeout 配置。  
+**internal/store/helpers.go**: thread id、row map、schema version、表/视图存在性等辅助函数。  
+**internal/store/schema.go**: v11 schema、indexes、views 与 `EnsureSchema()`。  
+**internal/store/dao.go**: messages / contacts / groups / outbox / relationship / rebind / execute_sql 的 DAO。  
+**internal/store/import.go**: legacy SQLite 扫描与从 v1 DB 导入 v2 DB。  
+**internal/store/schema_test.go**: schema 初始化和 version 测试。  
+**internal/store/dao_test.go**: DAO、thread view、owner rebinding、E2EE 清理测试。  
+**internal/store/import_test.go**: legacy SQLite 导入测试。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
@@ -86,12 +97,21 @@
   - v1 legacy credential scan / import：`id import-v1`
   - handle registration / bind / resolve / recover / profile 的首版实现
   - current/default identity 自动回填到配置解析结果
+- Phase 3：
+  - pure Go SQLite 打开与 `EnsureSchema()`
+  - v11 tables / indexes / views
+  - 本地 DAO：messages、contacts、relationship_events、groups、group_members、e2ee_outbox、e2ee_sessions
+  - owner_did rebind 与 E2EE 清理 helper
+  - legacy SQLite scan / import
+  - `debug db query`
+  - `debug db import-v1`
+  - `doctor` / `config show` 的数据库诊断增强
 
 ### 尚未实现
 
-- `msg`、`group`、`runtime`、`people`、`page`、`debug` 的真实业务路径大多仍为 stub
-- SQLite schema、message/group 持久化、secure E2EE、listener、发布链路属于后续阶段
-- identity 相关远端 API 目前以 user-service 文档为准，但尚未做大规模集成回归
+- `msg`、`group`、`runtime`、`people`、`page` 的真实业务路径大多仍为 stub
+- secure E2EE 业务流、listener、发布链路属于后续阶段
+- SQLite store 已实现，但尚未正式接入 `msg/group/runtime` 主业务流
 
 ## 开发与验证约定
 
@@ -101,7 +121,7 @@
   - `gofmt -w $(find cmd internal -name '*.go')`
   - `CGO_ENABLED=0 go build ./...`
   - `CGO_ENABLED=0 go test ./...`
-- Phase 2 的本地 smoke test 可通过临时 `AWIKI_*` XDG 环境变量完成，避免污染真实目录。
+- Phase 2 / Phase 3 的本地 smoke test 可通过临时 `AWIKI_*` XDG 环境变量完成，避免污染真实目录。
 - 代码注释和日志保持英文；命令行对用户的交互输出遵循统一 JSON envelope。
 
 ⚡触发器: 一旦本文件夹增删文件、调整架构、修改服务依赖、补充新的 Go 模块目录，或切换 Phase 实现边界，请立即重写此文档。

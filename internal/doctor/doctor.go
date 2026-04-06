@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/store"
 )
 
 type Check struct {
@@ -183,14 +185,41 @@ func sqliteCheck(resolved *config.Resolved) Check {
 		status = "ok"
 		summary = "SQLite database file already exists"
 	}
+	schemaVersion := 0
+	schemaError := ""
+	if databaseExists {
+		db, err := store.OpenReadOnly(resolved.Paths.DatabaseFile)
+		if err != nil {
+			status = "error"
+			summary = "SQLite database file exists but cannot be opened"
+			schemaError = err.Error()
+		} else {
+			defer db.Close()
+			version, err := store.CurrentSchemaVersion(db)
+			if err != nil {
+				status = "error"
+				summary = "SQLite database is readable but schema version could not be inspected"
+				schemaError = err.Error()
+			} else {
+				schemaVersion = version
+				if version != store.SchemaVersion {
+					status = "warn"
+					summary = "SQLite database exists but schema version is not current"
+				}
+			}
+		}
+	}
 	return Check{
 		Name:    "sqlite",
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"database_file": resolved.Paths.DatabaseFile,
-			"exists":        databaseExists,
-			"parent_dir":    filepath.Dir(resolved.Paths.DatabaseFile),
+			"database_file":         resolved.Paths.DatabaseFile,
+			"exists":                databaseExists,
+			"parent_dir":            filepath.Dir(resolved.Paths.DatabaseFile),
+			"schema_version":        schemaVersion,
+			"target_schema_version": store.SchemaVersion,
+			"schema_error":          schemaError,
 		},
 	}
 }
@@ -200,6 +229,7 @@ func legacyCheck(resolved *config.Resolved) Check {
 	scan, scanErr := manager.ScanLegacy()
 	credentialsExists := pathExists(resolved.Paths.LegacyCredentialsDir)
 	dataExists := pathExists(resolved.Paths.LegacyDataDir)
+	legacyDB, dbErr := store.ScanLegacyDatabase(context.Background(), resolved.Paths)
 	status := "info"
 	summary := "No legacy v1 paths detected"
 	if scanErr != nil {
@@ -208,7 +238,7 @@ func legacyCheck(resolved *config.Resolved) Check {
 	} else if scan != nil && scan.HasLegacy {
 		status = "warn"
 		summary = "Legacy awiki-agent-id-message credential layout detected"
-	} else if credentialsExists || dataExists {
+	} else if (legacyDB != nil && legacyDB.Exists) || credentialsExists || dataExists {
 		status = "warn"
 		summary = "Legacy awiki-agent-id-message paths detected"
 	}
@@ -223,6 +253,8 @@ func legacyCheck(resolved *config.Resolved) Check {
 			"data_exists":            dataExists,
 			"legacy_scan":            scan,
 			"scan_error":             errorText(scanErr),
+			"legacy_database":        legacyDB,
+			"legacy_database_error":  errorText(dbErr),
 		},
 	}
 }
