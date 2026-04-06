@@ -48,6 +48,15 @@ func NewIndex() *Index {
 			},
 		},
 		{
+			Name:    "review",
+			Summary: "Secondary review checklist and dependency map for PR review",
+			References: []string{
+				"docs/harness/review-spec.md",
+				"docs/plan/phase-0/implementation-constraints.md",
+				"docs/plan/phase-0/audit-findings.md",
+			},
+		},
+		{
 			Name:    "storage",
 			Summary: "Identity layout and SQLite baseline references",
 			References: []string{

@@ -27,6 +27,7 @@
   - 总体架构：`docs/architecture/awiki-v2-architecture.md`
   - 命令模型：`docs/architecture/awiki-command-v2.md`
   - 输出契约：`docs/architecture/output-format.md`
+  - Review 规范：`docs/harness/review-spec.md`
   - 总实施计划：`docs/plan/awiki-v2-implementation-plan.md`
   - Phase 0 冻结结果：`docs/plan/phase-0/`
 - 重写参考：
@@ -43,12 +44,13 @@
 **internal/config/config.go**: XDG 路径解析、AWIKI/AVIKI/E2E 环境变量兼容读取、config.yaml 解析。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: Phase 1 基础诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径。  
-**internal/docs/topics.go**: CLI 内建 docs 主题索引。  
+**internal/docs/topics.go**: CLI 内建 docs 主题索引，包含 architecture/output/storage/runtime/review 等主题引用。  
 **internal/cli/app.go**: CLI 应用装配与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、全局 flags、status/docs/schema/doctor/version/config show 的 Phase 1 实现。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
+**docs/harness/review-spec.md**: 面向人类 reviewer、AI reviewer 与自动化 harness 的二级 review 规范文档，汇总依赖路径、核心约束与审查检查项。  
 **docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。  
 **docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。  
 **docs/plan/phase-0/capability-mapping.md**: v2 命令、v1 脚本、服务 API 的能力映射。  
