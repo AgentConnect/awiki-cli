@@ -22,6 +22,7 @@
   - Phase 1：CLI 产品壳已实现
   - Phase 2：配置 / identity / credential layout 已实现首版
   - Phase 3：SQLite 本地状态与迁移已实现首版
+  - Phase 4：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
 - 主要服务端依赖：
   - `../user-service/`
@@ -53,6 +54,7 @@
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1。  
 **internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
+**internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，当前优先支持 direct plain messaging。  
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。  
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。  
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
@@ -71,6 +73,15 @@
 **internal/store/schema_test.go**: schema 初始化和 version 测试。  
 **internal/store/dao_test.go**: DAO、thread view、owner rebinding、E2EE 清理测试。  
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
+**internal/message/types.go**: direct message 命令输入/输出模型与 transport 错误定义。  
+**internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
+**internal/message/proof.go**: direct.send 的 sender_proof 构造与业务签名基线。  
+**internal/message/http_client.go**: direct message 的 HTTP JSON-RPC adapter。  
+**internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 adapter。  
+**internal/message/service.go**: direct plain messaging 的业务编排层，融合 transport、identity、store。  
+**internal/message/helpers.go**: message 域常用值转换和解码辅助。  
+**internal/message/proof_test.go**: sender_proof round-trip 测试。  
+**internal/runtime/config.go**: runtime mode（http/websocket）与本地 websocket bridge 配置解析。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
@@ -108,12 +119,20 @@
   - `debug db query`
   - `debug db import-v1`
   - `doctor` / `config show` 的数据库诊断增强
+- Phase 4（当前首版已落地 direct plain）：
+  - `msg send --to`
+  - `msg inbox`
+  - `msg history --with`
+  - `msg mark-read`
+  - HTTP JSON-RPC adapter
+  - websocket runtime bridge / local daemon client skeleton
+  - sender_proof 生成与本地消息落库
 
 ### 尚未实现
 
-- `msg`、`group`、`runtime`、`people`、`page` 的真实业务路径大多仍为 stub
-- secure E2EE 业务流、listener、发布链路属于后续阶段
-- SQLite store 已实现，但尚未正式接入 `msg/group/runtime` 主业务流
+- `msg` 域中 direct plain 已实现，但 group messaging、secure E2EE、listener 服务端实现仍未完成
+- `group`、`runtime`、`people`、`page` 的真实业务路径大多仍为 stub
+- secure E2EE 业务流、listener 后台服务、发布链路属于后续阶段
 
 ## 开发与验证约定
 

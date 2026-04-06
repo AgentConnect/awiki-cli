@@ -147,6 +147,10 @@ func (c *RemoteClient) rpcCall(ctx context.Context, endpoint string, method stri
 	return json.Unmarshal(decoded.Result, out)
 }
 
+func (c *RemoteClient) RPCCall(ctx context.Context, endpoint string, method string, params any, bearer string, out any) error {
+	return c.rpcCall(ctx, endpoint, method, params, bearer, out)
+}
+
 func (c *RemoteClient) restPost(ctx context.Context, endpoint string, requestPayload any, bearer string, out any) error {
 	body, err := json.Marshal(requestPayload)
 	if err != nil {
@@ -181,6 +185,10 @@ func (c *RemoteClient) restPost(ctx context.Context, endpoint string, requestPay
 	return json.Unmarshal(raw, out)
 }
 
+func (c *RemoteClient) RestPost(ctx context.Context, endpoint string, requestPayload any, bearer string, out any) error {
+	return c.restPost(ctx, endpoint, requestPayload, bearer, out)
+}
+
 func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.Values, out any) error {
 	target := c.baseURL + endpoint
 	if len(query) > 0 {
@@ -206,4 +214,8 @@ func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.V
 		}
 	}
 	return json.Unmarshal(raw, out)
+}
+
+func (c *RemoteClient) RestGet(ctx context.Context, endpoint string, query url.Values, out any) error {
+	return c.restGet(ctx, endpoint, query, out)
 }

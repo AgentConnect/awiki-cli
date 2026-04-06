@@ -40,6 +40,10 @@ type FileConfig struct {
 	Identity struct {
 		Active string `yaml:"active"`
 	} `yaml:"identity"`
+	Runtime struct {
+		Mode       string `yaml:"mode"`
+		SocketPath string `yaml:"socket_path"`
+	} `yaml:"runtime"`
 	Output struct {
 		Format  string `yaml:"format"`
 		NoColor bool   `yaml:"no_color"`
@@ -68,6 +72,8 @@ type ValueSource struct {
 type Resolved struct {
 	Paths             Paths                  `json:"paths"`
 	ActiveIdentity    string                 `json:"active_identity,omitempty"`
+	RuntimeMode       string                 `json:"runtime_mode"`
+	RuntimeSocketPath string                 `json:"runtime_socket_path,omitempty"`
 	OutputFormat      string                 `json:"output_format"`
 	NoColor           bool                   `json:"no_color"`
 	UserServiceURL    string                 `json:"user_service_url"`
@@ -116,6 +122,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 
 	resolved := &Resolved{
 		Paths:             paths,
+		RuntimeMode:       "http",
 		OutputFormat:      "json",
 		UserServiceURL:    defaultService,
 		MessageServiceURL: defaultService,
@@ -137,6 +144,10 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 
 	resolved.ActiveIdentity, resolved.Sources["active_identity"] = chooseValue(overrides.Identity, overrides.IdentityChanged, fileConfig.Identity.Active,
 		envOptionSet("active_identity", "AWIKI_IDENTITY", "AVIKI_IDENTITY"), "")
+	resolved.RuntimeMode, resolved.Sources["runtime_mode"] = chooseValue("", false, fileConfig.Runtime.Mode,
+		envOptionSet("runtime_mode", "AWIKI_RUNTIME_MODE", "AVIKI_RUNTIME_MODE"), "http")
+	resolved.RuntimeSocketPath, resolved.Sources["runtime_socket_path"] = chooseValue("", false, fileConfig.Runtime.SocketPath,
+		envOptionSet("runtime_socket_path", "AWIKI_RUNTIME_SOCKET", "AVIKI_RUNTIME_SOCKET"), filepath.Join(paths.StateDir, "runtime", "message-daemon.sock"))
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(overrides.Format, overrides.FormatChanged, fileConfig.Output.Format,
 		envOptionSet("output_format", "AWIKI_FORMAT", "AVIKI_FORMAT"), "json")
 	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(fileConfig.Output.NoColor,
@@ -163,6 +174,8 @@ func Snapshot(resolved *Resolved) map[string]any {
 	return map[string]any{
 		"paths":               resolved.Paths,
 		"active_identity":     resolved.ActiveIdentity,
+		"runtime_mode":        resolved.RuntimeMode,
+		"runtime_socket_path": resolved.RuntimeSocketPath,
 		"output_format":       resolved.OutputFormat,
 		"no_color":            resolved.NoColor,
 		"user_service_url":    resolved.UserServiceURL,
@@ -254,6 +267,8 @@ func collectEnvHits() []EnvHit {
 		{Key: "AWIKI_STATE_DIR", Tier: "canonical_env", Target: "state_dir"},
 		{Key: "AWIKI_CACHE_DIR", Tier: "canonical_env", Target: "cache_dir"},
 		{Key: "AWIKI_IDENTITY", Tier: "canonical_env", Target: "active_identity"},
+		{Key: "AWIKI_RUNTIME_MODE", Tier: "canonical_env", Target: "runtime_mode"},
+		{Key: "AWIKI_RUNTIME_SOCKET", Tier: "canonical_env", Target: "runtime_socket_path"},
 		{Key: "AWIKI_FORMAT", Tier: "canonical_env", Target: "output_format"},
 		{Key: "AWIKI_NO_COLOR", Tier: "canonical_env", Target: "no_color"},
 		{Key: "AWIKI_USER_SERVICE_URL", Tier: "canonical_env", Target: "user_service_url"},
@@ -266,6 +281,8 @@ func collectEnvHits() []EnvHit {
 		{Key: "AVIKI_STATE_DIR", Tier: "draft_alias_env", Target: "state_dir"},
 		{Key: "AVIKI_CACHE_DIR", Tier: "draft_alias_env", Target: "cache_dir"},
 		{Key: "AVIKI_IDENTITY", Tier: "draft_alias_env", Target: "active_identity"},
+		{Key: "AVIKI_RUNTIME_MODE", Tier: "draft_alias_env", Target: "runtime_mode"},
+		{Key: "AVIKI_RUNTIME_SOCKET", Tier: "draft_alias_env", Target: "runtime_socket_path"},
 		{Key: "AVIKI_FORMAT", Tier: "draft_alias_env", Target: "output_format"},
 		{Key: "AVIKI_NO_COLOR", Tier: "draft_alias_env", Target: "no_color"},
 		{Key: "AVIKI_USER_SERVICE_URL", Tier: "draft_alias_env", Target: "user_service_url"},

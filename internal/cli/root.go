@@ -153,6 +153,14 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDProfileSet
 	case "id.import-v1":
 		return a.runIDImportV1
+	case "msg.send":
+		return a.runMsgSend
+	case "msg.inbox":
+		return a.runMsgInbox
+	case "msg.history":
+		return a.runMsgHistory
+	case "msg.mark-read":
+		return a.runMsgMarkRead
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.import-v1":

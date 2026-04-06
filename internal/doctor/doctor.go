@@ -38,6 +38,7 @@ func Run(resolved *config.Resolved) Report {
 		buildCheck(resolved),
 		configFileCheck(resolved),
 		envCheck(resolved),
+		runtimeCheck(resolved),
 		identityStoreCheck(resolved),
 		sqliteCheck(resolved),
 		legacyCheck(resolved),
@@ -136,6 +137,25 @@ func envCheck(resolved *config.Resolved) Check {
 		Summary: summary,
 		Details: map[string]any{
 			"hits": resolved.EnvHits,
+		},
+	}
+}
+
+func runtimeCheck(resolved *config.Resolved) Check {
+	status := "ok"
+	summary := "Runtime mode resolved"
+	if strings.TrimSpace(resolved.RuntimeMode) == "websocket" {
+		summary = "Runtime mode is websocket"
+	} else {
+		summary = "Runtime mode is http"
+	}
+	return Check{
+		Name:    "runtime",
+		Status:  status,
+		Summary: summary,
+		Details: map[string]any{
+			"mode":        resolved.RuntimeMode,
+			"socket_path": resolved.RuntimeSocketPath,
 		},
 	}
 }
