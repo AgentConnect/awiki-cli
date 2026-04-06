@@ -49,10 +49,11 @@ type FileConfig struct {
 		NoColor bool   `yaml:"no_color"`
 	} `yaml:"output"`
 	Services struct {
-		UserServiceURL    string `yaml:"user_service_url"`
-		MessageServiceURL string `yaml:"message_service_url"`
-		DIDDomain         string `yaml:"did_domain"`
-		CABundle          string `yaml:"ca_bundle"`
+		UserServiceURL      string `yaml:"user_service_url"`
+		MessageServiceURL   string `yaml:"message_service_url"`
+		MessageServiceWSURL string `yaml:"message_service_ws_url"`
+		DIDDomain           string `yaml:"did_domain"`
+		CABundle            string `yaml:"ca_bundle"`
 	} `yaml:"services"`
 }
 
@@ -70,20 +71,21 @@ type ValueSource struct {
 }
 
 type Resolved struct {
-	Paths             Paths                  `json:"paths"`
-	ActiveIdentity    string                 `json:"active_identity,omitempty"`
-	RuntimeMode       string                 `json:"runtime_mode"`
-	RuntimeSocketPath string                 `json:"runtime_socket_path,omitempty"`
-	OutputFormat      string                 `json:"output_format"`
-	NoColor           bool                   `json:"no_color"`
-	UserServiceURL    string                 `json:"user_service_url"`
-	MessageServiceURL string                 `json:"message_service_url"`
-	DIDDomain         string                 `json:"did_domain"`
-	CABundle          string                 `json:"ca_bundle,omitempty"`
-	ConfigExists      bool                   `json:"config_exists"`
-	ConfigError       string                 `json:"config_error,omitempty"`
-	EnvHits           []EnvHit               `json:"env_hits,omitempty"`
-	Sources           map[string]ValueSource `json:"sources"`
+	Paths               Paths                  `json:"paths"`
+	ActiveIdentity      string                 `json:"active_identity,omitempty"`
+	RuntimeMode         string                 `json:"runtime_mode"`
+	RuntimeSocketPath   string                 `json:"runtime_socket_path,omitempty"`
+	OutputFormat        string                 `json:"output_format"`
+	NoColor             bool                   `json:"no_color"`
+	UserServiceURL      string                 `json:"user_service_url"`
+	MessageServiceURL   string                 `json:"message_service_url"`
+	MessageServiceWSURL string                 `json:"message_service_ws_url,omitempty"`
+	DIDDomain           string                 `json:"did_domain"`
+	CABundle            string                 `json:"ca_bundle,omitempty"`
+	ConfigExists        bool                   `json:"config_exists"`
+	ConfigError         string                 `json:"config_error,omitempty"`
+	EnvHits             []EnvHit               `json:"env_hits,omitempty"`
+	Sources             map[string]ValueSource `json:"sources"`
 }
 
 type option struct {
@@ -121,12 +123,13 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 	}
 
 	resolved := &Resolved{
-		Paths:             paths,
-		RuntimeMode:       "http",
-		OutputFormat:      "json",
-		UserServiceURL:    defaultService,
-		MessageServiceURL: defaultService,
-		DIDDomain:         defaultDIDDomain,
+		Paths:               paths,
+		RuntimeMode:         "http",
+		OutputFormat:        "json",
+		UserServiceURL:      defaultService,
+		MessageServiceURL:   defaultService,
+		MessageServiceWSURL: "",
+		DIDDomain:           defaultDIDDomain,
 		Sources: map[string]ValueSource{
 			"config_dir": configDirSource,
 			"data_dir":   dataDirSource,
@@ -156,6 +159,8 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		append(envOptionSet("user_service_url", "AWIKI_USER_SERVICE_URL", "AVIKI_USER_SERVICE_URL"), option{key: "E2E_USER_SERVICE_URL", target: "user_service_url", tier: "legacy_env"}), defaultService)
 	resolved.MessageServiceURL, resolved.Sources["message_service_url"] = chooseValue("", false, fileConfig.Services.MessageServiceURL,
 		append(envOptionSet("message_service_url", "AWIKI_MESSAGE_SERVICE_URL", "AVIKI_MESSAGE_SERVICE_URL"), option{key: "E2E_MOLT_MESSAGE_URL", target: "message_service_url", tier: "legacy_env"}), defaultService)
+	resolved.MessageServiceWSURL, resolved.Sources["message_service_ws_url"] = chooseValue("", false, fileConfig.Services.MessageServiceWSURL,
+		append(envOptionSet("message_service_ws_url", "AWIKI_MESSAGE_WS_URL", "AVIKI_MESSAGE_WS_URL"), option{key: "E2E_MOLT_MESSAGE_WS_URL", target: "message_service_ws_url", tier: "legacy_env"}), "")
 	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue("", false, fileConfig.Services.DIDDomain,
 		append(envOptionSet("did_domain", "AWIKI_DID_DOMAIN", "AVIKI_DID_DOMAIN"), option{key: "E2E_DID_DOMAIN", target: "did_domain", tier: "legacy_env"}), defaultDIDDomain)
 	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue("", false, fileConfig.Services.CABundle,
@@ -172,20 +177,21 @@ func Snapshot(resolved *Resolved) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"paths":               resolved.Paths,
-		"active_identity":     resolved.ActiveIdentity,
-		"runtime_mode":        resolved.RuntimeMode,
-		"runtime_socket_path": resolved.RuntimeSocketPath,
-		"output_format":       resolved.OutputFormat,
-		"no_color":            resolved.NoColor,
-		"user_service_url":    resolved.UserServiceURL,
-		"message_service_url": resolved.MessageServiceURL,
-		"did_domain":          resolved.DIDDomain,
-		"ca_bundle":           resolved.CABundle,
-		"config_exists":       resolved.ConfigExists,
-		"config_error":        resolved.ConfigError,
-		"env_hits":            resolved.EnvHits,
-		"sources":             resolved.Sources,
+		"paths":                  resolved.Paths,
+		"active_identity":        resolved.ActiveIdentity,
+		"runtime_mode":           resolved.RuntimeMode,
+		"runtime_socket_path":    resolved.RuntimeSocketPath,
+		"output_format":          resolved.OutputFormat,
+		"no_color":               resolved.NoColor,
+		"user_service_url":       resolved.UserServiceURL,
+		"message_service_url":    resolved.MessageServiceURL,
+		"message_service_ws_url": resolved.MessageServiceWSURL,
+		"did_domain":             resolved.DIDDomain,
+		"ca_bundle":              resolved.CABundle,
+		"config_exists":          resolved.ConfigExists,
+		"config_error":           resolved.ConfigError,
+		"env_hits":               resolved.EnvHits,
+		"sources":                resolved.Sources,
 	}
 }
 
@@ -273,6 +279,7 @@ func collectEnvHits() []EnvHit {
 		{Key: "AWIKI_NO_COLOR", Tier: "canonical_env", Target: "no_color"},
 		{Key: "AWIKI_USER_SERVICE_URL", Tier: "canonical_env", Target: "user_service_url"},
 		{Key: "AWIKI_MESSAGE_SERVICE_URL", Tier: "canonical_env", Target: "message_service_url"},
+		{Key: "AWIKI_MESSAGE_WS_URL", Tier: "canonical_env", Target: "message_service_ws_url"},
 		{Key: "AWIKI_DID_DOMAIN", Tier: "canonical_env", Target: "did_domain"},
 		{Key: "AWIKI_CA_BUNDLE", Tier: "canonical_env", Target: "ca_bundle"},
 		{Key: "AWIKI_WORKSPACE", Tier: "canonical_env", Target: "legacy_workspace"},
@@ -287,10 +294,12 @@ func collectEnvHits() []EnvHit {
 		{Key: "AVIKI_NO_COLOR", Tier: "draft_alias_env", Target: "no_color"},
 		{Key: "AVIKI_USER_SERVICE_URL", Tier: "draft_alias_env", Target: "user_service_url"},
 		{Key: "AVIKI_MESSAGE_SERVICE_URL", Tier: "draft_alias_env", Target: "message_service_url"},
+		{Key: "AVIKI_MESSAGE_WS_URL", Tier: "draft_alias_env", Target: "message_service_ws_url"},
 		{Key: "AVIKI_DID_DOMAIN", Tier: "draft_alias_env", Target: "did_domain"},
 		{Key: "AVIKI_CA_BUNDLE", Tier: "draft_alias_env", Target: "ca_bundle"},
 		{Key: "E2E_USER_SERVICE_URL", Tier: "legacy_env", Target: "user_service_url"},
 		{Key: "E2E_MOLT_MESSAGE_URL", Tier: "legacy_env", Target: "message_service_url"},
+		{Key: "E2E_MOLT_MESSAGE_WS_URL", Tier: "legacy_env", Target: "message_service_ws_url"},
 		{Key: "E2E_DID_DOMAIN", Tier: "legacy_env", Target: "did_domain"},
 		{Key: "E2E_CA_BUNDLE", Tier: "legacy_env", Target: "ca_bundle"},
 	}

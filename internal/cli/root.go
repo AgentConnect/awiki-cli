@@ -68,6 +68,14 @@ func newRootCommand(app *App) *cobra.Command {
 		parent.AddCommand(command)
 		commandsByName[strings.ToLower(spec.Name)] = command
 	}
+	if runtimeListener := commandsByName["runtime.listener"]; runtimeListener != nil {
+		runtimeListener.AddCommand(&cobra.Command{
+			Use:    "run",
+			Short:  "Run the websocket listener in the foreground",
+			Hidden: true,
+			RunE:   app.runRuntimeListenerRun,
+		})
+	}
 	return rootCmd
 }
 
@@ -161,6 +169,26 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgHistory
 	case "msg.mark-read":
 		return a.runMsgMarkRead
+	case "runtime.status":
+		return a.runRuntimeStatus
+	case "runtime.setup":
+		return a.runRuntimeSetup
+	case "runtime.mode.get":
+		return a.runRuntimeModeGet
+	case "runtime.mode.set":
+		return a.runRuntimeModeSet
+	case "runtime.listener.status":
+		return a.runRuntimeListenerStatus
+	case "runtime.listener.install":
+		return a.runRuntimeListenerInstall
+	case "runtime.listener.start":
+		return a.runRuntimeListenerStart
+	case "runtime.listener.stop":
+		return a.runRuntimeListenerStop
+	case "runtime.listener.restart":
+		return a.runRuntimeListenerRestart
+	case "runtime.listener.uninstall":
+		return a.runRuntimeListenerUninstall
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.import-v1":

@@ -23,6 +23,7 @@
   - Phase 2：配置 / identity / credential layout 已实现首版
   - Phase 3：SQLite 本地状态与迁移已实现首版
   - Phase 4：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
+  - Phase 4.1：websocket listener / local daemon 服务端已实现首版
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
 - 主要服务端依赖：
   - `../user-service/`
@@ -82,6 +83,11 @@
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。  
 **internal/message/proof_test.go**: sender_proof round-trip 测试。  
 **internal/runtime/config.go**: runtime mode（http/websocket）与本地 websocket bridge 配置解析。  
+**internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
+**internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
+**internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
+**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库。  
+**internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
@@ -127,12 +133,21 @@
   - HTTP JSON-RPC adapter
   - websocket runtime bridge / local daemon client skeleton
   - sender_proof 生成与本地消息落库
+- Phase 4.1（当前首版已落地 websocket 服务端）：
+  - `runtime status`
+  - `runtime setup`
+  - `runtime mode get/set`
+  - `runtime listener status/install/start/stop/restart/uninstall`
+  - 隐藏命令 `runtime listener run`
+  - 后台 listener 进程、pid/status/socket 管理
+  - 本地 daemon / unix socket bridge 服务端
+  - 远端单 websocket 连接与 direct.incoming 下行落库
 
 ### 尚未实现
 
-- `msg` 域中 direct plain 已实现，但 group messaging、secure E2EE、listener 服务端实现仍未完成
-- `group`、`runtime`、`people`、`page` 的真实业务路径大多仍为 stub
-- secure E2EE 业务流、listener 后台服务、发布链路属于后续阶段
+- `msg` 域中 direct plain 已实现，listener 服务端首版也已实现，但 websocket 远端真实联调与 secure E2EE 仍未完成
+- `group`、`people`、`page` 的真实业务路径大多仍为 stub
+- secure E2EE 业务流、group plain、发布链路属于后续阶段
 
 ## 开发与验证约定
 
