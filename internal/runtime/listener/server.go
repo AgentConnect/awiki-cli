@@ -233,31 +233,25 @@ func (s *Supervisor) ensureSession(identityName string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(record.JWTToken) == "" {
-		paths, pathErr := s.manager.PathsForIdentity(identityName)
-		if pathErr != nil {
-			return nil, pathErr
-		}
-		authSession := authsdk.NewSession(
-			paths.DIDDocumentPath,
-			paths.Key1PrivatePath,
-			record.IdentityName,
-			record.DID,
-			record.JWTToken,
-			func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
-		)
-		httpClient, clientErr := identity.NewRemoteClient(s.resolved)
-		if clientErr != nil {
-			return nil, clientErr
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if _, err := authSession.EnsureJWT(ctx, httpClient.Client(), strings.TrimRight(s.resolved.UserServiceURL, "/")+"/user-service/did-auth/rpc"); err != nil {
-			return nil, fmt.Errorf("identity %s is missing a JWT token; websocket mode requires an authenticated identity", identityName)
-		}
-		record.JWTToken = authSession.CurrentJWT()
+	paths, pathErr := s.manager.PathsForIdentity(identityName)
+	if pathErr != nil {
+		return nil, pathErr
 	}
-	client, err := NewWSClient(s.resolved, record.JWTToken)
+	authSession := authsdk.NewSession(
+		paths.DIDDocumentPath,
+		paths.Key1PrivatePath,
+		record.IdentityName,
+		record.DID,
+		record.JWTToken,
+		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+	)
+	if strings.TrimSpace(record.JWTToken) != "" {
+		authSession.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
+		if strings.TrimSpace(s.resolved.MessageServiceURL) != "" {
+			authSession.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
+		}
+	}
+	client, err := NewWSClient(s.resolved, authSession)
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +260,7 @@ func (s *Supervisor) ensureSession(identityName string) (*session, error) {
 	if err := client.Connect(connectCtx); err != nil {
 		return nil, err
 	}
+	record.JWTToken = authSession.CurrentJWT()
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	newSession := &session{
 		record:     record,

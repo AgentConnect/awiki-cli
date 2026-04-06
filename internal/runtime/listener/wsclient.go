@@ -2,7 +2,6 @@ package listener
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,13 +11,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/coder/websocket"
 )
 
 type WSClient struct {
-	url           string
+	requestURL    string
+	websocketURL  string
 	httpClient    *http.Client
+	auth          *authsdk.Session
 	conn          *websocket.Conn
 	nextID        int64
 	pendingMu     sync.Mutex
@@ -28,37 +30,73 @@ type WSClient struct {
 	writeMu       sync.Mutex
 }
 
-func NewWSClient(resolved *appconfig.Resolved, jwtToken string) (*WSClient, error) {
-	if strings.TrimSpace(jwtToken) == "" {
-		return nil, fmt.Errorf("identity JWT token is required for websocket mode")
+func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient, error) {
+	if auth == nil {
+		return nil, fmt.Errorf("auth session is required for websocket mode")
 	}
-	targetURL := strings.TrimSpace(resolved.MessageServiceWSURL)
-	if targetURL == "" {
-		targetURL = strings.TrimRight(resolved.MessageServiceURL, "/")
-		targetURL = strings.Replace(targetURL, "https://", "wss://", 1)
-		targetURL = strings.Replace(targetURL, "http://", "ws://", 1)
+	targetHTTPURL := strings.TrimSpace(resolved.MessageServiceURL)
+	if targetHTTPURL == "" {
+		return nil, fmt.Errorf("message service url is required for websocket mode")
 	}
-	targetURL = strings.TrimRight(targetURL, "/") + "/message/ws?token=" + url.QueryEscape(jwtToken)
-	httpClient := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	targetWSURL := strings.TrimSpace(resolved.MessageServiceWSURL)
+	if targetWSURL == "" {
+		targetWSURL = strings.Replace(targetHTTPURL, "https://", "wss://", 1)
+		targetWSURL = strings.Replace(targetWSURL, "http://", "ws://", 1)
+	}
+	targetHTTPURL = strings.TrimRight(targetHTTPURL, "/") + "/message/ws"
+	targetWSURL = strings.TrimRight(targetWSURL, "/") + "/message/ws"
 	return &WSClient{
-		url:           targetURL,
-		httpClient:    httpClient,
+		requestURL:    targetHTTPURL,
+		websocketURL:  targetWSURL,
+		httpClient:    &http.Client{},
+		auth:          auth,
 		pending:       map[int64]chan map[string]any{},
 		notifications: make(chan map[string]any, 128),
 	}, nil
 }
 
 func (c *WSClient) Connect(ctx context.Context) error {
-	conn, _, err := websocket.Dial(ctx, c.url, &websocket.DialOptions{
-		HTTPClient:      c.httpClient,
-		CompressionMode: websocket.CompressionDisabled,
-	})
+	headers, err := c.auth.Headers(c.requestURL, http.MethodGet, nil, true)
 	if err != nil {
 		return err
+	}
+	conn, response, err := c.dial(ctx, headers)
+	if err != nil {
+		if response != nil && response.StatusCode == http.StatusUnauthorized {
+			var retryHeaders map[string]string
+			if c.auth.ShouldRetryAfter401(response.Header) {
+				retryHeaders, err = c.auth.ChallengeHeaders(c.requestURL, response.Header, http.MethodGet, nil)
+			} else {
+				c.auth.ClearToken(c.requestURL)
+				retryHeaders, err = c.auth.Headers(c.requestURL, http.MethodGet, nil, true)
+			}
+			if err != nil {
+				return err
+			}
+			conn, response, err = c.dial(ctx, retryHeaders)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if response != nil {
+		c.auth.CaptureToken(c.requestURL, response.Header)
 	}
 	c.conn = conn
 	go c.readLoop()
 	return nil
+}
+
+func (c *WSClient) dial(ctx context.Context, headers map[string]string) (*websocket.Conn, *http.Response, error) {
+	httpHeaders := http.Header{}
+	for key, value := range headers {
+		httpHeaders.Set(key, value)
+	}
+	return websocket.Dial(ctx, c.websocketURL, &websocket.DialOptions{
+		HTTPClient:      c.httpClient,
+		HTTPHeader:      httpHeaders,
+		CompressionMode: websocket.CompressionDisabled,
+	})
 }
 
 func (c *WSClient) Close() error {
@@ -181,4 +219,12 @@ func int64FromAny(value any) int64 {
 	default:
 		return 0
 	}
+}
+
+func hostForURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return parsed.Host
 }
