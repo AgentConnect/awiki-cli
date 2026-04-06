@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/cmdmeta"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	docindex "github.com/agentconnect/awiki-cli/internal/docs"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 )
 
@@ -93,12 +95,30 @@ func (a *App) renderSuccess(command string, format output.Format, jqExpr string,
 }
 
 func (a *App) resolveConfig() (*appconfig.Resolved, error) {
-	return appconfig.Resolve(appconfig.Overrides{
+	resolved, err := appconfig.Resolve(appconfig.Overrides{
 		Identity:        a.globals.Identity,
 		IdentityChanged: a.globals.IdentityChanged,
 		Format:          a.globals.Format,
 		FormatChanged:   a.globals.FormatChanged,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(resolved.ActiveIdentity) == "" {
+		manager := identity.NewManager(resolved.Paths)
+		current, currentErr := manager.Current()
+		if currentErr == nil && current != nil {
+			resolved.ActiveIdentity = current.IdentityName
+			if resolved.Sources == nil {
+				resolved.Sources = map[string]appconfig.ValueSource{}
+			}
+			resolved.Sources["active_identity"] = appconfig.ValueSource{
+				Source: "identity_index",
+				Value:  current.IdentityName,
+			}
+		}
+	}
+	return resolved, nil
 }
 
 func (a *App) identityMeta() *output.IdentityMeta {

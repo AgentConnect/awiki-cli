@@ -1,12 +1,14 @@
 package doctor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
 type Check struct {
@@ -137,7 +139,8 @@ func envCheck(resolved *config.Resolved) Check {
 }
 
 func identityStoreCheck(resolved *config.Resolved) Check {
-	indexPath := filepath.Join(resolved.Paths.IdentityDir, "index.json")
+	manager := identity.NewManager(resolved.Paths)
+	indexPath := filepath.Join(resolved.Paths.IdentityDir, identity.IndexFileName)
 	identityDirExists := pathExists(resolved.Paths.IdentityDir)
 	indexExists := pathExists(indexPath)
 	status := "warn"
@@ -146,15 +149,28 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 		status = "ok"
 		summary = "Identity store path resolved"
 	}
+	index, indexErr := manager.LoadIndex()
+	if indexErr != nil {
+		status = "error"
+		summary = "Identity index exists but failed to parse"
+	}
+	current, currentErr := manager.Current()
+	if currentErr != nil && !errors.Is(currentErr, identity.ErrNoDefaultIdentity) && len(index.Credentials) > 0 {
+		status = "error"
+		summary = "Identity index is missing a valid default identity"
+	}
 	return Check{
 		Name:    "identity_store",
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"identity_dir": resolved.Paths.IdentityDir,
-			"dir_exists":   identityDirExists,
-			"index_path":   indexPath,
-			"index_exists": indexExists,
+			"identity_dir":     resolved.Paths.IdentityDir,
+			"dir_exists":       identityDirExists,
+			"index_path":       indexPath,
+			"index_exists":     indexExists,
+			"index_entries":    len(index.Credentials),
+			"default_identity": current,
+			"index_error":      errorText(indexErr),
 		},
 	}
 }
@@ -180,11 +196,19 @@ func sqliteCheck(resolved *config.Resolved) Check {
 }
 
 func legacyCheck(resolved *config.Resolved) Check {
+	manager := identity.NewManager(resolved.Paths)
+	scan, scanErr := manager.ScanLegacy()
 	credentialsExists := pathExists(resolved.Paths.LegacyCredentialsDir)
 	dataExists := pathExists(resolved.Paths.LegacyDataDir)
 	status := "info"
 	summary := "No legacy v1 paths detected"
-	if credentialsExists || dataExists {
+	if scanErr != nil {
+		status = "error"
+		summary = "Legacy credential scan failed"
+	} else if scan != nil && scan.HasLegacy {
+		status = "warn"
+		summary = "Legacy awiki-agent-id-message credential layout detected"
+	} else if credentialsExists || dataExists {
 		status = "warn"
 		summary = "Legacy awiki-agent-id-message paths detected"
 	}
@@ -197,6 +221,8 @@ func legacyCheck(resolved *config.Resolved) Check {
 			"credentials_exists":     credentialsExists,
 			"legacy_data_dir":        resolved.Paths.LegacyDataDir,
 			"data_exists":            dataExists,
+			"legacy_scan":            scan,
+			"scan_error":             errorText(scanErr),
 		},
 	}
 }
@@ -207,4 +233,11 @@ func pathExists(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

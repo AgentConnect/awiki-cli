@@ -128,6 +128,30 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runVersion
 	case "config.show":
 		return a.runConfigShow
+	case "id.status":
+		return a.runIDStatus
+	case "id.create":
+		return a.runIDCreate
+	case "id.register":
+		return a.runIDRegister
+	case "id.bind":
+		return a.runIDBind
+	case "id.resolve":
+		return a.runIDResolve
+	case "id.recover":
+		return a.runIDRecover
+	case "id.list":
+		return a.runIDList
+	case "id.current":
+		return a.runIDCurrent
+	case "id.use":
+		return a.runIDUse
+	case "id.profile.get":
+		return a.runIDProfileGet
+	case "id.profile.set":
+		return a.runIDProfileSet
+	case "id.import-v1":
+		return a.runIDImportV1
 	case "completion.bash":
 		return func(cmd *cobra.Command, args []string) error { return cmd.Root().GenBashCompletion(cmd.OutOrStdout()) }
 	case "completion.zsh":
@@ -148,50 +172,30 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 }
 
 func (a *App) runStatus(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	service, format, err := a.identityService()
 	if err != nil {
 		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
 	}
-	format := normalizedFormat(resolved.OutputFormat)
-	legacyDetected := false
-	for _, check := range doccheck.Run(resolved).Checks {
-		if check.Name == "legacy_paths" && check.Status == "warn" {
-			legacyDetected = true
-		}
+	resolved := service.Config()
+	result, err := service.Status()
+	if err != nil {
+		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the local identity store.")
 	}
-
-	warnings := make([]string, 0)
-	for _, hit := range resolved.EnvHits {
-		if hit.Tier == "draft_alias_env" || hit.Tier == "legacy_env" {
-			warnings = append(warnings, fmt.Sprintf("Compatibility environment variable in use: %s", hit.Key))
-		}
-	}
-	if legacyDetected {
-		warnings = append(warnings, "Legacy awiki-agent-id-message paths detected; use doctor or migrate from-v1 before cutover.")
-	}
-
 	data := map[string]any{
 		"cli": map[string]any{
 			"phase":   "phase1-shell",
 			"version": buildinfo.Current(),
 		},
 		"paths": resolved.Paths,
-		"state": map[string]any{
-			"config_exists":         resolved.ConfigExists,
-			"identity_index_exists": fileExists(filepathJoin(resolved.Paths.IdentityDir, "index.json")),
-			"database_exists":       fileExists(resolved.Paths.DatabaseFile),
-			"legacy_v1_detected":    legacyDetected,
-		},
-		"active_identity": map[string]any{
-			"name":   resolved.ActiveIdentity,
-			"source": resolved.Sources["active_identity"],
+		"state": result.Data,
+		"config": map[string]any{
+			"config_exists": resolved.ConfigExists,
+			"config_error":  resolved.ConfigError,
+			"env_hits":      resolved.EnvHits,
+			"sources":       resolved.Sources,
 		},
 	}
-	summary := "Phase 1 CLI shell is ready"
-	if resolved.ActiveIdentity == "" {
-		summary = "Phase 1 CLI shell is ready; no active identity is configured yet"
-	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, result.Summary, result.Warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runDocs(cmd *cobra.Command, args []string) error {
@@ -260,12 +264,21 @@ func (a *App) runVersion(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	service, format, err := a.identityService()
 	if err != nil {
 		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
 	}
-	format := normalizedFormat(resolved.OutputFormat)
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, appconfig.Snapshot(resolved), "Resolved configuration", nil, identityMetaFromResolved(resolved))
+	resolved := service.Config()
+	current, _ := service.Manager().Current()
+	legacy, _ := service.Manager().ScanLegacy()
+	data := appconfig.Snapshot(resolved)
+	data["identity_store"] = map[string]any{
+		"identity_dir":     resolved.Paths.IdentityDir,
+		"index_file":       filepathJoin(resolved.Paths.IdentityDir, "index.json"),
+		"default_identity": current,
+		"legacy_scan":      legacy,
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Resolved configuration", nil, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runStub(cmd *cobra.Command, args []string) error {

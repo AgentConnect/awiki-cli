@@ -3,6 +3,7 @@ module github.com/agentconnect/awiki-cli
 go 1.24
 
 require (
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/itchyny/gojq v0.12.17
 	github.com/spf13/cobra v1.9.1
 	gopkg.in/yaml.v3 v3.0.1
