@@ -180,6 +180,9 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 	if currentErr != nil && !errors.Is(currentErr, identity.ErrNoDefaultIdentity) && len(index.Credentials) > 0 {
 		status = "error"
 		summary = "Identity index is missing a valid default identity"
+	} else if current != nil && !current.UserState.ReadyForMessaging {
+		status = "warn"
+		summary = "Default identity is local-only and cannot be used for messaging yet"
 	}
 	return Check{
 		Name:    "identity_store",
@@ -192,9 +195,17 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 			"index_exists":     indexExists,
 			"index_entries":    len(index.Credentials),
 			"default_identity": current,
+			"user_state":       defaultIdentityUserState(current),
 			"index_error":      errorText(indexErr),
 		},
 	}
+}
+
+func defaultIdentityUserState(current *identity.IdentitySummary) any {
+	if current == nil {
+		return nil
+	}
+	return current.UserState
 }
 
 func sqliteCheck(resolved *config.Resolved) Check {

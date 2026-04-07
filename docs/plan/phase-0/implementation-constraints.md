@@ -3,7 +3,7 @@
 **状态**：Frozen for implementation  
 **适用阶段**：Phase 1 及之后所有实现阶段  
 **优先级**：当本文与 `docs/architecture/*.md` 或 `docs/plan/awiki-v2-implementation-plan.md` 冲突时，以本文为准。  
-**最后更新**：2026-04-04
+**最后更新**：2026-04-07
 
 ---
 
@@ -164,7 +164,21 @@ Phase 1 冻结以下退出码：
 - 存储字段可继续叫 `credential_*`
 - Go 内部类型可以把两者桥接，但导入/导出必须兼容 v1 现有字段名
 
-### 4.3 本地数据隔离主键
+### 4.3 对外身份标识冻结
+
+- **对外公共身份标识固定使用 `handle`。**
+- `did` 仅允许在协议级定位、调试或跨服务引用确有必要时出现在公共结果中。
+- `user_id` 固定为内部实现字段，只允许存在于：
+  - 本地 identity 存储
+  - SQLite 内部表
+  - 服务端 API 适配与内部映射
+- `user_id` 不得出现在以下对外面向：
+  - CLI 参数
+  - help / schema / docs 示例
+  - `pretty` / `table` / `json` / `ndjson` 结构化输出
+  - 公共命令结果中的字段名或 `missing` 提示项
+
+### 4.4 本地数据隔离主键
 
 - 本地快照隔离主键固定为：`owner_did`
 - Phase 1~Phase 5 都不得把 `owner_did` 改成其他主隔离键

@@ -233,6 +233,10 @@ func (s *Supervisor) ensureSession(identityName string) (*session, error) {
 	if err != nil {
 		return nil, err
 	}
+	userState := identity.EvaluateStoredIdentityUserState(record)
+	if !userState.ReadyForMessaging {
+		return nil, identity.UserRegistrationError(record.IdentityName, userState)
+	}
 	paths, pathErr := s.manager.PathsForIdentity(identityName)
 	if pathErr != nil {
 		return nil, pathErr

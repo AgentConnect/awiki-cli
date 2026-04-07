@@ -249,6 +249,7 @@ func (m *Manager) summaryFor(entry IndexEntry, defaultName string) (*IdentitySum
 		HasE2EESigningPrivate:   fileExists(paths.E2EESigningPrivatePath),
 		HasE2EEAgreementPrivate: fileExists(paths.E2EEAgreementPrivatePath),
 	}
+	summary.UserState = EvaluateIdentitySummaryUserState(summary)
 	return summary, nil
 }
 

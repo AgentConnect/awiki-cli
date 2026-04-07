@@ -31,7 +31,15 @@ func (a *App) renderIdentityResult(cmd *cobra.Command, format output.Format, res
 	if meta == nil {
 		meta = identityMetaFromData(result.Data)
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, meta)
+	return a.renderSuccess(
+		cmd.CommandPath(),
+		format,
+		a.globals.JQ,
+		identity.PublicData(result.Data),
+		result.Summary,
+		result.Warnings,
+		meta,
+	)
 }
 
 func (a *App) identityExit(err error, fallbackHint string) error {

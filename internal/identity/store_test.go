@@ -67,6 +67,9 @@ func TestManagerSaveLoadAndCurrent(t *testing.T) {
 	if current.IdentityName != "default" || !current.IsDefault {
 		t.Fatalf("unexpected current identity: %#v", current)
 	}
+	if current.UserState.RegistrationState != "local_identity" || current.UserState.ReadyForMessaging {
+		t.Fatalf("unexpected user state for local identity: %#v", current.UserState)
+	}
 }
 
 func TestImportLegacyFlatIdentity(t *testing.T) {
@@ -130,5 +133,48 @@ func TestImportLegacyFlatIdentity(t *testing.T) {
 	}
 	if current.IdentityName != "default" || current.DisplayName != "Legacy Alice" {
 		t.Fatalf("unexpected current identity after import: %#v", current)
+	}
+}
+
+func TestManagerSummaryShowsRegisteredUserState(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "awiki.ai",
+		PathPrefix:  []string{"alice"},
+		ProofDomain: "awiki.ai",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+
+	if _, err := manager.save(SaveInput{
+		IdentityName:            "alice",
+		DID:                     generated.DID,
+		UniqueID:                generated.UniqueID,
+		UserID:                  "user-123",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		DIDDocument:             generated.DIDDocument,
+		Key1PrivatePEM:          generated.Key1PrivatePEM,
+		Key1PublicPEM:           generated.Key1PublicPEM,
+		E2EESigningPrivatePEM:   generated.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: generated.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	current, err := manager.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if current.UserState.RegistrationState != "registered_user" || !current.UserState.ReadyForMessaging {
+		t.Fatalf("unexpected registered user state: %#v", current.UserState)
 	}
 }

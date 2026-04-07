@@ -12,6 +12,7 @@
    - CLI 交互方式与工程组织可以参考同级飞书 CLI 仓库 `../cli/`。
    - v2 当前实现语言是 **Go 1.22**，并且要求保持 **pure Go / no CGO**。
    - 若需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中，不在 Go 核心里引入 CGO。
+   - 对外身份标识统一使用 **handle**；`did` 只在协议级定位需要时出现；`user_id` 仅允许作为内部实现字段存在，不得出现在公共 CLI 参数、help、schema、docs 示例或结构化输出中。
    - 如果命令实现涉及服务端 API 变化，需要同步更新对应服务仓库下的 API 文档。
 
 ## 项目背景
@@ -20,11 +21,12 @@
 - 项目形态：命令行客户端
 - 当前阶段：
   - Phase 1：CLI 产品壳已实现
-  - Phase 2：配置 / identity / credential layout 已实现首版
-  - Phase 3：SQLite 本地状态与迁移已实现首版
-  - Phase 4：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
-  - Phase 4.1：websocket listener / local daemon 服务端已实现首版
-  - Phase 4.2：ANP SDK 身份鉴权已接入 HTTP / websocket listener 主路径
+  - Phase 2：配置 / local identity / credential layout 已实现首版
+  - Phase 3：User / handle lifecycle 与 user gating 已实现首版
+  - Phase 4：SQLite 本地状态与迁移已实现首版
+  - Phase 5：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
+  - Phase 7（部分提前落地）：websocket listener / local daemon 服务端已实现首版
+  - Phase 7.1：ANP SDK 身份鉴权已接入 HTTP / websocket listener 主路径
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
 - 主要服务端依赖：
   - `../user-service/`
@@ -64,7 +66,7 @@
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，使用 pure Go secp256k1。  
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
-**internal/identity/service.go**: Phase 2 高层 identity 业务流，封装本地 store + 远端 API。  
+**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle 与远端 API。  
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
 **internal/identity/store_test.go**: identity store 与 legacy import 测试。  
 **internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  
@@ -114,11 +116,14 @@
 - Phase 2：
   - XDG identity store 与 `index.json`
   - default identity 解析与 `id list/current/use/status`
-  - 本地 DID identity 创建 `id create`
+  - 本地 DID identity 创建 `id create`（内部/bootstrap，用于迁移或调试；默认从公开 help 隐藏）
   - v1 legacy credential scan / import：`id import-v1`
-  - handle registration / bind / resolve / recover / profile 的首版实现
-  - current/default identity 自动回填到配置解析结果
 - Phase 3：
+  - handle registration / bind / resolve / recover / profile 的首版实现
+  - local-only identity vs registered user 状态判断
+  - `msg` / `runtime listener` 的 user gating 首版实现
+  - current/default identity 自动回填到配置解析结果
+- Phase 4：
   - pure Go SQLite 打开与 `EnsureSchema()`
   - v11 tables / indexes / views
   - 本地 DAO：messages、contacts、relationship_events、groups、group_members、e2ee_outbox、e2ee_sessions
@@ -127,7 +132,7 @@
   - `debug db query`
   - `debug db import-v1`
   - `doctor` / `config show` 的数据库诊断增强
-- Phase 4（当前首版已落地 direct plain）：
+- Phase 5（当前首版已落地 direct plain）：
   - `msg send --to`
   - `msg inbox`
   - `msg history --with`
@@ -135,7 +140,7 @@
   - HTTP JSON-RPC adapter
   - websocket runtime bridge / local daemon client skeleton
   - sender_proof 生成与本地消息落库
-- Phase 4.1（当前首版已落地 websocket 服务端）：
+- Phase 7（当前首版已落地 websocket 服务端，先于 secure phase 提前接入）：
   - `runtime status`
   - `runtime setup`
   - `runtime mode get/set`
@@ -144,11 +149,13 @@
   - 后台 listener 进程、pid/status/socket 管理
   - 本地 daemon / unix socket bridge 服务端
   - 远端单 websocket 连接与 direct.incoming 下行落库
-- Phase 4.2（当前首版已落地 ANP SDK 鉴权）：
+- Phase 7.1（当前首版已落地 ANP SDK 鉴权）：
   - 基于 `DIDWbaAuthHeader` 的 HTTP hop auth
   - 401 后自动重试与 challenge 处理
   - 从响应头捕获 bearer token 并回写 identity store
   - listener 在 websocket 模式下可自动尝试 bootstrap JWT
+- Phase 7.2：
+  - `id` 域公共输出已统一移除 `user_id`，对外保持 handle-first 身份语义
 
 ### 尚未实现
 
@@ -164,7 +171,7 @@
   - `gofmt -w $(find cmd internal -name '*.go')`
   - `CGO_ENABLED=0 go build ./...`
   - `CGO_ENABLED=0 go test ./...`
-- Phase 2 / Phase 3 的本地 smoke test 可通过临时 `AWIKI_*` XDG 环境变量完成，避免污染真实目录。
+- Phase 2 / Phase 3 / Phase 4 的本地 smoke test 可通过临时 `AWIKI_*` XDG 环境变量完成，避免污染真实目录。
 - 代码注释和日志保持英文；命令行对用户的交互输出遵循统一 JSON envelope。
 
 ⚡触发器: 一旦本文件夹增删文件、调整架构、修改服务依赖、补充新的 Go 模块目录，或切换 Phase 实现边界，请立即重写此文档。

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/spf13/cobra"
@@ -44,6 +45,8 @@ func (a *App) messageExit(err error, hint string) error {
 	switch {
 	case errors.Is(err, message.ErrTargetRequired), errors.Is(err, message.ErrTextRequired), errors.Is(err, message.ErrGroupNotSupported), errors.Is(err, message.ErrMessageNotFound):
 		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
+	case errors.Is(err, identity.ErrUserRegistrationRequired):
+		return output.NewExitError("setup_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg commands.")
 	case errors.Is(err, message.ErrSecureNotSupported):
 		return output.NewExitError("unsupported_mode", 1, err.Error(), "Direct secure messaging is planned for Phase 5.")
 	case errors.Is(err, message.ErrTransportUnavailable):

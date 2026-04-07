@@ -94,6 +94,7 @@ func (a *App) commandFromSpec(spec cmdmeta.CommandSpec) *cobra.Command {
 		Short:   spec.Short,
 		Long:    spec.Long,
 		Aliases: spec.Aliases,
+		Hidden:  spec.Hidden,
 	}
 	for _, flag := range spec.Flags {
 		switch flag.Type {

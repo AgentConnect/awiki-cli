@@ -2,10 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
@@ -25,6 +27,8 @@ func (a *App) runtimeExit(err error, hint string) error {
 		return nil
 	}
 	switch {
+	case errors.Is(err, identity.ErrUserRegistrationRequired):
+		return output.NewExitError("setup_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before starting realtime runtime.")
 	case strings.Contains(err.Error(), "must be websocket"), strings.Contains(err.Error(), "unsupported mode"), strings.Contains(err.Error(), "runtime mode"):
 		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
 	default:

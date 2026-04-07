@@ -3,7 +3,7 @@
 **文档状态**：Draft v1.0  
 **文档用途**：把架构设计转成可执行的工程实施计划，作为后续拆解里程碑、Issue、子任务和验收的基线。  
 **适用范围**：`awiki-cli` Go 重写、命令面收敛、SQLite/凭证迁移、runtime/listener、skills/docs/schema、发布切换。  
-**最后更新**：2026-04-04
+**最后更新**：2026-04-07
 
 > **Phase 0 冻结结果说明**：`docs/plan/phase-0/` 下的冻结文档是后续实现的直接约束。当本文与 Phase 0 冻结文档冲突时，以 Phase 0 冻结文档为准。
 
@@ -83,7 +83,16 @@ awiki-cli v2 的实施目标是：
 - `credential` 仅作为兼容 v1 的内部实现术语或 alias，不再作为 v2 主文案。
 - 本地数据隔离主键继续使用 `owner_did`。
 
-### 2.3 输出与全局参数冻结
+### 2.3 User 生命周期冻结
+
+- **handle 是对外用户主流程的必填项。**
+- **v2 首版不支持 pure DID 作为对外用户完成态。**
+- **对外公共身份标识只使用 handle；`did` 仅在协议级定位需要时出现；`user_id` 为内部字段，不对 CLI / docs / schema / 输出透出。**
+- `id create` 只保留为本地 bootstrap / 迁移辅助能力，不作为消息、runtime、群组主链路的前置完成态；默认从公开 help 中隐藏。
+- 用户完成态固定定义为：**本地 DID 材料已生成 + 远端 user 已创建 + handle 已创建或恢复 + 本地凭证已记录**。
+- `id register` / `id recover` 是进入可用用户态的 canonical 入口；`msg` 与 `runtime listener` 默认要求当前 identity 已完成该用户态。
+
+### 2.4 输出与全局参数冻结
 
 - 全局格式参数统一为：`--format`
 - 结构化输出以 JSON envelope 为准。
@@ -92,7 +101,7 @@ awiki-cli v2 的实施目标是：
 - 支持：`--jq`
 - exit code 与错误码统一收敛到 v2 新协议。
 
-### 2.4 环境变量冻结
+### 2.5 环境变量冻结
 
 存在一个已发现冲突：
 
@@ -106,13 +115,13 @@ awiki-cli v2 的实施目标是：
 - **兼容读取旧变量**：`AWIKI_*` 与 `E2E_*`
 - doctor 需要显式提示当前命中的来源与优先级，避免隐式混用
 
-### 2.5 参考基线冻结
+### 2.6 参考基线冻结
 
 - **SQLite 表设计以 `../awiki-agent-id-message/scripts/local_store.py` 与 `../awiki-agent-id-message/references/local-store-schema.md` 为基线参考。**
 - **凭证文件设计以 `../awiki-agent-id-message/scripts/credential_layout.py` 与 `../awiki-agent-id-message/scripts/credential_store.py` 为基线参考。**
 - 首版实现优先保证“稳定迁移”和“兼容导入”，不主动重构这些数据模型。
 
-### 2.6 已知审计项
+### 2.7 已知审计项
 
 这些问题不阻塞规划，但必须在 Phase 0 记录为审计任务：
 
@@ -306,10 +315,12 @@ v2 本地 SQLite 设计参考以下来源：
 
 | CLI 命令 | 服务/API 文档 | 说明 |
 |---|---|---|
-| `id register` | `../user-service/docs/api/authentication.md` + `handle.md` | 注册/验证码/handle 获取 |
+| `id create` | `../user-service/docs/api/did-auth.md`（仅 bootstrap 背景） | 本地 DID 材料生成；不是对外用户完成态 |
+| `id register` | `../user-service/docs/api/did-auth.md` + `authentication.md` + `handle.md` | 创建远端 user、注册 handle、写回凭证 |
 | `id bind` | `../user-service/docs/api/authentication.md` | 手机/邮箱绑定 |
-| `id resolve` | `../user-service/docs/api/did-profile.md` + `handle.md` | DID/Handle 解析 |
-| `id profile get/set` | `../user-service/docs/api/profile.md` + `did-profile.md` | 自己/公开 profile |
+| `id resolve` | `../user-service/docs/api/did-profile.md` + `handle.md` + `users.md` | DID/Handle 解析与用户摘要查询 |
+| `id recover` | `../user-service/docs/api/did-auth.md` + `handle.md` | 通过手机验证码恢复 handle DID 绑定 |
+| `id profile get/set` | `../user-service/docs/api/profile.md` + `did-profile.md` + `users.md` | 自己/公开 profile 与当前用户查询 |
 | `people follow/unfollow/status` | `../user-service/docs/api/relationships.md` | follow/unfollow/status |
 | `group *` 生命周期 | `../user-service/docs/api/group.md` | create/get/update/join/leave/kick/list members 等 |
 
@@ -420,7 +431,7 @@ v2 本地 SQLite 设计参考以下来源：
 
 ### Phase 2：配置、Identity 与凭证存储
 
-**目标**：跑通 identity 生命周期和 v2 凭证布局。
+**目标**：先落地本地 identity 基础设施，为后续 User 完成态做准备。
 
 **主要任务**：
 
@@ -435,7 +446,7 @@ v2 本地 SQLite 设计参考以下来源：
    - fallback `E2E_*`
 3. 实现 identity index store。
 4. 实现 identity create/list/use/current。
-5. 实现对接 user-service 的 register/bind/resolve/recover/profile。
+5. 明确 `id create` 只负责本地 DID / 密钥 / did_document 生成，不作为对外用户完成态。
 6. 完成 v1 credential import。
 7. 完成旧 flat legacy credential 扫描与导入提示。
 8. 设计 token / daemon token 与 keychain 的接口层，但首版可先用受权限保护的文件存储。
@@ -444,17 +455,77 @@ v2 本地 SQLite 设计参考以下来源：
 
 - identity store
 - v2 index.json + per-identity dir
-- id 域核心命令
+- 本地 bootstrap 命令
 - migrate from-v1（credential 部分）
 
 **验收标准**：
 
 - `id create/list/use/current` 可用
-- `id register/bind/resolve/recover/profile` 能与 user-service 跑通
 - 旧 `.credentials` 能被识别、提示、导入
 - 文件权限符合最小权限要求
 
-### Phase 3：SQLite 本地状态与迁移
+### Phase 3：User、Handle 与 Credential 完整化
+
+**目标**：跑通“可用用户态”主链路：创建远端 user、注册 handle、绑定联系方式、记录本地凭证。
+
+> 说明：旧版本规划把这部分隐含在 identity 阶段里，导致“本地 DID bootstrap”和“远端 user 完成态”混在一起。本阶段将两者显式拆开，并冻结 handle-first 约束。
+
+**主要任务**：
+
+1. 明确主流程为 handle-first：
+   - `id register` 是 canonical 用户创建入口
+   - `handle` 为必填
+   - 不支持 pure DID 作为对外用户完成态
+2. 对接 user-service API：
+   - `POST /did-auth/rpc` `register`
+   - `POST /handle/rpc` `send_otp`
+   - `POST /did-auth/rpc` `recover_handle`
+   - `POST /auth/phone-bind-send`
+   - `POST /auth/phone-bind-verify`
+   - `POST /auth/email-send`
+   - `GET /auth/email-status`
+   - `POST /did/profile/rpc` `get_me` / `update_me` / `get_public_profile`
+   - `POST /users/rpc` `get_me` / `get_by_did` / `get_by_handle`
+3. 参考 Python 版本补齐非交互 CLI 流程：
+   - `register_handle.py`
+   - `bind_contact.py`
+   - `recover_handle.py`
+   - `get_profile.py`
+   - `update_profile.py`
+   - `credential_store.py`
+4. 本地凭证落盘与索引补齐：
+   - `identity.json` 内部记录 `did / user_id / handle / created_at`
+   - `auth.json` 记录 token
+   - `did_document.json` 记录当前 DID 文档
+   - index 中内部同步 `user_id`、`handle` 与默认 identity 解析
+   - `user_id` 只作为内部映射字段保存，不进入公共 CLI 输出
+5. 建立当前 identity 的“用户完成态”判断：
+   - local-only identity
+   - registered user
+   - partial user / incomplete user
+6. 对 `doctor`、`msg`、`runtime listener` 增加 gating：
+   - 未完成 handle 注册的 identity 不能进入消息和 realtime 主链路
+   - CLI 需要明确提示先完成 `id register` 或 `id recover`
+
+**交付物**：
+
+- handle-backed user lifecycle 命令
+- OTP / email verification / bind / recover 流程
+- 完整 credential 持久化
+- 用户完成态检查与 gating
+
+**验收标准**：
+
+- `id register` 能完成：
+  - 创建远端 user
+  - 创建或恢复 handle
+  - 保存本地凭证
+  - 形成可复用 identity
+- `id bind`、`id recover`、`id profile get/set` 能与 user-service 跑通
+- `id current` 与 `doctor` 能识别 local-only identity 与 registered user
+- 未完成 handle 注册的 identity 不能直接执行 `msg *` 与 `runtime listener *`
+
+### Phase 4：SQLite 本地状态与迁移
 
 **目标**：把 v1 的本地状态模型迁到 v2，同时保留 owner_did 隔离和 v1 可导入能力。
 
@@ -495,7 +566,7 @@ v2 本地 SQLite 设计参考以下来源：
 - owner_did 隔离语义不丢失
 - `threads/inbox/outbox` 查询结果符合预期
 
-### Phase 4：Messaging 与 Group 基础域
+### Phase 5：Messaging 与 Group 基础域
 
 **目标**：先跑通 plain direct / plain group 的主链路。
 
@@ -529,6 +600,7 @@ v2 本地 SQLite 设计参考以下来源：
 5. group 命令与消息命令的边界收敛：
    - 群生命周期在 `group`
    - 群发消息仍从 `msg send --group` 进入
+6. 把 Phase 3 的 user gating 作为消息主链路前置条件，默认拒绝 local-only identity。
 
 **交付物**：
 
@@ -542,7 +614,7 @@ v2 本地 SQLite 设计参考以下来源：
 - 可以完成 group 创建、入群、看成员、看消息、更新、离开、踢人
 - 相关数据能稳定写入 SQLite
 
-### Phase 5：Secure / E2EE 域
+### Phase 6：Secure / E2EE 域
 
 **目标**：补齐 awiki 的 secure messaging 差异化能力。
 
@@ -580,7 +652,7 @@ v2 本地 SQLite 设计参考以下来源：
 
 > 默认假设：group E2EE 不作为首发阻塞项，待 direct E2EE 稳定后再进入后续里程碑。
 
-### Phase 6：Runtime、Listener、Heartbeat 与 IPC
+### Phase 7：Runtime、Listener、Heartbeat 与 IPC
 
 **目标**：把 v1 的 realtime/runtime 机制收敛成 v2 独立 runtime 域。
 
@@ -599,6 +671,7 @@ v2 本地 SQLite 设计参考以下来源：
 4. 实现 heartbeat 任务。
 5. 实现 runtime setup/status/doctor 深度检查。
 6. 兼容导入 v1 listener/settings 相关配置。
+7. listener 启动前校验当前 identity 已完成 User 阶段，拒绝 local-only identity。
 
 **交付物**：
 
@@ -614,7 +687,7 @@ v2 本地 SQLite 设计参考以下来源：
 - http 模式下无需 listener 也可执行业务命令
 - doctor 能报告 runtime 当前状态和异常原因
 
-### Phase 7：扩展域、skills、docs、schema 生成
+### Phase 8：扩展域、skills、docs、schema 生成
 
 **目标**：建立“命令元数据驱动产品文档”的闭环。
 
@@ -657,7 +730,7 @@ v2 本地 SQLite 设计参考以下来源：
 - 新增命令只需要更新一处元数据即可生成多处产物
 - AI 不依赖外部 skill 也能理解核心 CLI 行为
 
-### Phase 8：发布、切换与收尾
+### Phase 9：发布、切换与收尾
 
 **目标**：把 v2 从“开发完成”转成“可发布、可切换、可回滚”的产品。
 
@@ -697,13 +770,14 @@ v2 本地 SQLite 设计参考以下来源：
 | EPIC-01 | 命令壳与输出协议 | Phase 0-1 | 根命令、输出 envelope、schema/doctor 骨架完成 |
 | EPIC-02 | 配置与路径体系 | Phase 2 | XDG、env 兼容、default identity 解析完成 |
 | EPIC-03 | identity store 与迁移 | Phase 2 | index.json、identity dir、v1 credential import 完成 |
-| EPIC-04 | SQLite schema 与 DAO | Phase 3 | 表/视图/migration/fixtures 完成 |
-| EPIC-05 | direct messaging | Phase 4 | send/inbox/history/mark-read 全链路完成 |
-| EPIC-06 | group lifecycle | Phase 4 | create/join/show/members/messages/update/leave/kick 完成 |
-| EPIC-07 | secure direct messaging | Phase 5 | session/outbox/retry/drop/auto-process 完成 |
-| EPIC-08 | runtime 与 listener | Phase 6 | http/websocket、listener、IPC、heartbeat 完成 |
-| EPIC-09 | docs/schema/skills 生成 | Phase 7 | cmdmeta 驱动链路闭环完成 |
-| EPIC-10 | 发布与切换 | Phase 8 | goreleaser、迁移指南、cutover checklist 完成 |
+| EPIC-04 | user + handle lifecycle | Phase 3 | register/bind/recover/profile/current + user gating 完成 |
+| EPIC-05 | SQLite schema 与 DAO | Phase 4 | 表/视图/migration/fixtures 完成 |
+| EPIC-06 | direct messaging | Phase 5 | send/inbox/history/mark-read 全链路完成 |
+| EPIC-07 | group lifecycle | Phase 5 | create/join/show/members/messages/update/leave/kick 完成 |
+| EPIC-08 | secure direct messaging | Phase 6 | session/outbox/retry/drop/auto-process 完成 |
+| EPIC-09 | runtime 与 listener | Phase 7 | http/websocket、listener、IPC、heartbeat 完成 |
+| EPIC-10 | docs/schema/skills 生成 | Phase 8 | cmdmeta 驱动链路闭环完成 |
+| EPIC-11 | 发布与切换 | Phase 9 | goreleaser、迁移指南、cutover checklist 完成 |
 
 ---
 
@@ -715,6 +789,7 @@ v2 本地 SQLite 设计参考以下来源：
 
 - config merge 与 env fallback
 - identity index 解析与默认 identity 选择
+- local-only identity vs registered user 状态判断
 - output envelope / error mapping / exit code
 - schema 生成与 help 生成
 - thread id 生成
@@ -736,9 +811,11 @@ v2 本地 SQLite 设计参考以下来源：
 覆盖：
 
 - `authentication.md`
+- `did-auth.md`
 - `handle.md`
 - `profile.md`
 - `did-profile.md`
+- `users.md`
 - `relationships.md`
 - `group.md`
 - `ANP-client-server-api-direct.md`
@@ -760,14 +837,16 @@ v2 本地 SQLite 设计参考以下来源：
 
 建议通过同级服务仓完成端到端联调，主链路至少覆盖：
 
-1. `id create`
-2. `id register` / `bind`
-3. `msg send --to`
-4. `msg inbox`
-5. `msg history`
-6. `group create` / `join` / `members` / `messages`
-7. `msg secure init` / `msg secure retry`
-8. `runtime mode set websocket` + listener
+1. `id create`（仅验证本地 bootstrap）
+2. `id register --handle ...`
+3. `id bind`
+4. `id current` / `doctor`
+5. `msg send --to`
+6. `msg inbox`
+7. `msg history`
+8. `group create` / `join` / `members` / `messages`
+9. `msg secure init` / `msg secure retry`
+10. `runtime mode set websocket` + listener
 
 ### 8.6 文档与生成校验
 
@@ -786,15 +865,17 @@ v2 本地 SQLite 设计参考以下来源：
 
 1. 所有核心能力都通过 `awiki-cli` 统一入口暴露。
 2. `id / msg / group / runtime` 的主链路可实际执行，不仅有命令壳。
-3. `schema`、`doctor`、`docs` 是 CLI 本体能力，而不是外部补丁。
-4. 所有副作用命令支持 `--dry-run`。
-5. 所有命令遵循统一输出协议和错误协议。
-6. direct plain、group plain、direct secure 三条主路径可用。
-7. websocket runtime + listener + IPC 可用。
-8. SQLite 本地状态可创建、升级、迁移、诊断。
-9. 凭证目录布局支持 v2 新格式，并兼容从 v1 导入。
-10. docs / schema / skills / help 由统一元数据驱动，避免文档漂移。
-11. 发布链路可生成多平台包，并有明确迁移与回滚说明。
+3. handle-backed user 阶段是显式能力：可以区分 local-only identity 与 registered user。
+4. `msg` 与 `runtime listener` 默认拒绝未完成 handle 注册的 identity。
+5. `schema`、`doctor`、`docs` 是 CLI 本体能力，而不是外部补丁。
+6. 所有副作用命令支持 `--dry-run`。
+7. 所有命令遵循统一输出协议和错误协议。
+8. direct plain、group plain、direct secure 三条主路径可用。
+9. websocket runtime + listener + IPC 可用。
+10. SQLite 本地状态可创建、升级、迁移、诊断。
+11. 凭证目录布局支持 v2 新格式，并兼容从 v1 导入。
+12. docs / schema / skills / help 由统一元数据驱动，避免文档漂移。
+13. 发布链路可生成多平台包，并有明确迁移与回滚说明。
 
 ---
 
@@ -804,12 +885,14 @@ v2 本地 SQLite 设计参考以下来源：
 
 1. 首版语言固定为 Go。
 2. CLI 框架固定为 Cobra。
-3. 首版优先实现 direct E2EE，不把 group E2EE 作为首发阻塞项。
-4. 首版不强制接入系统 keychain，可先采用受权限保护的文件存储；但接口层需要预留 keychain 扩展点。
-5. 首版必须兼容导入 `../awiki-agent-id-message/` 的凭证与 SQLite 数据。
-6. 首版不追求覆盖 v1 所有边角脚本，而是先覆盖架构文档定义的 canonical 命令面。
-7. 首版发布主渠道为 GitHub Releases；npm wrapper 为可选增强项。
-8. Go 核心实现固定使用 Go 1.22，并保持 pure Go，禁止依赖 CGO；如果后续需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中实现。
+3. 首版采用 handle-first 用户流程；handle 为必填，不支持 pure DID 作为对外用户完成态。
+4. `id create` 仅作为本地 bootstrap / 迁移辅助能力，不作为 `msg`、`group`、`runtime listener` 的前置完成态。
+5. 首版优先实现 direct E2EE，不把 group E2EE 作为首发阻塞项。
+6. 首版不强制接入系统 keychain，可先采用受权限保护的文件存储；但接口层需要预留 keychain 扩展点。
+7. 首版必须兼容导入 `../awiki-agent-id-message/` 的凭证与 SQLite 数据。
+8. 首版不追求覆盖 v1 所有边角脚本，而是先覆盖架构文档定义的 canonical 命令面。
+9. 首版发布主渠道为 GitHub Releases；npm wrapper 为可选增强项。
+10. Go 核心实现固定使用 Go 1.22，并保持 pure Go，禁止依赖 CGO；如果后续需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中实现。
 
 ---
 

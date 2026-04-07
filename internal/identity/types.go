@@ -21,12 +21,13 @@ const (
 )
 
 var (
-	ErrIdentityNotFound  = errors.New("identity not found")
-	ErrIdentityConflict  = errors.New("identity conflict")
-	ErrNoDefaultIdentity = errors.New("no default identity")
-	ErrLegacyNotFound    = errors.New("legacy identity not found")
-	ErrInvalidInput      = errors.New("invalid input")
-	ErrAuthRequired      = errors.New("authentication required")
+	ErrIdentityNotFound         = errors.New("identity not found")
+	ErrIdentityConflict         = errors.New("identity conflict")
+	ErrNoDefaultIdentity        = errors.New("no default identity")
+	ErrLegacyNotFound           = errors.New("legacy identity not found")
+	ErrInvalidInput             = errors.New("invalid input")
+	ErrAuthRequired             = errors.New("authentication required")
+	ErrUserRegistrationRequired = errors.New("registered handle user is required")
 )
 
 type IndexEntry struct {
@@ -80,21 +81,28 @@ type StoredIdentity struct {
 }
 
 type IdentitySummary struct {
-	IdentityName            string `json:"identity_name"`
-	DID                     string `json:"did"`
-	UniqueID                string `json:"unique_id"`
-	UserID                  string `json:"user_id,omitempty"`
-	DisplayName             string `json:"display_name,omitempty"`
-	Handle                  string `json:"handle,omitempty"`
-	CreatedAt               string `json:"created_at,omitempty"`
-	DirName                 string `json:"dir_name"`
-	IsDefault               bool   `json:"is_default"`
-	HasJWT                  bool   `json:"has_jwt"`
-	HasDIDDocument          bool   `json:"has_did_document"`
-	HasKey1Private          bool   `json:"has_key1_private"`
-	HasKey1Public           bool   `json:"has_key1_public"`
-	HasE2EESigningPrivate   bool   `json:"has_e2ee_signing_private"`
-	HasE2EEAgreementPrivate bool   `json:"has_e2ee_agreement_private"`
+	IdentityName            string    `json:"identity_name"`
+	DID                     string    `json:"did"`
+	UniqueID                string    `json:"unique_id"`
+	UserID                  string    `json:"user_id,omitempty"`
+	DisplayName             string    `json:"display_name,omitempty"`
+	Handle                  string    `json:"handle,omitempty"`
+	CreatedAt               string    `json:"created_at,omitempty"`
+	DirName                 string    `json:"dir_name"`
+	IsDefault               bool      `json:"is_default"`
+	HasJWT                  bool      `json:"has_jwt"`
+	HasDIDDocument          bool      `json:"has_did_document"`
+	HasKey1Private          bool      `json:"has_key1_private"`
+	HasKey1Public           bool      `json:"has_key1_public"`
+	HasE2EESigningPrivate   bool      `json:"has_e2ee_signing_private"`
+	HasE2EEAgreementPrivate bool      `json:"has_e2ee_agreement_private"`
+	UserState               UserState `json:"user_state"`
+}
+
+type UserState struct {
+	RegistrationState string   `json:"registration_state"`
+	ReadyForMessaging bool     `json:"ready_for_messaging"`
+	Missing           []string `json:"missing,omitempty"`
 }
 
 type LegacyFlatIdentity struct {

@@ -67,6 +67,9 @@ func (s *Service) Status() (*CommandResult, error) {
 	summary := "Identity store is ready"
 	if currentErr != nil {
 		summary = "No default identity is configured yet"
+	} else if current != nil && !current.UserState.ReadyForMessaging {
+		summary = "Default identity exists but user setup is incomplete"
+		warnings = append(warnings, "Current identity is local-only. Register or recover a handle-backed user before using messaging.")
 	}
 	return &CommandResult{Data: data, Summary: summary, Warnings: warnings}, nil
 }
@@ -84,6 +87,9 @@ func (s *Service) List() (*CommandResult, error) {
 	warnings := make([]string, 0)
 	if legacy.HasLegacy {
 		warnings = append(warnings, LegacyLayoutHint)
+	}
+	if current != nil && !current.UserState.ReadyForMessaging {
+		warnings = append(warnings, "The default identity is local-only. Register or recover a handle-backed user before using messaging.")
 	}
 	return &CommandResult{
 		Data: map[string]any{
@@ -107,9 +113,16 @@ func (s *Service) Current() (*CommandResult, error) {
 		}
 		return nil, err
 	}
+	summary := fmt.Sprintf("Current identity is %s", current.IdentityName)
+	warnings := make([]string, 0)
+	if !current.UserState.ReadyForMessaging {
+		summary = fmt.Sprintf("Current identity %s is local-only", current.IdentityName)
+		warnings = append(warnings, "Register or recover a handle-backed user before using messaging commands.")
+	}
 	return &CommandResult{
-		Data:    map[string]any{"identity": current},
-		Summary: fmt.Sprintf("Current identity is %s", current.IdentityName),
+		Data:     map[string]any{"identity": current},
+		Summary:  summary,
+		Warnings: warnings,
 	}, nil
 }
 
@@ -161,7 +174,8 @@ func (s *Service) Create(displayName string, identityName string) (*CommandResul
 			"action":   "create_identity",
 			"identity": summary,
 		},
-		Summary: fmt.Sprintf("Created local identity %s", summary.IdentityName),
+		Summary:  fmt.Sprintf("Created local identity %s", summary.IdentityName),
+		Warnings: []string{"This identity is local-only until you complete `awiki-cli id register --handle <handle> ...` or recover an existing handle."},
 	}, nil
 }
 
@@ -790,7 +804,7 @@ func identitySummaryFromRecord(record *StoredIdentity) *IdentitySummary {
 	if record == nil {
 		return nil
 	}
-	return &IdentitySummary{
+	summary := &IdentitySummary{
 		IdentityName:            record.IdentityName,
 		DID:                     record.DID,
 		UniqueID:                record.UniqueID,
@@ -807,4 +821,6 @@ func identitySummaryFromRecord(record *StoredIdentity) *IdentitySummary {
 		HasE2EESigningPrivate:   record.E2EESigningPrivatePEM != "",
 		HasE2EEAgreementPrivate: record.E2EEAgreementPrivatePEM != "",
 	}
+	summary.UserState = EvaluateIdentitySummaryUserState(summary)
+	return summary
 }

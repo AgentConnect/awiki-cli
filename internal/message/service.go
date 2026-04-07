@@ -318,7 +318,15 @@ func (s *Service) requireActiveIdentity(requested string) (*identity.StoredIdent
 		identityName = current.IdentityName
 		s.resolved.ActiveIdentity = identityName
 	}
-	return s.manager.Load(identityName)
+	record, err := s.manager.Load(identityName)
+	if err != nil {
+		return nil, err
+	}
+	userState := identity.EvaluateStoredIdentityUserState(record)
+	if !userState.ReadyForMessaging {
+		return nil, identity.UserRegistrationError(record.IdentityName, userState)
+	}
+	return record, nil
 }
 
 func (s *Service) resolveTarget(ctx context.Context, target string) (string, string, error) {
