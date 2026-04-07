@@ -22,7 +22,7 @@ func BuildDirectSendRPCParams(record *identity.StoredIdentity, manager *identity
 	return map[string]any{
 		"meta": payload.Meta,
 		"auth": map[string]any{
-			"scheme":       "anp-rfc9421-sender-proof-v1",
+			"scheme":       OriginProofScheme,
 			"sender_proof": senderProof,
 		},
 		"body": payload.Body,

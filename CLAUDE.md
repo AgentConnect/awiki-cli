@@ -156,6 +156,8 @@
   - listener 在 websocket 模式下可自动尝试 bootstrap JWT
 - Phase 7.2：
   - `id` 域公共输出已统一移除 `user_id`，对外保持 handle-first 身份语义
+  - direct origin proof scheme 已切换为 `anp-rfc9421-origin-proof-v1`
+  - websocket `direct.incoming` 已按最新 P3 结构仅消费 `params.meta/body/auth`，不再依赖 `server` 包装字段
 
 ### 尚未实现
 

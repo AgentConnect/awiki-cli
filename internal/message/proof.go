@@ -16,6 +16,8 @@ type directPayload struct {
 	Body   map[string]any `json:"body"`
 }
 
+const OriginProofScheme = "anp-rfc9421-origin-proof-v1"
+
 func buildDirectTextPayload(senderDID string, targetDID string, text string, contentType string) (directPayload, error) {
 	if senderDID == "" || targetDID == "" {
 		return directPayload{}, fmt.Errorf("sender and target did are required")

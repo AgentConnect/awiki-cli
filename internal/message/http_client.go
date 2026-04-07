@@ -80,7 +80,7 @@ func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*d
 	params := map[string]any{
 		"meta": payload.Meta,
 		"auth": map[string]any{
-			"scheme":       "anp-rfc9421-sender-proof-v1",
+			"scheme":       OriginProofScheme,
 			"sender_proof": senderProof,
 		},
 		"body": payload.Body,

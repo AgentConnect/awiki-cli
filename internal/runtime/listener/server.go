@@ -343,29 +343,39 @@ func (s *Supervisor) consumeNotifications(ctx context.Context, session *session)
 }
 
 func (s *Supervisor) handleNotification(ctx context.Context, session *session, notification map[string]any) {
-	method, _ := notification["method"].(string)
-	if method != "direct.incoming" {
-		return
-	}
-	params, ok := notification["params"].(map[string]any)
+	record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName)
 	if !ok {
 		return
 	}
+	_ = store.StoreMessage(ctx, s.db, record)
+}
+
+func messageRecordFromDirectIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
+	method, _ := notification["method"].(string)
+	if method != "direct.incoming" {
+		return store.MessageRecord{}, false
+	}
+	params, ok := notification["params"].(map[string]any)
+	if !ok {
+		return store.MessageRecord{}, false
+	}
 	meta, _ := params["meta"].(map[string]any)
 	body, _ := params["body"].(map[string]any)
-	server, _ := params["server"].(map[string]any)
 	target, _ := meta["target"].(map[string]any)
 	targetDID := stringValue(target["did"])
 	senderDID := stringValue(meta["sender_did"])
 	if targetDID == "" || senderDID == "" {
-		return
+		return store.MessageRecord{}, false
 	}
-	content := stringValue(body["text"])
 	contentType := stringValue(meta["content_type"])
 	if contentType == "" {
 		contentType = "text/plain"
 	}
-	record := store.MessageRecord{
+	sentAt := stringValue(meta["created_at"])
+	if sentAt == "" {
+		sentAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	return store.MessageRecord{
 		MsgID:          stringValue(meta["message_id"]),
 		OwnerDID:       targetDID,
 		ThreadID:       store.MakeThreadID(targetDID, senderDID, ""),
@@ -373,13 +383,12 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 		SenderDID:      senderDID,
 		ReceiverDID:    targetDID,
 		ContentType:    contentType,
-		Content:        content,
-		SentAt:         stringValue(server["received_at"]),
+		Content:        stringValue(body["text"]),
+		SentAt:         sentAt,
 		IsRead:         false,
 		Metadata:       metadataValue(params),
-		CredentialName: session.record.IdentityName,
-	}
-	_ = store.StoreMessage(ctx, s.db, record)
+		CredentialName: identityName,
+	}, true
 }
 
 func (s *Supervisor) refreshStatus() {
