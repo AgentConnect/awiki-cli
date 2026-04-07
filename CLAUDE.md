@@ -128,6 +128,7 @@
   - local-only identity vs registered user 状态判断
   - `msg` / `runtime listener` 的 user gating 首版实现
   - current/default identity 自动回填到配置解析结果
+  - `id profile get/set` 已正式接入 `user-service` DID Profile RPC
 - Phase 4：
   - pure Go SQLite 打开与 `EnsureSchema()`
   - v11 tables / indexes / views
@@ -147,6 +148,10 @@
   - HTTP JSON-RPC adapter
   - websocket runtime bridge / local daemon direct+group client
   - direct/group actor proof 生成与本地消息落库
+- Phase 8（当前首版已落地 content page）：
+  - `page create/list/get/update/rename/delete`
+  - `page create/update --visibility public|draft|unlisted`
+  - 通过 `POST /content/rpc` 接入 `user-service` content pages API
 - Phase 7（当前首版已落地 websocket 服务端，先于 secure phase 提前接入）：
   - `runtime status`
   - `runtime setup`
@@ -156,6 +161,7 @@
   - 后台 listener 进程、pid/status/socket 管理
   - 本地 daemon / unix socket bridge 服务端
   - 远端单 websocket 连接与 `direct.incoming` / `group.incoming` / `group.state_changed` 下行落库
+  - websocket session 断线自动重连、周期 ping 保活、桥接请求按连接状态快速失败后由上层回退 HTTP
 - Phase 7.1（当前首版已落地 ANP SDK 鉴权）：
   - 基于 `DIDWbaAuthHeader` 的 HTTP hop auth
   - 401 后自动重试与 challenge 处理
@@ -169,7 +175,7 @@
 ### 尚未实现
 
 - `msg` 域中 direct plain 已实现，listener 服务端首版也已实现，但 websocket 远端真实联调与 secure E2EE 仍未完成
-- `group` 域的 plain lifecycle / local view / group messaging 已接入，`people`、`page` 仍大多为 stub
+- `group` 域的 plain lifecycle / local view / group messaging 已接入，`people` 仍大多为 stub；`page` 已完成 content pages 首版
 - secure E2EE 业务流、group plain、发布链路属于后续阶段
 
 ## 开发与验证约定

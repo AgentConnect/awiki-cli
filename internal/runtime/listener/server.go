@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -35,12 +36,23 @@ type Supervisor struct {
 }
 
 type session struct {
-	record     *identity.StoredIdentity
-	client     *WSClient
-	lastError  string
-	connected  bool
-	cancelFunc context.CancelFunc
+	identityName string
+	record       *identity.StoredIdentity
+	client       *WSClient
+	lastError    string
+	connected    bool
+	ctx          context.Context
+	cancelFunc   context.CancelFunc
+	initResult   chan error
+	initOnce     sync.Once
+	mu           sync.RWMutex
 }
+
+const (
+	sessionReconnectBaseDelay = time.Second
+	sessionReconnectMaxDelay  = 30 * time.Second
+	sessionPingInterval       = 60 * time.Second
+)
 
 func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 	db, err := store.Open(resolved.Paths)
@@ -80,9 +92,7 @@ func (s *Supervisor) Close() error {
 		if session.cancelFunc != nil {
 			session.cancelFunc()
 		}
-		if session.client != nil {
-			_ = session.client.Close()
-		}
+		session.closeCurrentClient()
 	}
 	s.sessionsMu.Unlock()
 	if s.listener != nil {
@@ -165,26 +175,31 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 	if err != nil {
 		return nil, err
 	}
+	record := session.currentRecord()
+	client := session.currentClient()
+	if record == nil || client == nil {
+		return nil, fmt.Errorf("websocket session is not connected for identity %s", session.identityName)
+	}
 	switch request.Method {
 	case "direct.send":
 		target, _ := request.Params["target"].(string)
 		text, _ := request.Params["text"].(string)
 		msgType, _ := request.Params["type"].(string)
-		params, err := message.BuildDirectSendRPCParams(session.record, s.manager, target, text, msgType)
+		params, err := message.BuildDirectSendRPCParams(record, s.manager, target, text, msgType)
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "direct.send", params)
+		return client.SendRPC(context.Background(), "direct.send", params)
 	case "inbox.get":
-		params := message.BuildInboxRPCParams(session.record, message.InboxRequest{
+		params := message.BuildInboxRPCParams(record, message.InboxRequest{
 			Limit:      intValue(request.Params["limit"]),
 			With:       stringValue(request.Params["with"]),
 			UnreadOnly: boolValue(request.Params["unread"]),
 			MarkRead:   boolValue(request.Params["mark_read"]),
 		})
-		return session.client.SendRPC(context.Background(), "inbox.get", params)
+		return client.SendRPC(context.Background(), "inbox.get", params)
 	case "direct.get_history":
-		params, err := message.BuildHistoryRPCParams(session.record, message.HistoryRequest{
+		params, err := message.BuildHistoryRPCParams(record, message.HistoryRequest{
 			With:   stringValue(request.Params["with"]),
 			Limit:  intValue(request.Params["limit"]),
 			Cursor: stringValue(request.Params["cursor"]),
@@ -192,7 +207,7 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "direct.get_history", params)
+		return client.SendRPC(context.Background(), "direct.get_history", params)
 	case "inbox.mark_read":
 		rawIDs, _ := request.Params["message_ids"].([]any)
 		messageIDs := make([]string, 0, len(rawIDs))
@@ -201,13 +216,13 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 				messageIDs = append(messageIDs, id)
 			}
 		}
-		params, err := message.BuildMarkReadRPCParams(session.record, message.MarkReadRequest{MessageIDs: messageIDs})
+		params, err := message.BuildMarkReadRPCParams(record, message.MarkReadRequest{MessageIDs: messageIDs})
 		if err != nil {
 			return nil, err
 		}
-		result, err := session.client.SendRPC(context.Background(), "inbox.mark_read", params)
+		result, err := client.SendRPC(context.Background(), "inbox.mark_read", params)
 		if err == nil {
-			_, _ = store.MarkMessagesRead(context.Background(), s.db, session.record.DID, messageIDs)
+			_, _ = store.MarkMessagesRead(context.Background(), s.db, record.DID, messageIDs)
 		}
 		return result, err
 	case "group.create":
@@ -215,7 +230,7 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		params, err := message.BuildGroupCreateRPCParams(session.record, s.manager, serviceDID, message.GroupCreateRequest{
+		params, err := message.BuildGroupCreateRPCParams(record, s.manager, serviceDID, message.GroupCreateRequest{
 			Name:                stringValue(request.Params["name"]),
 			Description:         stringValue(request.Params["description"]),
 			Discoverability:     stringValue(request.Params["discoverability"]),
@@ -233,9 +248,9 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.create", params)
+		return client.SendRPC(context.Background(), "group.create", params)
 	case "group.get_info":
-		params, err := message.BuildGroupGetInfoRPCParams(session.record, message.GroupInfoRequest{
+		params, err := message.BuildGroupGetInfoRPCParams(record, message.GroupInfoRequest{
 			Group:             stringValue(request.Params["group"]),
 			IncludePolicy:     boolValue(request.Params["include_policy"]),
 			IncludeMemberList: boolValue(request.Params["include_member_list"]),
@@ -243,18 +258,18 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.get_info", params)
+		return client.SendRPC(context.Background(), "group.get_info", params)
 	case "group.join":
-		params, err := message.BuildGroupJoinRPCParams(session.record, s.manager, message.GroupJoinRequest{
+		params, err := message.BuildGroupJoinRPCParams(record, s.manager, message.GroupJoinRequest{
 			Group:      stringValue(request.Params["group"]),
 			ReasonText: stringValue(request.Params["reason_text"]),
 		})
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.join", params)
+		return client.SendRPC(context.Background(), "group.join", params)
 	case "group.add":
-		params, err := message.BuildGroupAddRPCParams(session.record, s.manager, message.GroupMemberRequest{
+		params, err := message.BuildGroupAddRPCParams(record, s.manager, message.GroupMemberRequest{
 			Group:      stringValue(request.Params["group"]),
 			Member:     stringValue(request.Params["member"]),
 			Role:       stringValue(request.Params["role"]),
@@ -263,9 +278,9 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.add", params)
+		return client.SendRPC(context.Background(), "group.add", params)
 	case "group.remove":
-		params, err := message.BuildGroupRemoveRPCParams(session.record, s.manager, message.GroupMemberRequest{
+		params, err := message.BuildGroupRemoveRPCParams(record, s.manager, message.GroupMemberRequest{
 			Group:      stringValue(request.Params["group"]),
 			Member:     stringValue(request.Params["member"]),
 			ReasonText: stringValue(request.Params["reason_text"]),
@@ -273,51 +288,51 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.remove", params)
+		return client.SendRPC(context.Background(), "group.remove", params)
 	case "group.leave":
-		params, err := message.BuildGroupLeaveRPCParams(session.record, s.manager, message.GroupLeaveRequest{Group: stringValue(request.Params["group"])})
+		params, err := message.BuildGroupLeaveRPCParams(record, s.manager, message.GroupLeaveRequest{Group: stringValue(request.Params["group"])})
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.leave", params)
+		return client.SendRPC(context.Background(), "group.leave", params)
 	case "group.update_profile":
 		patch, _ := request.Params["patch"].(map[string]any)
-		params, err := message.BuildGroupUpdateProfileRPCParams(session.record, s.manager, stringValue(request.Params["group"]), patch)
+		params, err := message.BuildGroupUpdateProfileRPCParams(record, s.manager, stringValue(request.Params["group"]), patch)
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.update_profile", params)
+		return client.SendRPC(context.Background(), "group.update_profile", params)
 	case "group.update_policy":
 		patch, _ := request.Params["patch"].(map[string]any)
-		params, err := message.BuildGroupUpdatePolicyRPCParams(session.record, s.manager, stringValue(request.Params["group"]), patch)
+		params, err := message.BuildGroupUpdatePolicyRPCParams(record, s.manager, stringValue(request.Params["group"]), patch)
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.update_policy", params)
+		return client.SendRPC(context.Background(), "group.update_policy", params)
 	case "group.send":
-		params, err := message.BuildGroupSendRPCParams(session.record, s.manager, stringValue(request.Params["group"]), stringValue(request.Params["text"]), stringValue(request.Params["type"]))
+		params, err := message.BuildGroupSendRPCParams(record, s.manager, stringValue(request.Params["group"]), stringValue(request.Params["text"]), stringValue(request.Params["type"]))
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.send", params)
+		return client.SendRPC(context.Background(), "group.send", params)
 	case "group.get":
-		params, err := message.BuildGroupGetRPCParams(session.record, message.GroupGetRequest{Group: stringValue(request.Params["group"])})
+		params, err := message.BuildGroupGetRPCParams(record, message.GroupGetRequest{Group: stringValue(request.Params["group"])})
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.get", params)
+		return client.SendRPC(context.Background(), "group.get", params)
 	case "group.list_members":
-		params, err := message.BuildGroupMembersRPCParams(session.record, message.GroupMembersRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"])})
+		params, err := message.BuildGroupMembersRPCParams(record, message.GroupMembersRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"])})
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.list_members", params)
+		return client.SendRPC(context.Background(), "group.list_members", params)
 	case "group.list_messages":
-		params, err := message.BuildGroupMessagesRPCParams(session.record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
+		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
 		if err != nil {
 			return nil, err
 		}
-		return session.client.SendRPC(context.Background(), "group.list_messages", params)
+		return client.SendRPC(context.Background(), "group.list_messages", params)
 	default:
 		return nil, fmt.Errorf("unsupported websocket bridge method: %s", request.Method)
 	}
@@ -334,59 +349,29 @@ func (s *Supervisor) ensureSession(identityName string) (*session, error) {
 	}
 	s.sessionsMu.Lock()
 	existing := s.sessions[identityName]
-	s.sessionsMu.Unlock()
-	if existing != nil && existing.connected {
+	if existing != nil {
+		s.sessionsMu.Unlock()
 		return existing, nil
 	}
-	record, err := s.manager.Load(identityName)
-	if err != nil {
-		return nil, err
-	}
-	userState := identity.EvaluateStoredIdentityUserState(record)
-	if !userState.ReadyForMessaging {
-		return nil, identity.UserRegistrationError(record.IdentityName, userState)
-	}
-	paths, pathErr := s.manager.PathsForIdentity(identityName)
-	if pathErr != nil {
-		return nil, pathErr
-	}
-	authSession := authsdk.NewSession(
-		paths.DIDDocumentPath,
-		paths.Key1PrivatePath,
-		record.IdentityName,
-		record.DID,
-		record.JWTToken,
-		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
-	)
-	if strings.TrimSpace(record.JWTToken) != "" {
-		authSession.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
-		if strings.TrimSpace(s.resolved.MessageServiceURL) != "" {
-			authSession.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
-		}
-	}
-	client, err := NewWSClient(s.resolved, authSession)
-	if err != nil {
-		return nil, err
-	}
-	connectCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := client.Connect(connectCtx); err != nil {
-		return nil, err
-	}
-	record.JWTToken = authSession.CurrentJWT()
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	newSession := &session{
-		record:     record,
-		client:     client,
-		connected:  true,
-		cancelFunc: sessionCancel,
+		identityName: identityName,
+		ctx:          sessionCtx,
+		cancelFunc:   sessionCancel,
+		initResult:   make(chan error, 1),
 	}
-	s.sessionsMu.Lock()
 	s.sessions[identityName] = newSession
 	s.sessionsMu.Unlock()
-	go s.consumeNotifications(sessionCtx, newSession)
-	s.refreshStatus()
-	return newSession, nil
+	go s.runSessionLoop(newSession)
+	select {
+	case err := <-newSession.initResult:
+		if err != nil {
+			return newSession, err
+		}
+		return newSession, nil
+	case <-time.After(15 * time.Second):
+		return newSession, fmt.Errorf("websocket session bootstrap timed out for identity %s", identityName)
+	}
 }
 
 func (s *Supervisor) startKnownSessions(ctx context.Context) error {
@@ -436,15 +421,26 @@ func (s *Supervisor) watchNewIdentities(ctx context.Context) {
 	}
 }
 
-func (s *Supervisor) consumeNotifications(ctx context.Context, session *session) {
+func (s *Supervisor) consumeNotifications(ctx context.Context, session *session, client *WSClient) error {
+	pingTicker := time.NewTicker(sessionPingInterval)
+	defer pingTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case notification, ok := <-session.client.Notifications():
+			return ctx.Err()
+		case <-pingTicker.C:
+			pingCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err := client.Ping(pingCtx)
+			cancel()
+			if err != nil {
+				return fmt.Errorf("websocket ping failed: %w", err)
+			}
+		case notification, ok := <-client.Notifications():
 			if !ok {
-				s.recordSessionError(session.record.IdentityName, session.record.DID, fmt.Errorf("websocket notification loop closed"))
-				return
+				if err := client.ReaderError(); err != nil {
+					return err
+				}
+				return fmt.Errorf("websocket notification loop closed")
 			}
 			s.handleNotification(ctx, session, notification)
 		}
@@ -630,11 +626,16 @@ func (s *Supervisor) refreshStatus() {
 	s.sessionsMu.Lock()
 	sessions := make([]SessionStatus, 0, len(s.sessions))
 	for identityName, session := range s.sessions {
+		record, connected, lastError := session.snapshot()
+		did := ""
+		if record != nil {
+			did = record.DID
+		}
 		sessions = append(sessions, SessionStatus{
 			IdentityName: identityName,
-			DID:          session.record.DID,
-			Connected:    session.connected,
-			LastError:    session.lastError,
+			DID:          did,
+			Connected:    connected,
+			LastError:    lastError,
 		})
 	}
 	s.sessionsMu.Unlock()
@@ -649,13 +650,10 @@ func (s *Supervisor) recordSessionError(identityName string, did string, err err
 	s.sessionsMu.Lock()
 	existingSession := s.sessions[identityName]
 	if existingSession == nil {
-		existingSession = &session{record: &identity.StoredIdentity{IdentityName: identityName, DID: did}}
+		existingSession = &session{identityName: identityName, record: &identity.StoredIdentity{IdentityName: identityName, DID: did}}
 		s.sessions[identityName] = existingSession
 	}
-	existingSession.connected = false
-	if err != nil {
-		existingSession.lastError = err.Error()
-	}
+	existingSession.markDisconnected(err)
 	s.sessionsMu.Unlock()
 	s.refreshStatus()
 }
@@ -809,7 +807,11 @@ func systemEventText(body map[string]any) string {
 }
 
 func (s *Supervisor) fetchMessageServiceDID(session *session) (string, error) {
-	result, err := session.client.SendRPC(context.Background(), "anp.get_capabilities", map[string]any{})
+	client := session.currentClient()
+	if client == nil {
+		return "", fmt.Errorf("websocket session is not connected for identity %s", session.identityName)
+	}
+	result, err := client.SendRPC(context.Background(), "anp.get_capabilities", map[string]any{})
 	if err != nil {
 		return "", err
 	}
@@ -818,4 +820,164 @@ func (s *Supervisor) fetchMessageServiceDID(session *session) (string, error) {
 		return "", fmt.Errorf("message service capabilities response is missing service_did")
 	}
 	return serviceDID, nil
+}
+
+func (s *Supervisor) runSessionLoop(session *session) {
+	delay := sessionReconnectBaseDelay
+	for {
+		select {
+		case <-session.ctx.Done():
+			session.closeCurrentClient()
+			return
+		default:
+		}
+
+		record, client, err := s.connectSession(session.identityName)
+		if err != nil {
+			session.markDisconnected(err)
+			session.signalInitial(err)
+			s.refreshStatus()
+			if !sleepWithContext(session.ctx, delay) {
+				return
+			}
+			delay = minDuration(delay*2, sessionReconnectMaxDelay)
+			continue
+		}
+
+		delay = sessionReconnectBaseDelay
+		session.markConnected(record, client)
+		session.signalInitial(nil)
+		s.refreshStatus()
+
+		err = s.consumeNotifications(session.ctx, session, client)
+		_ = client.Close()
+		session.markDisconnected(err)
+		s.refreshStatus()
+		if session.ctx.Err() != nil {
+			return
+		}
+		if !sleepWithContext(session.ctx, delay) {
+			return
+		}
+		delay = minDuration(delay*2, sessionReconnectMaxDelay)
+	}
+}
+
+func (s *Supervisor) connectSession(identityName string) (*identity.StoredIdentity, *WSClient, error) {
+	record, err := s.manager.Load(identityName)
+	if err != nil {
+		return nil, nil, err
+	}
+	userState := identity.EvaluateStoredIdentityUserState(record)
+	if !userState.ReadyForMessaging {
+		return nil, nil, identity.UserRegistrationError(record.IdentityName, userState)
+	}
+	paths, pathErr := s.manager.PathsForIdentity(identityName)
+	if pathErr != nil {
+		return nil, nil, pathErr
+	}
+	authSession := authsdk.NewSession(
+		paths.DIDDocumentPath,
+		paths.Key1PrivatePath,
+		record.IdentityName,
+		record.DID,
+		record.JWTToken,
+		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+	)
+	if strings.TrimSpace(record.JWTToken) != "" {
+		authSession.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
+		if strings.TrimSpace(s.resolved.MessageServiceURL) != "" {
+			authSession.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
+		}
+	}
+	client, err := NewWSClient(s.resolved, authSession)
+	if err != nil {
+		return nil, nil, err
+	}
+	connectCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := client.Connect(connectCtx); err != nil {
+		_ = client.Close()
+		return nil, nil, err
+	}
+	record.JWTToken = authSession.CurrentJWT()
+	return record, client, nil
+}
+
+func (s *session) currentClient() *WSClient {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.client
+}
+
+func (s *session) currentRecord() *identity.StoredIdentity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.record
+}
+
+func (s *session) snapshot() (*identity.StoredIdentity, bool, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.record, s.connected, s.lastError
+}
+
+func (s *session) markConnected(record *identity.StoredIdentity, client *WSClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil && s.client != client {
+		_ = s.client.Close()
+	}
+	s.record = record
+	s.client = client
+	s.connected = true
+	s.lastError = ""
+}
+
+func (s *session) markDisconnected(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		_ = s.client.Close()
+	}
+	s.client = nil
+	s.connected = false
+	if err != nil && !errors.Is(err, context.Canceled) {
+		s.lastError = err.Error()
+	}
+}
+
+func (s *session) closeCurrentClient() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.client != nil {
+		_ = s.client.Close()
+		s.client = nil
+	}
+	s.connected = false
+}
+
+func (s *session) signalInitial(err error) {
+	s.initOnce.Do(func() {
+		s.initResult <- err
+		close(s.initResult)
+	})
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func minDuration(value time.Duration, max time.Duration) time.Duration {
+	if value > max {
+		return max
+	}
+	return value
 }

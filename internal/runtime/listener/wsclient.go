@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,6 +32,18 @@ type WSClient struct {
 	writeMu       sync.Mutex
 }
 
+func (c *WSClient) ReaderError() error {
+	if c == nil {
+		return nil
+	}
+	raw := c.readerErr.Load()
+	if raw == nil {
+		return nil
+	}
+	err, _ := raw.(error)
+	return err
+}
+
 func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient, error) {
 	if auth == nil {
 		return nil, fmt.Errorf("auth session is required for websocket mode")
@@ -44,8 +57,8 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		targetWSURL = strings.Replace(targetHTTPURL, "https://", "wss://", 1)
 		targetWSURL = strings.Replace(targetWSURL, "http://", "ws://", 1)
 	}
-	targetHTTPURL = strings.TrimRight(targetHTTPURL, "/") + message.MessageWSEndpoint
-	targetWSURL = strings.TrimRight(targetWSURL, "/") + message.MessageWSEndpoint
+	targetHTTPURL = appendEndpointIfMissing(targetHTTPURL, message.MessageWSEndpoint)
+	targetWSURL = appendEndpointIfMissing(targetWSURL, message.MessageWSEndpoint)
 	return &WSClient{
 		requestURL:    targetHTTPURL,
 		websocketURL:  targetWSURL,
@@ -57,6 +70,22 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 }
 
 func (c *WSClient) Connect(ctx context.Context) error {
+	if token := strings.TrimSpace(c.auth.CurrentJWT()); token != "" {
+		conn, response, err := c.dial(ctx, map[string]string{
+			"Authorization": "Bearer " + token,
+		})
+		if err == nil {
+			if response != nil {
+				c.auth.CaptureToken(c.requestURL, response.Header)
+			}
+			c.conn = conn
+			go c.readLoop()
+			return nil
+		}
+		if response == nil || response.StatusCode != http.StatusUnauthorized {
+			return formatDialError(err, response)
+		}
+	}
 	headers, err := c.auth.Headers(c.requestURL, http.MethodGet, nil, false)
 	if err != nil {
 		return err
@@ -77,7 +106,7 @@ func (c *WSClient) Connect(ctx context.Context) error {
 			conn, response, err = c.dial(ctx, retryHeaders)
 		}
 		if err != nil {
-			return err
+			return formatDialError(err, response)
 		}
 	}
 	if response != nil {
@@ -98,6 +127,29 @@ func (c *WSClient) dial(ctx context.Context, headers map[string]string) (*websoc
 		HTTPHeader:      httpHeaders,
 		CompressionMode: websocket.CompressionDisabled,
 	})
+}
+
+func formatDialError(err error, response *http.Response) error {
+	if err == nil {
+		return nil
+	}
+	if response == nil || response.Body == nil {
+		return err
+	}
+	defer response.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(response.Body, 4096))
+	if readErr != nil || len(raw) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(raw)))
+}
+
+func appendEndpointIfMissing(base string, endpoint string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(trimmed, endpoint) {
+		return trimmed
+	}
+	return trimmed + endpoint
 }
 
 func (c *WSClient) Close() error {

@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -13,8 +15,9 @@ import (
 )
 
 const (
-	ModeHTTP      = "http"
-	ModeWebSocket = "websocket"
+	ModeHTTP               = "http"
+	ModeWebSocket          = "websocket"
+	maxUnixSocketPathBytes = 100
 )
 
 type Resolved struct {
@@ -34,6 +37,7 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	if socketPath == "" {
 		socketPath = filepath.Join(resolved.Paths.StateDir, "runtime", "message-daemon.sock")
 	}
+	socketPath = normalizeSocketPath(socketPath)
 	return Resolved{
 		Mode:       mode,
 		SocketPath: socketPath,
@@ -102,4 +106,12 @@ func CallLocalBridge(request BridgeRequest, resolved *appconfig.Resolved) (map[s
 		return map[string]any{}, nil
 	}
 	return response.Result, nil
+}
+
+func normalizeSocketPath(path string) string {
+	if len(path) <= maxUnixSocketPathBytes {
+		return path
+	}
+	sum := sha256.Sum256([]byte(path))
+	return filepath.Join(os.TempDir(), "awiki-cli-"+hex.EncodeToString(sum[:8])+".sock")
 }

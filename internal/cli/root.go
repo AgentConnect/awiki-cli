@@ -188,6 +188,18 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupMembers
 	case "group.messages":
 		return a.runGroupMessages
+	case "page.create":
+		return a.runPageCreate
+	case "page.list":
+		return a.runPageList
+	case "page.get":
+		return a.runPageGet
+	case "page.update":
+		return a.runPageUpdate
+	case "page.rename":
+		return a.runPageRename
+	case "page.delete":
+		return a.runPageDelete
 	case "runtime.status":
 		return a.runRuntimeStatus
 	case "runtime.setup":

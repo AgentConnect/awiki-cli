@@ -157,10 +157,10 @@ awiki-cli people following
 awiki-cli people contacts list
 awiki-cli people contacts save --did DID --handle HANDLE --reason "..."
 
-awiki-cli page create --slug jd --title "Hiring" --markdown-file ./jd.md
+awiki-cli page create --slug jd --title "Hiring" --markdown-file ./jd.md [--visibility public|draft|unlisted]
 awiki-cli page list
 awiki-cli page get --slug jd
-awiki-cli page update --slug jd [--title "..."] [--markdown "..."] [--markdown-file ./x.md]
+awiki-cli page update --slug jd [--title "..."] [--markdown "..."] [--markdown-file ./x.md] [--visibility public|draft|unlisted]
 awiki-cli page rename --slug jd --to hiring
 awiki-cli page delete --slug hiring
 
