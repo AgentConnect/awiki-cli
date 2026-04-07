@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/coder/websocket"
 )
 
@@ -43,8 +44,8 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		targetWSURL = strings.Replace(targetHTTPURL, "https://", "wss://", 1)
 		targetWSURL = strings.Replace(targetWSURL, "http://", "ws://", 1)
 	}
-	targetHTTPURL = strings.TrimRight(targetHTTPURL, "/") + "/message/ws"
-	targetWSURL = strings.TrimRight(targetWSURL, "/") + "/message/ws"
+	targetHTTPURL = strings.TrimRight(targetHTTPURL, "/") + message.MessageWSEndpoint
+	targetWSURL = strings.TrimRight(targetWSURL, "/") + message.MessageWSEndpoint
 	return &WSClient{
 		requestURL:    targetHTTPURL,
 		websocketURL:  targetWSURL,

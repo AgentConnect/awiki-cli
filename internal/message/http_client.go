@@ -14,9 +14,21 @@ import (
 
 type Transport interface {
 	SendDirect(context.Context, SendRequest) (*directSendResult, error)
+	SendGroup(context.Context, SendRequest) (*groupSendResult, error)
 	GetInbox(context.Context, InboxRequest) (map[string]any, error)
 	GetHistory(context.Context, HistoryRequest) (map[string]any, error)
 	MarkRead(context.Context, MarkReadRequest) (map[string]any, error)
+	CreateGroup(context.Context, GroupCreateRequest) (map[string]any, error)
+	GetGroupInfo(context.Context, GroupInfoRequest) (map[string]any, error)
+	JoinGroup(context.Context, GroupJoinRequest) (map[string]any, error)
+	AddGroupMember(context.Context, GroupMemberRequest) (map[string]any, error)
+	RemoveGroupMember(context.Context, GroupMemberRequest) (map[string]any, error)
+	LeaveGroup(context.Context, GroupLeaveRequest) (map[string]any, error)
+	GetGroup(context.Context, GroupGetRequest) (map[string]any, error)
+	ListGroupMembers(context.Context, GroupMembersRequest) (map[string]any, error)
+	ListGroupMessages(context.Context, GroupMessagesRequest) (map[string]any, error)
+	UpdateGroupProfile(context.Context, GroupGetRequest, map[string]any) (map[string]any, error)
+	UpdateGroupPolicy(context.Context, GroupGetRequest, map[string]any) (map[string]any, error)
 }
 
 type ServiceError struct {
@@ -101,6 +113,21 @@ func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*d
 	return &result, nil
 }
 
+func (t *HTTPTransport) SendGroup(ctx context.Context, request SendRequest) (*groupSendResult, error) {
+	params, err := BuildGroupSendRPCParams(t.auth.record, nil, request.Group, request.Text, request.MessageType)
+	if err != nil {
+		return nil, err
+	}
+	var result groupSendResult
+	if err := t.rpcCall(ctx, "group.send", params, &result); err != nil {
+		return nil, err
+	}
+	if result.GroupDID == "" {
+		result.GroupDID = request.Group
+	}
+	return &result, nil
+}
+
 func (t *HTTPTransport) GetInbox(ctx context.Context, request InboxRequest) (map[string]any, error) {
 	params := map[string]any{
 		"meta": map[string]any{
@@ -158,6 +185,123 @@ func (t *HTTPTransport) MarkRead(ctx context.Context, request MarkReadRequest) (
 		},
 	}
 	return t.rpcMapCall(ctx, "inbox.mark_read", params)
+}
+
+func (t *HTTPTransport) CreateGroup(ctx context.Context, request GroupCreateRequest) (map[string]any, error) {
+	serviceDID, err := t.GetMessageServiceDID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	params, err := BuildGroupCreateRPCParams(t.auth.record, nil, serviceDID, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.create", params)
+}
+
+func (t *HTTPTransport) GetGroupInfo(ctx context.Context, request GroupInfoRequest) (map[string]any, error) {
+	params, err := BuildGroupGetInfoRPCParams(t.auth.record, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.get_info", params)
+}
+
+func (t *HTTPTransport) JoinGroup(ctx context.Context, request GroupJoinRequest) (map[string]any, error) {
+	params, err := BuildGroupJoinRPCParams(t.auth.record, nil, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.join", params)
+}
+
+func (t *HTTPTransport) AddGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
+	params, err := BuildGroupAddRPCParams(t.auth.record, nil, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.add", params)
+}
+
+func (t *HTTPTransport) RemoveGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
+	params, err := BuildGroupRemoveRPCParams(t.auth.record, nil, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.remove", params)
+}
+
+func (t *HTTPTransport) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (map[string]any, error) {
+	params, err := BuildGroupLeaveRPCParams(t.auth.record, nil, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.leave", params)
+}
+
+func (t *HTTPTransport) GetGroup(ctx context.Context, request GroupGetRequest) (map[string]any, error) {
+	params, err := BuildGroupGetRPCParams(t.auth.record, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.get", params)
+}
+
+func (t *HTTPTransport) ListGroupMembers(ctx context.Context, request GroupMembersRequest) (map[string]any, error) {
+	params, err := BuildGroupMembersRPCParams(t.auth.record, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.list_members", params)
+}
+
+func (t *HTTPTransport) ListGroupMessages(ctx context.Context, request GroupMessagesRequest) (map[string]any, error) {
+	params, err := BuildGroupMessagesRPCParams(t.auth.record, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.list_messages", params)
+}
+
+func (t *HTTPTransport) UpdateGroupProfile(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
+	params, err := BuildGroupUpdateProfileRPCParams(t.auth.record, nil, request.Group, patch)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.update_profile", params)
+}
+
+func (t *HTTPTransport) UpdateGroupPolicy(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
+	params, err := BuildGroupUpdatePolicyRPCParams(t.auth.record, nil, request.Group, patch)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.update_policy", params)
+}
+
+func (t *HTTPTransport) GetMessageServiceDID(ctx context.Context) (string, error) {
+	result, err := t.rpcMapCall(ctx, "anp.get_capabilities", map[string]any{
+		"meta": map[string]any{
+			"anp_version":      "1.0",
+			"profile":          "anp.core.binding.v1",
+			"security_profile": "transport-protected",
+			"sender_did":       t.auth.record.DID,
+			"operation_id":     "op-" + generateOperationID(),
+			"created_at":       nowRFC3339(),
+		},
+		"body": map[string]any{},
+		"client": map[string]any{
+			"response_mode": "wait-final",
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	serviceDID := stringFromAny(result["service_did"])
+	if serviceDID == "" {
+		return "", fmt.Errorf("message service capabilities response is missing service_did")
+	}
+	return serviceDID, nil
 }
 
 func (t *HTTPTransport) rpcMapCall(ctx context.Context, method string, params map[string]any) (map[string]any, error) {

@@ -41,6 +41,9 @@ func (s *Service) runtimeConfig() runtime.Resolved {
 }
 
 func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult, error) {
+	if strings.TrimSpace(request.Group) != "" {
+		return s.sendGroup(ctx, request)
+	}
 	if strings.TrimSpace(request.Target) == "" {
 		return nil, ErrTargetRequired
 	}
@@ -82,11 +85,14 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		request.Scope = "all"
 	}
 	if request.Scope == "group" {
-		return nil, ErrGroupNotSupported
+		return s.groupInbox(ctx, request)
 	}
 	record, err := s.requireActiveIdentity(request.IdentityName)
 	if err != nil {
 		return nil, err
+	}
+	if request.Scope == "all" {
+		return s.allInbox(ctx, record, request)
 	}
 	peerDID := ""
 	peerHandle := ""
@@ -243,38 +249,143 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 	if err != nil {
 		return nil, err
 	}
-	transport, warnings, err := s.transportFor(record)
-	if err != nil {
-		return nil, err
-	}
-	result, err := transport.MarkRead(ctx, request)
-	if err != nil {
-		if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
-			result, err = httpTransport.MarkRead(ctx, request)
-			if err == nil {
-				warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
-				warnings = append(warnings, httpWarnings...)
-			}
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
 	db, openErr := store.Open(s.resolved.Paths)
 	if openErr == nil {
 		defer db.Close()
-		if _, markErr := store.MarkMessagesRead(ctx, db, record.DID, request.MessageIDs); markErr != nil {
-			warnings = append(warnings, fmt.Sprintf("Failed to mark local messages read: %v", markErr))
+		_ = store.EnsureSchema(ctx, db)
+	}
+	directIDs := make([]string, 0, len(request.MessageIDs))
+	groupIDs := make([]string, 0, len(request.MessageIDs))
+	if db != nil {
+		rows, queryErr := store.ListMessagesByIDs(ctx, db, record.DID, request.MessageIDs)
+		if queryErr == nil {
+			known := make(map[string]map[string]any, len(rows))
+			for _, row := range rows {
+				known[stringFromAny(row["msg_id"])] = row
+			}
+			for _, id := range request.MessageIDs {
+				row, ok := known[id]
+				if ok && (stringFromAny(row["group_did"]) != "" || stringFromAny(row["group_id"]) != "") {
+					groupIDs = append(groupIDs, id)
+					continue
+				}
+				directIDs = append(directIDs, id)
+			}
+		} else {
+			directIDs = append(directIDs, request.MessageIDs...)
+		}
+	} else {
+		directIDs = append(directIDs, request.MessageIDs...)
+	}
+	warnings := make([]string, 0)
+	updatedCount := 0
+	if len(directIDs) > 0 {
+		transport, transportWarnings, transportErr := s.transportFor(record)
+		if transportErr != nil {
+			return nil, transportErr
+		}
+		result, markErr := transport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
+		if markErr != nil {
+			if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
+				result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
+				if markErr == nil {
+					transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
+					transportWarnings = append(transportWarnings, httpWarnings...)
+				}
+			}
+		}
+		if markErr != nil {
+			return nil, markErr
+		}
+		warnings = append(warnings, transportWarnings...)
+		updatedCount += intValueFromAny(result["updated_count"], len(directIDs))
+	}
+	if db != nil {
+		localIDs := append(append([]string{}, directIDs...), groupIDs...)
+		if len(localIDs) > 0 {
+			if count, markErr := store.MarkMessagesRead(ctx, db, record.DID, localIDs); markErr != nil {
+				warnings = append(warnings, fmt.Sprintf("Failed to mark local messages read: %v", markErr))
+			} else if updatedCount == 0 {
+				updatedCount = int(count)
+			} else {
+				updatedCount += len(groupIDs)
+			}
 		}
 	}
 	return &CommandResult{
 		Data: map[string]any{
 			"action":        "mark_read",
-			"updated_count": intValueFromAny(result["updated_count"], 0),
+			"updated_count": updatedCount,
 			"message_ids":   request.MessageIDs,
 		},
-		Summary:  fmt.Sprintf("Marked %d messages as read", intValueFromAny(result["updated_count"], 0)),
-		Warnings: warnings,
+		Summary:  fmt.Sprintf("Marked %d messages as read", updatedCount),
+		Warnings: compactWarnings(warnings),
+	}, nil
+}
+
+func (s *Service) groupInbox(ctx context.Context, request InboxRequest) (*CommandResult, error) {
+	record, err := s.requireActiveIdentity(request.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	groupMessages, err := s.readGroupInboxFromCache(ctx, record, request.Group, request.Limit, request.UnreadOnly)
+	if err != nil {
+		return nil, err
+	}
+	if request.MarkRead {
+		ids := collectMessageIDs(groupMessages)
+		if len(ids) > 0 {
+			_, _ = s.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: ids})
+			for _, message := range groupMessages {
+				message["is_read"] = true
+			}
+		}
+	}
+	return &CommandResult{
+		Data: map[string]any{
+			"messages": groupMessages,
+			"total":    len(groupMessages),
+			"source":   "local_group_cache",
+			"group":    request.Group,
+		},
+		Summary:  fmt.Sprintf("Loaded %d group inbox messages", len(groupMessages)),
+		Warnings: nil,
+	}, nil
+}
+
+func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity, request InboxRequest) (*CommandResult, error) {
+	directRequest := request
+	directRequest.Scope = "direct"
+	directRequest.Group = ""
+	directResult, err := s.Inbox(ctx, directRequest)
+	if err != nil {
+		return nil, err
+	}
+	groupMessages, groupErr := s.readAllLocalGroupInbox(ctx, record, request.Limit, request.UnreadOnly)
+	warnings := make([]string, 0)
+	if groupErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Failed to read local group inbox cache: %v", groupErr))
+	}
+	directMessages := messagesFromResult(directResult.Data["messages"])
+	merged := mergeInboxMessages(request.Limit, directMessages, groupMessages)
+	if request.MarkRead {
+		ids := collectMessageIDs(merged)
+		if len(ids) > 0 {
+			_, _ = s.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: ids})
+			for _, message := range merged {
+				message["is_read"] = true
+			}
+		}
+	}
+	warnings = append(warnings, directResult.Warnings...)
+	return &CommandResult{
+		Data: map[string]any{
+			"messages": merged,
+			"total":    len(merged),
+			"source":   "remote_http+local_group_cache",
+		},
+		Summary:  fmt.Sprintf("Loaded %d inbox messages", len(merged)),
+		Warnings: compactWarnings(warnings),
 	}, nil
 }
 
@@ -573,7 +684,7 @@ func sourceWithDefault(result map[string]any, mode string) string {
 	return "remote_http"
 }
 
-func decodeMapInto(source map[string]any, destination *directSendResult) {
+func decodeMapInto(source map[string]any, destination any) {
 	if source == nil || destination == nil {
 		return
 	}

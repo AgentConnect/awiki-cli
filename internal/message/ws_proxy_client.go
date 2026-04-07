@@ -31,6 +31,20 @@ func (t *WSProxyTransport) SendDirect(ctx context.Context, request SendRequest) 
 	return sendResult, nil
 }
 
+func (t *WSProxyTransport) SendGroup(ctx context.Context, request SendRequest) (*groupSendResult, error) {
+	result, err := t.call("group.send", map[string]any{
+		"group": request.Group,
+		"text":  request.Text,
+		"type":  request.MessageType,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sendResult := &groupSendResult{}
+	decodeMapInto(result, sendResult)
+	return sendResult, nil
+}
+
 func (t *WSProxyTransport) GetInbox(ctx context.Context, request InboxRequest) (map[string]any, error) {
 	return t.call("inbox.get", map[string]any{
 		"with":      request.With,
@@ -51,6 +65,77 @@ func (t *WSProxyTransport) GetHistory(ctx context.Context, request HistoryReques
 
 func (t *WSProxyTransport) MarkRead(ctx context.Context, request MarkReadRequest) (map[string]any, error) {
 	return t.call("inbox.mark_read", map[string]any{"message_ids": request.MessageIDs})
+}
+
+func (t *WSProxyTransport) CreateGroup(ctx context.Context, request GroupCreateRequest) (map[string]any, error) {
+	return t.call("group.create", map[string]any{
+		"name":                   request.Name,
+		"description":            request.Description,
+		"discoverability":        request.Discoverability,
+		"admission_mode":         request.AdmissionMode,
+		"slug":                   request.Slug,
+		"goal":                   request.Goal,
+		"rules":                  request.Rules,
+		"message_prompt":         request.MessagePrompt,
+		"doc_url":                request.DocURL,
+		"attachments_allowed":    request.AttachmentsAllowed,
+		"max_members":            request.MaxMembers,
+		"member_max_messages":    request.MemberMaxMessages,
+		"member_max_total_chars": request.MemberMaxTotalChars,
+	})
+}
+
+func (t *WSProxyTransport) GetGroupInfo(ctx context.Context, request GroupInfoRequest) (map[string]any, error) {
+	return t.call("group.get_info", map[string]any{
+		"group":               request.Group,
+		"include_policy":      request.IncludePolicy,
+		"include_member_list": request.IncludeMemberList,
+	})
+}
+
+func (t *WSProxyTransport) JoinGroup(ctx context.Context, request GroupJoinRequest) (map[string]any, error) {
+	return t.call("group.join", map[string]any{"group": request.Group, "reason_text": request.ReasonText})
+}
+
+func (t *WSProxyTransport) AddGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
+	return t.call("group.add", map[string]any{
+		"group":       request.Group,
+		"member":      request.Member,
+		"role":        request.Role,
+		"reason_text": request.ReasonText,
+	})
+}
+
+func (t *WSProxyTransport) RemoveGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
+	return t.call("group.remove", map[string]any{
+		"group":       request.Group,
+		"member":      request.Member,
+		"reason_text": request.ReasonText,
+	})
+}
+
+func (t *WSProxyTransport) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (map[string]any, error) {
+	return t.call("group.leave", map[string]any{"group": request.Group})
+}
+
+func (t *WSProxyTransport) GetGroup(ctx context.Context, request GroupGetRequest) (map[string]any, error) {
+	return t.call("group.get", map[string]any{"group": request.Group})
+}
+
+func (t *WSProxyTransport) ListGroupMembers(ctx context.Context, request GroupMembersRequest) (map[string]any, error) {
+	return t.call("group.list_members", map[string]any{"group": request.Group, "limit": request.Limit})
+}
+
+func (t *WSProxyTransport) ListGroupMessages(ctx context.Context, request GroupMessagesRequest) (map[string]any, error) {
+	return t.call("group.list_messages", map[string]any{"group": request.Group, "limit": request.Limit, "cursor": request.Cursor})
+}
+
+func (t *WSProxyTransport) UpdateGroupProfile(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
+	return t.call("group.update_profile", map[string]any{"group": request.Group, "patch": patch})
+}
+
+func (t *WSProxyTransport) UpdateGroupPolicy(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
+	return t.call("group.update_policy", map[string]any{"group": request.Group, "patch": patch})
 }
 
 func (t *WSProxyTransport) call(method string, params map[string]any) (map[string]any, error) {

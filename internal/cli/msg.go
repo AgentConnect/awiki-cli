@@ -43,7 +43,7 @@ func (a *App) messageExit(err error, hint string) error {
 		}
 	}
 	switch {
-	case errors.Is(err, message.ErrTargetRequired), errors.Is(err, message.ErrTextRequired), errors.Is(err, message.ErrGroupNotSupported), errors.Is(err, message.ErrMessageNotFound):
+	case errors.Is(err, message.ErrTargetRequired), errors.Is(err, message.ErrGroupRequired), errors.Is(err, message.ErrMemberRequired), errors.Is(err, message.ErrTextRequired), errors.Is(err, message.ErrMessageNotFound):
 		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("setup_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg commands.")
@@ -65,11 +65,11 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 	textFile, _ := cmd.Flags().GetString("text-file")
 	messageType, _ := cmd.Flags().GetString("type")
 	secure, _ := cmd.Flags().GetString("secure")
-	if strings.TrimSpace(group) != "" {
-		return a.messageExit(message.ErrGroupNotSupported, "Use direct messaging for now; group messaging will be implemented after direct plain flows.")
+	if strings.TrimSpace(group) == "" && strings.TrimSpace(to) == "" {
+		return output.NewExitError("invalid_argument", 2, "msg send requires either --to or --group.", "Usage: awiki-cli msg send --to <handle|did> --text \"Hello\" or awiki-cli msg send --group <group_did> --text \"Hello group\"")
 	}
-	if strings.TrimSpace(to) == "" {
-		return output.NewExitError("invalid_argument", 2, "msg send requires --to for direct messaging.", "Usage: awiki-cli msg send --to <handle|did> --text \"Hello\"")
+	if strings.TrimSpace(group) != "" && strings.TrimSpace(to) != "" {
+		return output.NewExitError("invalid_argument", 2, "msg send accepts either --to or --group, but not both.", "Choose direct messaging with --to or group messaging with --group.")
 	}
 	if strings.TrimSpace(text) == "" && strings.TrimSpace(textFile) != "" {
 		raw, err := os.ReadFile(textFile)
@@ -88,23 +88,30 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 	request := message.SendRequest{
 		IdentityName: a.globals.Identity,
 		Target:       to,
+		Group:        group,
 		Text:         text,
 		MessageType:  messageType,
 		SecureMode:   secure,
 	}
 	if a.globals.DryRun {
+		action := "direct.send"
+		target := map[string]any{"did": to, "kind": "direct"}
+		if strings.TrimSpace(group) != "" {
+			action = "group.send"
+			target = map[string]any{"did": group, "kind": "group"}
+		}
 		data := map[string]any{
 			"plan": map[string]any{
-				"action":       "direct.send",
+				"action":       action,
 				"identity":     a.globals.Identity,
-				"target":       to,
+				"target":       target,
 				"message_type": defaultString(messageType, "text"),
 				"runtime_mode": service.Config().RuntimeMode,
 				"transport":    service.Config().RuntimeMode,
 				"local_writes": []string{"messages"},
 			},
 		}
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: direct send planned", nil, a.identityMeta())
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: message send planned", nil, a.identityMeta())
 	}
 	result, err := service.Send(context.Background(), request)
 	if err != nil {
@@ -120,9 +127,6 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 	unread, _ := cmd.Flags().GetBool("unread")
 	limit, _ := cmd.Flags().GetInt("limit")
 	markRead, _ := cmd.Flags().GetBool("mark-read")
-	if strings.TrimSpace(group) != "" || strings.EqualFold(scope, "group") {
-		return a.messageExit(message.ErrGroupNotSupported, "Direct inbox is implemented first. Group inbox will follow after direct messaging is stable.")
-	}
 	service, format, err := a.messageService()
 	if err != nil {
 		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
@@ -131,6 +135,7 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 		IdentityName: a.globals.Identity,
 		Scope:        scope,
 		With:         with,
+		Group:        group,
 		Limit:        limit,
 		UnreadOnly:   unread,
 		MarkRead:     markRead,
@@ -140,7 +145,9 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 			"action":       "inbox.get",
 			"identity":     a.globals.Identity,
 			"runtime_mode": service.Config().RuntimeMode,
+			"scope":        scope,
 			"with":         with,
+			"group":        group,
 			"limit":        limit,
 			"mark_read":    markRead,
 		}}

@@ -20,6 +20,8 @@ type directPayload struct {
 	Body   map[string]any `json:"body"`
 }
 
+type signedPayload = directPayload
+
 const OriginProofScheme = "anp-rfc9421-origin-proof-v1"
 
 func buildDirectTextPayload(senderDID string, targetDID string, text string, contentType string) (directPayload, error) {
@@ -53,6 +55,10 @@ func buildDirectTextPayload(senderDID string, targetDID string, text string, con
 }
 
 func buildSenderProof(auth *authContext, payload directPayload, targetDID string) (map[string]any, error) {
+	return buildActorProof(auth, signedPayload(payload), "anp://agent/"+strictPercentEncode(targetDID))
+}
+
+func buildActorProof(auth *authContext, payload signedPayload, logicalTargetURI string) (map[string]any, error) {
 	keyID := verificationMethodID(auth.record.DIDDocument)
 	if keyID == "" {
 		return nil, fmt.Errorf("identity %s is missing an authentication verification method", auth.record.IdentityName)
@@ -68,20 +74,20 @@ func buildSenderProof(auth *authContext, payload directPayload, targetDID string
 	}
 	signatureInput, err := anpsdk.BuildIMSignatureInput(keyID, anpsdk.IMGenerationOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("build sender proof signatureInput: %w", err)
+		return nil, fmt.Errorf("build actor proof signatureInput: %w", err)
 	}
 	parsed, err := anpsdk.ParseIMSignatureInput(signatureInput)
 	if err != nil {
-		return nil, fmt.Errorf("parse sender proof signatureInput: %w", err)
+		return nil, fmt.Errorf("parse actor proof signatureInput: %w", err)
 	}
 	contentDigest := anpsdk.BuildIMContentDigest(canonicalPayload)
-	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+strictPercentEncode(targetDID), contentDigest, parsed)
+	signatureBase, err := buildBusinessSignatureBase(payload.Method, logicalTargetURI, contentDigest, parsed)
 	if err != nil {
 		return nil, err
 	}
 	signatureBytes, err := signBusinessProof(auth.privateKey, []byte(signatureBase))
 	if err != nil {
-		return nil, fmt.Errorf("sign sender proof: %w", err)
+		return nil, fmt.Errorf("sign actor proof: %w", err)
 	}
 	return map[string]any{
 		"contentDigest":  contentDigest,

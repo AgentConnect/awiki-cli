@@ -14,6 +14,7 @@
    - 若需要做系统兼容性壳层，可放在 TypeScript/Node 的薄壳中，不在 Go 核心里引入 CGO。
    - 对外身份标识统一使用 **handle**；`did` 只在协议级定位需要时出现；`user_id` 仅允许作为内部实现字段存在，不得出现在公共 CLI 参数、help、schema、docs 示例或结构化输出中。
    - 如果命令实现涉及服务端 API 变化，需要同步更新对应服务仓库下的 API 文档。
+   - 新增或修改本地测试、fixture、协议示例时，默认使用 `e1_...` 形态的 DID profile 后缀（例如 `e1_alice`、`e1_group`），不要使用裸 `e1`。
 
 ## 项目背景
 
@@ -59,7 +60,8 @@
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1。  
 **internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
-**internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，当前优先支持 direct plain messaging。  
+**internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  
+**internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。  
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。  
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。  
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
@@ -78,14 +80,17 @@
 **internal/store/schema_test.go**: schema 初始化和 version 测试。  
 **internal/store/dao_test.go**: DAO、thread view、owner rebinding、E2EE 清理测试。  
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
-**internal/message/types.go**: direct message 命令输入/输出模型与 transport 错误定义。  
+**internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: direct.send 的 sender_proof 构造与业务签名基线。  
-**internal/message/http_client.go**: direct message 的 HTTP JSON-RPC adapter。  
-**internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 adapter。  
-**internal/message/service.go**: direct plain messaging 的业务编排层，融合 transport、identity、store。  
+**internal/message/proof.go**: direct/group 消息与 group lifecycle actor proof 的业务签名基线。  
+**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。  
+**internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。  
+**internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。  
+**internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store。  
+**internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。  
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。  
 **internal/message/proof_test.go**: sender_proof round-trip 测试。  
+**internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。  
 **internal/runtime/config.go**: runtime mode（http/websocket）与本地 websocket bridge 配置解析。  
 **internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
 **internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
@@ -134,12 +139,14 @@
   - `doctor` / `config show` 的数据库诊断增强
 - Phase 5（当前首版已落地 direct plain）：
   - `msg send --to`
+  - `msg send --group`
   - `msg inbox`
   - `msg history --with`
   - `msg mark-read`
+  - `group create/get/join/add/remove/leave/update/members/messages`
   - HTTP JSON-RPC adapter
-  - websocket runtime bridge / local daemon client skeleton
-  - sender_proof 生成与本地消息落库
+  - websocket runtime bridge / local daemon direct+group client
+  - direct/group actor proof 生成与本地消息落库
 - Phase 7（当前首版已落地 websocket 服务端，先于 secure phase 提前接入）：
   - `runtime status`
   - `runtime setup`
@@ -148,7 +155,7 @@
   - 隐藏命令 `runtime listener run`
   - 后台 listener 进程、pid/status/socket 管理
   - 本地 daemon / unix socket bridge 服务端
-  - 远端单 websocket 连接与 direct.incoming 下行落库
+  - 远端单 websocket 连接与 `direct.incoming` / `group.incoming` / `group.state_changed` 下行落库
 - Phase 7.1（当前首版已落地 ANP SDK 鉴权）：
   - 基于 `DIDWbaAuthHeader` 的 HTTP hop auth
   - 401 后自动重试与 challenge 处理
@@ -162,7 +169,7 @@
 ### 尚未实现
 
 - `msg` 域中 direct plain 已实现，listener 服务端首版也已实现，但 websocket 远端真实联调与 secure E2EE 仍未完成
-- `group`、`people`、`page` 的真实业务路径大多仍为 stub
+- `group` 域的 plain lifecycle / local view / group messaging 已接入，`people`、`page` 仍大多为 stub
 - secure E2EE 业务流、group plain、发布链路属于后续阶段
 
 ## 开发与验证约定

@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -209,6 +210,114 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			_, _ = store.MarkMessagesRead(context.Background(), s.db, session.record.DID, messageIDs)
 		}
 		return result, err
+	case "group.create":
+		serviceDID, err := s.fetchMessageServiceDID(session)
+		if err != nil {
+			return nil, err
+		}
+		params, err := message.BuildGroupCreateRPCParams(session.record, s.manager, serviceDID, message.GroupCreateRequest{
+			Name:                stringValue(request.Params["name"]),
+			Description:         stringValue(request.Params["description"]),
+			Discoverability:     stringValue(request.Params["discoverability"]),
+			AdmissionMode:       stringValue(request.Params["admission_mode"]),
+			Slug:                stringValue(request.Params["slug"]),
+			Goal:                stringValue(request.Params["goal"]),
+			Rules:               stringValue(request.Params["rules"]),
+			MessagePrompt:       stringValue(request.Params["message_prompt"]),
+			DocURL:              stringValue(request.Params["doc_url"]),
+			AttachmentsAllowed:  boolPtrValue(request.Params["attachments_allowed"]),
+			MaxMembers:          stringValue(request.Params["max_members"]),
+			MemberMaxMessages:   int64PtrValue(request.Params["member_max_messages"]),
+			MemberMaxTotalChars: int64PtrValue(request.Params["member_max_total_chars"]),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.create", params)
+	case "group.get_info":
+		params, err := message.BuildGroupGetInfoRPCParams(session.record, message.GroupInfoRequest{
+			Group:             stringValue(request.Params["group"]),
+			IncludePolicy:     boolValue(request.Params["include_policy"]),
+			IncludeMemberList: boolValue(request.Params["include_member_list"]),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.get_info", params)
+	case "group.join":
+		params, err := message.BuildGroupJoinRPCParams(session.record, s.manager, message.GroupJoinRequest{
+			Group:      stringValue(request.Params["group"]),
+			ReasonText: stringValue(request.Params["reason_text"]),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.join", params)
+	case "group.add":
+		params, err := message.BuildGroupAddRPCParams(session.record, s.manager, message.GroupMemberRequest{
+			Group:      stringValue(request.Params["group"]),
+			Member:     stringValue(request.Params["member"]),
+			Role:       stringValue(request.Params["role"]),
+			ReasonText: stringValue(request.Params["reason_text"]),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.add", params)
+	case "group.remove":
+		params, err := message.BuildGroupRemoveRPCParams(session.record, s.manager, message.GroupMemberRequest{
+			Group:      stringValue(request.Params["group"]),
+			Member:     stringValue(request.Params["member"]),
+			ReasonText: stringValue(request.Params["reason_text"]),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.remove", params)
+	case "group.leave":
+		params, err := message.BuildGroupLeaveRPCParams(session.record, s.manager, message.GroupLeaveRequest{Group: stringValue(request.Params["group"])})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.leave", params)
+	case "group.update_profile":
+		patch, _ := request.Params["patch"].(map[string]any)
+		params, err := message.BuildGroupUpdateProfileRPCParams(session.record, s.manager, stringValue(request.Params["group"]), patch)
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.update_profile", params)
+	case "group.update_policy":
+		patch, _ := request.Params["patch"].(map[string]any)
+		params, err := message.BuildGroupUpdatePolicyRPCParams(session.record, s.manager, stringValue(request.Params["group"]), patch)
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.update_policy", params)
+	case "group.send":
+		params, err := message.BuildGroupSendRPCParams(session.record, s.manager, stringValue(request.Params["group"]), stringValue(request.Params["text"]), stringValue(request.Params["type"]))
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.send", params)
+	case "group.get":
+		params, err := message.BuildGroupGetRPCParams(session.record, message.GroupGetRequest{Group: stringValue(request.Params["group"])})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.get", params)
+	case "group.list_members":
+		params, err := message.BuildGroupMembersRPCParams(session.record, message.GroupMembersRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"])})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.list_members", params)
+	case "group.list_messages":
+		params, err := message.BuildGroupMessagesRPCParams(session.record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
+		if err != nil {
+			return nil, err
+		}
+		return session.client.SendRPC(context.Background(), "group.list_messages", params)
 	default:
 		return nil, fmt.Errorf("unsupported websocket bridge method: %s", request.Method)
 	}
@@ -343,11 +452,27 @@ func (s *Supervisor) consumeNotifications(ctx context.Context, session *session)
 }
 
 func (s *Supervisor) handleNotification(ctx context.Context, session *session, notification map[string]any) {
-	record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName)
+	if record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName); ok {
+		_ = store.StoreMessage(ctx, s.db, record)
+		return
+	}
+	if record, ok := messageRecordFromGroupIncoming(notification, session.record.IdentityName); ok {
+		_ = store.StoreMessage(ctx, s.db, record)
+		return
+	}
+	groupRecord, memberRecord, messageRecord, ok := recordsFromGroupStateChanged(notification, session.record.IdentityName)
 	if !ok {
 		return
 	}
-	_ = store.StoreMessage(ctx, s.db, record)
+	if groupRecord != nil {
+		_ = store.UpsertGroup(ctx, s.db, *groupRecord)
+	}
+	if memberRecord != nil {
+		_ = store.UpsertGroupMember(ctx, s.db, *memberRecord)
+	}
+	if messageRecord != nil {
+		_ = store.StoreMessage(ctx, s.db, *messageRecord)
+	}
 }
 
 func messageRecordFromDirectIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
@@ -389,6 +514,116 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 		Metadata:       metadataValue(params),
 		CredentialName: identityName,
 	}, true
+}
+
+func messageRecordFromGroupIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
+	method, _ := notification["method"].(string)
+	if method != "group.incoming" {
+		return store.MessageRecord{}, false
+	}
+	params, ok := notification["params"].(map[string]any)
+	if !ok {
+		return store.MessageRecord{}, false
+	}
+	meta, _ := params["meta"].(map[string]any)
+	body, _ := params["body"].(map[string]any)
+	target, _ := meta["target"].(map[string]any)
+	ownerDID := stringValue(target["did"])
+	groupDID := stringValue(body["group_did"])
+	senderDID := stringValue(meta["sender_did"])
+	if ownerDID == "" || groupDID == "" {
+		return store.MessageRecord{}, false
+	}
+	content := stringValue(body["text"])
+	if content == "" {
+		content = metadataValue(body["payload"])
+	}
+	contentType := stringValue(meta["content_type"])
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+	sentAt := stringValue(body["accepted_at"])
+	if sentAt == "" {
+		sentAt = stringValue(meta["created_at"])
+	}
+	serverSeq := int64PtrValue(body["group_event_seq"])
+	return store.MessageRecord{
+		MsgID:          fallbackString(stringValue(meta["message_id"]), fmt.Sprintf("%s:%s", groupDID, stringValue(body["group_event_seq"]))),
+		OwnerDID:       ownerDID,
+		ThreadID:       store.MakeThreadID(ownerDID, "", groupDID),
+		Direction:      boolToDirection(senderDID == ownerDID),
+		SenderDID:      senderDID,
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		ContentType:    contentType,
+		Content:        content,
+		ServerSeq:      serverSeq,
+		SentAt:         sentAt,
+		IsRead:         senderDID == ownerDID,
+		Metadata:       metadataValue(params),
+		CredentialName: identityName,
+	}, true
+}
+
+func recordsFromGroupStateChanged(notification map[string]any, identityName string) (*store.GroupRecord, *store.GroupMemberRecord, *store.MessageRecord, bool) {
+	method, _ := notification["method"].(string)
+	if method != "group.state_changed" {
+		return nil, nil, nil, false
+	}
+	params, ok := notification["params"].(map[string]any)
+	if !ok {
+		return nil, nil, nil, false
+	}
+	meta, _ := params["meta"].(map[string]any)
+	body, _ := params["body"].(map[string]any)
+	target, _ := meta["target"].(map[string]any)
+	ownerDID := stringValue(target["did"])
+	groupDID := stringValue(body["group_did"])
+	if ownerDID == "" || groupDID == "" {
+		return nil, nil, nil, false
+	}
+	groupRecord := &store.GroupRecord{
+		OwnerDID:       ownerDID,
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		LastSyncedSeq:  int64PtrValue(body["group_event_seq"]),
+		LastMessageAt:  stringValue(body["changed_at"]),
+		Metadata:       metadataValue(body),
+		CredentialName: identityName,
+	}
+	subjectDID := stringValue(body["subject_did"])
+	var memberRecord *store.GroupMemberRecord
+	if subjectDID != "" {
+		memberRecord = &store.GroupMemberRecord{
+			OwnerDID:       ownerDID,
+			GroupID:        groupDID,
+			UserID:         subjectDID,
+			MemberDID:      subjectDID,
+			Status:         membershipStatusFromEvent(body),
+			Role:           "member",
+			JoinedAt:       stringValue(body["changed_at"]),
+			Metadata:       metadataValue(body),
+			CredentialName: identityName,
+		}
+	}
+	content := systemEventText(body)
+	messageRecord := &store.MessageRecord{
+		MsgID:          fallbackString(stringValue(body["event_id"]), fmt.Sprintf("%s:%s", groupDID, stringValue(body["group_event_seq"]))),
+		OwnerDID:       ownerDID,
+		ThreadID:       store.MakeThreadID(ownerDID, "", groupDID),
+		Direction:      0,
+		SenderDID:      stringValue(body["actor_did"]),
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		ContentType:    inferSystemContentType(stringValue(body["subject_method"])),
+		Content:        content,
+		ServerSeq:      int64PtrValue(body["group_event_seq"]),
+		SentAt:         stringValue(body["changed_at"]),
+		IsRead:         false,
+		Metadata:       metadataValue(body),
+		CredentialName: identityName,
+	}
+	return groupRecord, memberRecord, messageRecord, true
 }
 
 func (s *Supervisor) refreshStatus() {
@@ -471,4 +706,116 @@ func boolValue(value any) bool {
 	default:
 		return false
 	}
+}
+
+func fallbackString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func boolPtrValue(value any) *bool {
+	switch typed := value.(type) {
+	case bool:
+		value := typed
+		return &value
+	default:
+		return nil
+	}
+}
+
+func int64PtrValue(value any) *int64 {
+	switch typed := value.(type) {
+	case int:
+		value := int64(typed)
+		return &value
+	case int64:
+		value := typed
+		return &value
+	case float64:
+		value := int64(typed)
+		return &value
+	case string:
+		if typed == "" {
+			return nil
+		}
+		if parsed, err := strconv.ParseInt(typed, 10, 64); err == nil {
+			return &parsed
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func boolToDirection(sentBySelf bool) int {
+	if sentBySelf {
+		return 1
+	}
+	return 0
+}
+
+func membershipStatusFromEvent(body map[string]any) string {
+	if status := stringValue(body["membership_status"]); status != "" {
+		return status
+	}
+	switch stringValue(body["subject_method"]) {
+	case "group.add", "group.join":
+		return "active"
+	case "group.leave":
+		return "left"
+	case "group.remove":
+		return "removed"
+	default:
+		return "active"
+	}
+}
+
+func inferSystemContentType(subjectMethod string) string {
+	switch subjectMethod {
+	case "group.add", "group.join":
+		return "group_system_member_joined"
+	case "group.leave":
+		return "group_system_member_left"
+	case "group.remove":
+		return "group_system_member_kicked"
+	default:
+		return "application/json"
+	}
+}
+
+func systemEventText(body map[string]any) string {
+	subjectDID := stringValue(body["subject_did"])
+	if subjectDID == "" {
+		subjectDID = "A member"
+	}
+	switch stringValue(body["subject_method"]) {
+	case "group.add":
+		return fmt.Sprintf("%s was added to the group.", subjectDID)
+	case "group.join":
+		return fmt.Sprintf("%s joined the group.", subjectDID)
+	case "group.leave":
+		return fmt.Sprintf("%s left the group.", subjectDID)
+	case "group.remove":
+		return fmt.Sprintf("%s was removed from the group.", subjectDID)
+	case "group.update_profile":
+		return "The group profile was updated."
+	case "group.update_policy":
+		return "The group policy was updated."
+	default:
+		return "The group state changed."
+	}
+}
+
+func (s *Supervisor) fetchMessageServiceDID(session *session) (string, error) {
+	result, err := session.client.SendRPC(context.Background(), "anp.get_capabilities", map[string]any{})
+	if err != nil {
+		return "", err
+	}
+	serviceDID := stringValue(result["service_did"])
+	if serviceDID == "" {
+		return "", fmt.Errorf("message service capabilities response is missing service_did")
+	}
+	return serviceDID, nil
 }

@@ -219,6 +219,7 @@ review 要关注：
 - [ ] 是否仍保持 canonical 顶级命令面：`status/docs/schema/doctor/version/completion/config/id/msg/group/runtime/people/page/debug`
 - [ ] 是否把 `group` 保持为独立顶级域，而不是重新把公共 surface 收回 `msg group`
 - [ ] 是否坚持 `msg send --group` 是唯一 canonical 群发消息入口
+- [ ] 新增测试 / fixture / 协议示例里的 DID profile 段是否默认使用 `e1_...` 形式，而不是裸 `e1`
 - [ ] 是否禁止在 Phase 1 引入新的顶级 `api`
 - [ ] 是否把 transport 参数错误地放进 `msg` / `group` 命令面
 - [ ] 是否引入 shortcut 独占语义（不允许）
@@ -228,6 +229,7 @@ review 要关注：
 - `group` 是独立领域对象，不只是消息目标。
 - `msg group ...` 最多只能做兼容 alias，不能成为主 surface。
 - shortcut 只能是 alias，不能形成第二套命令语义。
+- 新增本地测试数据和 DID 示例默认使用 `e1_alice` / `e1_group` 这类 `e1_...` profile 后缀。
 
 **回读路径：**
 

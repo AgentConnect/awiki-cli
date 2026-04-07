@@ -2,7 +2,6 @@ package message
 
 import (
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"sort"
 	"strings"
@@ -42,13 +41,13 @@ func newAuthContext(record *identity.StoredIdentity, manager *identity.Manager) 
 }
 
 func loadPrivateKeyMaterial(pemText string) (anpsdk.PrivateKeyMaterial, error) {
-	block, _ := pem.Decode([]byte(strings.TrimSpace(pemText)))
-	if block == nil {
-		return anpsdk.PrivateKeyMaterial{}, fmt.Errorf("invalid key-1 private key pem")
+	_, scalar, err := authsdk.NormalizeSecp256k1PrivatePEM(pemText)
+	if err != nil {
+		return anpsdk.PrivateKeyMaterial{}, err
 	}
 	return anpsdk.PrivateKeyMaterial{
 		Type:  anpsdk.KeyTypeSecp256k1,
-		Bytes: append([]byte(nil), block.Bytes...),
+		Bytes: scalar,
 	}, nil
 }
 

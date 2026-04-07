@@ -3,10 +3,14 @@ package authsdk
 import (
 	"bytes"
 	"context"
+	"encoding/asn1"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -21,7 +25,11 @@ type Session struct {
 }
 
 func NewSession(didDocumentPath string, privateKeyPath string, identityName string, did string, jwtToken string, persistToken func(string) error) *Session {
-	helper := anpsdk.NewDIDWbaAuthHeader(didDocumentPath, privateKeyPath, anpsdk.AuthModeHTTPSignatures)
+	normalizedKeyPath := privateKeyPath
+	if rewrittenPath, err := normalizeSecp256k1PrivateKeyPath(privateKeyPath); err == nil && strings.TrimSpace(rewrittenPath) != "" {
+		normalizedKeyPath = rewrittenPath
+	}
+	helper := anpsdk.NewDIDWbaAuthHeader(didDocumentPath, normalizedKeyPath, anpsdk.AuthModeHTTPSignatures)
 	session := &Session{
 		helper:       helper,
 		identityName: identityName,
@@ -52,7 +60,16 @@ func (s *Session) CurrentJWT() string {
 }
 
 func (s *Session) Headers(serverURL string, method string, body []byte, forceNew bool) (map[string]string, error) {
-	if s == nil || s.helper == nil {
+	if s == nil {
+		return nil, fmt.Errorf("auth session is not configured")
+	}
+	if strings.TrimSpace(s.jwtToken) != "" && !forceNew {
+		return map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + s.jwtToken,
+		}, nil
+	}
+	if s.helper == nil {
 		return nil, fmt.Errorf("auth session is not configured")
 	}
 	headers := map[string]string{"Content-Type": "application/json"}
@@ -179,12 +196,15 @@ func (s *Session) doRequest(ctx context.Context, client *http.Client, requestURL
 			if err != nil {
 				return nil, err
 			}
-		} else {
+		} else if s.helper != nil {
 			s.ClearToken(requestURL)
 			headers, err = s.Headers(requestURL, method, body, true)
 			if err != nil {
 				return nil, err
 			}
+		} else {
+			raw, _ := io.ReadAll(response.Body)
+			return nil, &HTTPError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(raw))}
 		}
 		response, err = doHTTPRequest(ctx, client, method, requestURL, body, headers)
 		if err != nil {
@@ -220,6 +240,89 @@ func flattenHeaders(headers http.Header) map[string]string {
 		values[key] = item[0]
 	}
 	return values
+}
+
+type pkcs8PrivateKeyInfo struct {
+	Version    int
+	Algorithm  pkixAlgorithmIdentifier
+	PrivateKey []byte
+}
+
+type pkixAlgorithmIdentifier struct {
+	Algorithm  asn1.ObjectIdentifier
+	Parameters asn1.RawValue `asn1:"optional"`
+}
+
+type sec1ECPrivateKey struct {
+	Version    int
+	PrivateKey []byte
+}
+
+func normalizeSecp256k1PrivateKeyPath(privateKeyPath string) (string, error) {
+	privateKeyPath = strings.TrimSpace(privateKeyPath)
+	if privateKeyPath == "" {
+		return "", nil
+	}
+	raw, err := os.ReadFile(filepath.Clean(privateKeyPath))
+	if err != nil {
+		return "", err
+	}
+	normalizedPEM, _, err := NormalizeSecp256k1PrivatePEM(string(raw))
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(normalizedPEM) == strings.TrimSpace(string(raw)) {
+		return privateKeyPath, nil
+	}
+	dir := filepath.Dir(privateKeyPath)
+	target := filepath.Join(dir, ".awiki-cli-key-1-private-normalized.pem")
+	if writeErr := os.WriteFile(target, []byte(normalizedPEM), 0o600); writeErr != nil {
+		return "", writeErr
+	}
+	return target, nil
+}
+
+func NormalizeSecp256k1PrivatePEM(pemText string) (string, []byte, error) {
+	block, _ := pem.Decode([]byte(strings.TrimSpace(pemText)))
+	if block == nil {
+		return "", nil, fmt.Errorf("invalid key-1 private key pem")
+	}
+	switch block.Type {
+	case "ANP SECP256K1 PRIVATE KEY":
+		return strings.TrimSpace(pemText), append([]byte(nil), block.Bytes...), nil
+	case "PRIVATE KEY":
+		scalar, err := extractSecp256k1ScalarFromPKCS8(block.Bytes)
+		if err != nil {
+			return "", nil, err
+		}
+		normalized := pem.EncodeToMemory(&pem.Block{Type: "ANP SECP256K1 PRIVATE KEY", Bytes: scalar})
+		return string(normalized), scalar, nil
+	default:
+		return "", nil, fmt.Errorf("invalid key-1 private key label: %s", block.Type)
+	}
+}
+
+func extractSecp256k1ScalarFromPKCS8(der []byte) ([]byte, error) {
+	var info pkcs8PrivateKeyInfo
+	if _, err := asn1.Unmarshal(der, &info); err != nil {
+		return nil, fmt.Errorf("parse pkcs8 private key: %w", err)
+	}
+	var sec1 sec1ECPrivateKey
+	if _, err := asn1.Unmarshal(info.PrivateKey, &sec1); err != nil {
+		return nil, fmt.Errorf("parse embedded sec1 private key: %w", err)
+	}
+	if len(sec1.PrivateKey) == 0 {
+		return nil, fmt.Errorf("embedded sec1 private key is empty")
+	}
+	if len(sec1.PrivateKey) > 32 {
+		sec1.PrivateKey = sec1.PrivateKey[len(sec1.PrivateKey)-32:]
+	}
+	if len(sec1.PrivateKey) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(sec1.PrivateKey):], sec1.PrivateKey)
+		sec1.PrivateKey = padded
+	}
+	return append([]byte(nil), sec1.PrivateKey...), nil
 }
 
 type HTTPError struct {

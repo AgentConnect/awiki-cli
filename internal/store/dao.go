@@ -415,6 +415,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	}
 	defer stmt.Close()
 	now := nowUTC()
+	zero := int64(0)
 	for _, member := range members {
 		if strings.TrimSpace(member.UserID) == "" {
 			continue
@@ -429,7 +430,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 			normalizeOptionalString(member.Role),
 			defaultString(member.Status, "active"),
 			normalizeOptionalString(member.JoinedAt),
-			normalizeOptionalInt64(member.SentMessageCount),
+			normalizeOptionalInt64(defaultInt64Ptr(member.SentMessageCount, &zero)),
 			now,
 			normalizeMetadata(member.Metadata),
 			normalizeCredentialName(defaultString(member.CredentialName, credentialName)),
@@ -442,6 +443,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 }
 
 func UpsertGroupMember(ctx context.Context, db *sql.DB, record GroupMemberRecord) error {
+	zero := int64(0)
 	_, err := db.ExecContext(ctx, `
 INSERT OR REPLACE INTO group_members
     (owner_did, group_id, user_id, member_did, member_handle, profile_url, role, status,
@@ -456,7 +458,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalizeOptionalString(record.Role),
 		defaultString(record.Status, "active"),
 		normalizeOptionalString(record.JoinedAt),
-		normalizeOptionalInt64(record.SentMessageCount),
+		normalizeOptionalInt64(defaultInt64Ptr(record.SentMessageCount, &zero)),
 		nowUTC(),
 		normalizeMetadata(record.Metadata),
 		normalizeCredentialName(record.CredentialName),

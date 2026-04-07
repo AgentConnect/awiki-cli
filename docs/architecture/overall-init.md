@@ -385,20 +385,18 @@ awiki msg send --group grp_xxx --text "Hello everyone"
 
 ```bash
 awiki group create ...
-awiki group join --code 314159
-awiki group show --group GID
-awiki group members --group GID
-awiki group messages --group GID [--since 120]
-awiki group update --group GID ...
-awiki group leave --group GID
-awiki group kick --group GID --member DID
-awiki group code get --group GID
-awiki group code refresh --group GID
-awiki group code enable --group GID true|false
+awiki group get --group GROUP_DID
+awiki group join --group GROUP_DID
+awiki group add --group GROUP_DID --member DID
+awiki group remove --group GROUP_DID --member DID
+awiki group members --group GROUP_DID
+awiki group messages --group GROUP_DID [--cursor 120]
+awiki group update --group GROUP_DID ...
+awiki group leave --group GROUP_DID
 ```
 
 这里我建议把 **group 生命周期** 做成 top-level `group`，但把 **群消息发送** 仍然统一在 `msg send --group`。
-这样一方面继承了你“消息是核心”的设计，另一方面又让 group lifecycle 更可发现。当前 awiki 文档里 group 的概念已经明显超过“只是消息目标”，它有 mode、rules、join-code、members、doc_url、quota 等完整对象语义。 
+这样一方面继承了你“消息是核心”的设计，另一方面又让 group lifecycle 更可发现。当前 awiki 文档里 group 的概念已经明显超过“只是消息目标”，它有 members、doc_url、policy、profile 等完整对象语义。 
 
 ---
 

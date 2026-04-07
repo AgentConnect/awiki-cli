@@ -74,6 +74,13 @@ func normalizeOptionalFloat64(value *float64) any {
 	return *value
 }
 
+func defaultInt64Ptr(value *int64, fallback *int64) *int64 {
+	if value != nil {
+		return value
+	}
+	return fallback
+}
+
 func normalizeMetadata(value string) any {
 	value = strings.TrimSpace(value)
 	if value == "" {

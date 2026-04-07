@@ -44,6 +44,90 @@ ORDER BY COALESCE(sent_at, stored_at) DESC
 LIMIT ?`, normalizeOwnerDID(ownerDID), threadID, limit)
 }
 
+func ListGroupInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, groupID string, unreadOnly bool) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND direction = 0
+  AND COALESCE(group_did, group_id) IS NOT NULL`
+	args := []any{normalizeOwnerDID(ownerDID)}
+	if unreadOnly {
+		query += " AND is_read = 0"
+	}
+	if strings.TrimSpace(groupID) != "" {
+		query += " AND (group_did = ? OR group_id = ?)"
+		args = append(args, groupID, groupID)
+	}
+	query += " ORDER BY COALESCE(sent_at, stored_at) DESC LIMIT ?"
+	args = append(args, limit)
+	return queryMaps(ctx, db, query, args...)
+}
+
+func ListGroupMessages(ctx context.Context, db *sql.DB, ownerDID string, groupID string, limit int, sinceSeq *int64) ([]map[string]any, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND (group_did = ? OR group_id = ?)`
+	args := []any{normalizeOwnerDID(ownerDID), groupID, groupID}
+	if sinceSeq != nil {
+		query += " AND COALESCE(server_seq, 0) > ?"
+		args = append(args, *sinceSeq)
+	}
+	query += " ORDER BY COALESCE(server_seq, 0) DESC, COALESCE(sent_at, stored_at) DESC LIMIT ?"
+	args = append(args, limit)
+	return queryMaps(ctx, db, query, args...)
+}
+
+func GetGroupSnapshot(ctx context.Context, db *sql.DB, ownerDID string, groupID string) (map[string]any, error) {
+	return queryOneMap(ctx, db, `
+SELECT *
+FROM groups
+WHERE owner_did = ? AND (group_id = ? OR group_did = ?)`,
+		normalizeOwnerDID(ownerDID), groupID, groupID,
+	)
+}
+
+func ListCachedGroupMembers(ctx context.Context, db *sql.DB, ownerDID string, groupID string, limit int) ([]map[string]any, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return nil, fmt.Errorf("group_id is required")
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	return queryMaps(ctx, db, `
+SELECT *
+FROM group_members
+WHERE owner_did = ? AND group_id = ?
+ORDER BY role ASC, member_handle ASC, member_did ASC
+LIMIT ?`, normalizeOwnerDID(ownerDID), groupID, limit)
+}
+
+func ListMessagesByIDs(ctx context.Context, db *sql.DB, ownerDID string, messageIDs []string) ([]map[string]any, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, 0, len(messageIDs))
+	args := make([]any, 0, len(messageIDs)+1)
+	args = append(args, normalizeOwnerDID(ownerDID))
+	for _, id := range messageIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	query := fmt.Sprintf(`SELECT * FROM messages WHERE owner_did = ? AND msg_id IN (%s)`, strings.Join(placeholders, ","))
+	return queryMaps(ctx, db, query, args...)
+}
+
 func MarkMessagesRead(ctx context.Context, db *sql.DB, ownerDID string, messageIDs []string) (int64, error) {
 	if len(messageIDs) == 0 {
 		return 0, nil
