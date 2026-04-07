@@ -24,7 +24,7 @@ type WSClient struct {
 	conn          *websocket.Conn
 	nextID        int64
 	pendingMu     sync.Mutex
-	pending       map[int64]chan map[string]any
+	pending       map[string]chan map[string]any
 	notifications chan map[string]any
 	readerErr     atomic.Value
 	writeMu       sync.Mutex
@@ -50,13 +50,13 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		websocketURL:  targetWSURL,
 		httpClient:    &http.Client{},
 		auth:          auth,
-		pending:       map[int64]chan map[string]any{},
+		pending:       map[string]chan map[string]any{},
 		notifications: make(chan map[string]any, 128),
 	}, nil
 }
 
 func (c *WSClient) Connect(ctx context.Context) error {
-	headers, err := c.auth.Headers(c.requestURL, http.MethodGet, nil, true)
+	headers, err := c.auth.Headers(c.requestURL, http.MethodGet, nil, false)
 	if err != nil {
 		return err
 	}
@@ -115,17 +115,18 @@ func (c *WSClient) SendRPC(ctx context.Context, method string, params map[string
 		return nil, fmt.Errorf("websocket not connected")
 	}
 	id := atomic.AddInt64(&c.nextID, 1)
-	request := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+	requestID := fmt.Sprintf("req-%d", id)
+	request := map[string]any{"jsonrpc": "2.0", "id": requestID, "method": method}
 	if params != nil {
 		request["params"] = params
 	}
 	responseCh := make(chan map[string]any, 1)
 	c.pendingMu.Lock()
-	c.pending[id] = responseCh
+	c.pending[requestID] = responseCh
 	c.pendingMu.Unlock()
 	defer func() {
 		c.pendingMu.Lock()
-		delete(c.pending, id)
+		delete(c.pending, requestID)
 		c.pendingMu.Unlock()
 	}()
 	c.writeMu.Lock()
@@ -168,7 +169,7 @@ func (c *WSClient) readLoop() {
 			return
 		}
 		if rawID, ok := message["id"]; ok {
-			id := int64FromAny(rawID)
+			id := requestIDFromAny(rawID)
 			c.pendingMu.Lock()
 			responseCh := c.pending[id]
 			c.pendingMu.Unlock()
@@ -206,6 +207,21 @@ func wsjsonRead(ctx context.Context, conn *websocket.Conn, out any) error {
 		return err
 	}
 	return json.Unmarshal(raw, out)
+}
+
+func requestIDFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case int64:
+		return fmt.Sprintf("%d", typed)
+	case int:
+		return fmt.Sprintf("%d", typed)
+	case float64:
+		return fmt.Sprintf("%.0f", typed)
+	default:
+		return ""
+	}
 }
 
 func int64FromAny(value any) int64 {

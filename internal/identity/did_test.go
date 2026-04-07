@@ -1,13 +1,11 @@
 package identity
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/pem"
 	"testing"
 
-	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
-	secp256k1ecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	anp "github.com/agent-network-protocol/anp/golang"
+	anpauth "github.com/agent-network-protocol/anp/golang/authentication"
+	anpproof "github.com/agent-network-protocol/anp/golang/proof"
 )
 
 func TestGenerateIdentity(t *testing.T) {
@@ -27,48 +25,26 @@ func TestGenerateIdentity(t *testing.T) {
 	if generated.DIDDocument == nil {
 		t.Fatal("generated identity is missing did_document")
 	}
-	proof, ok := generated.DIDDocument["proof"].(map[string]any)
-	if !ok {
-		t.Fatalf("proof missing or invalid: %#v", generated.DIDDocument["proof"])
+	if got := stringValue(generated.DIDDocument["id"], ""); got != generated.DID {
+		t.Fatalf("did document id mismatch: got %q want %q", got, generated.DID)
 	}
-	proofValue, ok := proof["proofValue"].(string)
-	if !ok || proofValue == "" {
-		t.Fatalf("proofValue missing: %#v", proof)
+	if !anpauth.ValidateDIDDocumentBinding(generated.DIDDocument, true) {
+		t.Fatal("generated did document failed did:wba binding validation")
 	}
-	documentWithoutProof := cloneMap(generated.DIDDocument)
-	delete(documentWithoutProof, "proof")
-	proofWithoutValue := cloneMap(proof)
-	delete(proofWithoutValue, "proofValue")
-	documentCanonical, err := canonicalJSON(documentWithoutProof)
+	publicKey, err := anp.PublicKeyFromPEM(generated.Key1PublicPEM)
 	if err != nil {
-		t.Fatalf("canonicalJSON(document) error = %v", err)
+		t.Fatalf("PublicKeyFromPEM() error = %v", err)
 	}
-	proofCanonical, err := canonicalJSON(proofWithoutValue)
-	if err != nil {
-		t.Fatalf("canonicalJSON(proof) error = %v", err)
+	if !anpproof.VerifyW3CProof(generated.DIDDocument, publicKey, anpproof.VerificationOptions{
+		ExpectedPurpose: "assertionMethod",
+		ExpectedDomain:  "awiki.ai",
+	}) {
+		t.Fatal("generated did proof verification failed")
 	}
-	hasher := sha256.New()
-	hasher.Write(documentCanonical)
-	hasher.Write(proofCanonical)
-	digest := hasher.Sum(nil)
-
-	signatureBytes, err := base64.RawURLEncoding.DecodeString(proofValue)
-	if err != nil {
-		t.Fatalf("DecodeString(proofValue) error = %v", err)
+	if generated.E2EESigningPrivatePEM == "" {
+		t.Fatal("generated identity is missing e2ee signing private key")
 	}
-	signature, err := secp256k1ecdsa.ParseDERSignature(signatureBytes)
-	if err != nil {
-		t.Fatalf("ParseDERSignature() error = %v", err)
-	}
-	block, _ := pem.Decode([]byte(generated.Key1PublicPEM))
-	if block == nil {
-		t.Fatal("failed to decode key-1 public pem")
-	}
-	publicKey, err := secp256k1.ParsePubKey(block.Bytes)
-	if err != nil {
-		t.Fatalf("ParsePubKey() error = %v", err)
-	}
-	if !signature.Verify(digest, publicKey) {
-		t.Fatal("generated proof signature does not verify")
+	if generated.E2EEAgreementPrivatePEM == "" {
+		t.Fatal("generated identity is missing e2ee agreement private key")
 	}
 }

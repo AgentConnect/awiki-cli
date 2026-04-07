@@ -101,7 +101,7 @@ func (s *Session) DoJSONRPC(ctx context.Context, client *http.Client, requestURL
 	if client == nil {
 		client = http.DefaultClient
 	}
-	payload := map[string]any{"jsonrpc": "2.0", "id": 1, "method": rpcMethod, "params": params}
+	payload := map[string]any{"jsonrpc": "2.0", "id": "req-1", "method": rpcMethod, "params": params}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err

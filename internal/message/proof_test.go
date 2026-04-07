@@ -1,7 +1,6 @@
 package message
 
 import (
-	"net/url"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -47,7 +46,7 @@ func TestBuildSenderProofRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalJSON() error = %v", err)
 	}
-	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+url.PathEscape("did:wba:awiki.ai:user:bob"), proofMap["contentDigest"].(string), parsed)
+	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+strictPercentEncode("did:wba:awiki.ai:user:bob"), proofMap["contentDigest"].(string), parsed)
 	if err != nil {
 		t.Fatalf("buildBusinessSignatureBase() error = %v", err)
 	}

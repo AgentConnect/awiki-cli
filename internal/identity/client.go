@@ -110,7 +110,7 @@ func (c *RemoteClient) rpcCall(ctx context.Context, endpoint string, method stri
 		"jsonrpc": "2.0",
 		"method":  method,
 		"params":  params,
-		"id":      1,
+		"id":      "req-1",
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

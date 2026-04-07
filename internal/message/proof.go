@@ -1,12 +1,16 @@
 package message
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
-	"net/url"
+	"math/big"
 	"strings"
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
+	secp256k1 "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/google/uuid"
 )
 
@@ -71,11 +75,11 @@ func buildSenderProof(auth *authContext, payload directPayload, targetDID string
 		return nil, fmt.Errorf("parse sender proof signatureInput: %w", err)
 	}
 	contentDigest := anpsdk.BuildIMContentDigest(canonicalPayload)
-	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+url.PathEscape(targetDID), contentDigest, parsed)
+	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+strictPercentEncode(targetDID), contentDigest, parsed)
 	if err != nil {
 		return nil, err
 	}
-	signatureBytes, err := auth.privateKey.SignMessage([]byte(signatureBase))
+	signatureBytes, err := signBusinessProof(auth.privateKey, []byte(signatureBase))
 	if err != nil {
 		return nil, fmt.Errorf("sign sender proof: %w", err)
 	}
@@ -84,6 +88,45 @@ func buildSenderProof(auth *authContext, payload directPayload, targetDID string
 		"signatureInput": signatureInput,
 		"signature":      anpsdk.EncodeIMSignature(signatureBytes, parsed.Label),
 	}, nil
+}
+
+func strictPercentEncode(value string) string {
+	var builder strings.Builder
+	builder.Grow(len(value) * 3)
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if (ch >= 'A' && ch <= 'Z') ||
+			(ch >= 'a' && ch <= 'z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '-' || ch == '.' || ch == '_' || ch == '~' {
+			builder.WriteByte(ch)
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("%%%02X", ch))
+	}
+	return builder.String()
+}
+
+func signBusinessProof(privateKey anpsdk.PrivateKeyMaterial, message []byte) ([]byte, error) {
+	if privateKey.Type != anpsdk.KeyTypeSecp256k1 {
+		return nil, fmt.Errorf("unsupported business proof key type: %s", privateKey.Type)
+	}
+	secpPrivateKey := secp256k1.PrivKeyFromBytes(privateKey.Bytes)
+	ecdsaPrivateKey := secpPrivateKey.ToECDSA()
+	digest := sha256.Sum256(message)
+	r, s, err := ecdsa.Sign(rand.Reader, ecdsaPrivateKey, digest[:])
+	if err != nil {
+		return nil, err
+	}
+	curveOrder := secp256k1.S256().Params().N
+	halfOrder := new(big.Int).Rsh(new(big.Int).Set(curveOrder), 1)
+	if s.Cmp(halfOrder) > 0 {
+		s.Sub(curveOrder, s)
+	}
+	signature := make([]byte, 64)
+	copy(signature[32-len(r.Bytes()):32], r.Bytes())
+	copy(signature[64-len(s.Bytes()):], s.Bytes())
+	return signature, nil
 }
 
 func buildBusinessSignatureBase(method string, logicalTargetURI string, contentDigest string, parsed anpsdk.ParsedIMSignatureInput) (string, error) {
