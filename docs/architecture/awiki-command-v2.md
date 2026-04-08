@@ -666,20 +666,6 @@ AVIKI_MESSAGE_SERVICE_URL
 AVIKI_DID_DOMAIN
 ```
 
-## 9.2 与旧 skill 的兼容
-
-为了兼容现有 awiki skill 和 Python 存量数据，v2 首版必须支持自动导入旧路径：
-
-* `~/.openclaw/credentials/awiki-agent-id-message/...`
-* `~/.openclaw/workspace/data/awiki-agent-id-message/...`
-
-原 skill 文档已经明确了旧的 indexed multi-credential layout 和 OpenClaw 数据目录；Go CLI 首次启动时，`runtime setup` 或 `doctor` 应该检测并提示导入。
-
-同时，服务端环境变量建议保留兼容读取：
-
-* 新变量优先：`AVIKI_*`
-* 旧变量 fallback：`E2E_USER_SERVICE_URL` / `E2E_MOLT_MESSAGE_URL` / `E2E_DID_DOMAIN` 
-
 ## 9.3 安全规则
 
 这部分虽然不在两份新文档里，但我建议继续作为 Go CLI 的硬约束：
