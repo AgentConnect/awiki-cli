@@ -597,14 +597,26 @@ skill 的角色不是：
 建议拆为：
 
 ```text
+awiki-bundle
 awiki-shared
 awiki-id
 awiki-msg
+awiki-group
 awiki-runtime
 awiki-people
 awiki-page
 awiki-debug
+awiki-workflow-onboarding
+awiki-workflow-discovery
 ```
+
+其中：
+
+- `awiki-bundle` 负责总入口路由
+- `awiki-shared` 负责横切规则
+- `awiki-id / awiki-msg / awiki-group / awiki-runtime / awiki-people / awiki-page` 是 domain skills
+- `awiki-workflow-onboarding / awiki-workflow-discovery` 是 workflow skills
+- `awiki-debug` 是最后兜底入口
 
 ## 13.3 每个 skill 的职责
 
@@ -622,6 +634,11 @@ awiki-debug
 - direct / group messaging
 - inbox / history
 - secure messaging
+
+### awiki-group
+- group lifecycle
+- join / add / remove / leave
+- 成员与群状态读取
 
 ### awiki-runtime
 - mode
@@ -643,6 +660,14 @@ awiki-debug
 - skill 由 CLI 的元数据与文档系统支撑
 - 关键命令帮助必须由 CLI 直接提供
 - skill 是增强层，不是必选依赖
+
+## 13.5 详细设计文档
+
+skill 的详细目录结构、manifest、template、workflow 边界与当前实现状态，以：
+
+- `docs/architecture/awiki-skill-architecture.md`
+
+为准。
 
 ---
 
@@ -989,20 +1014,28 @@ awiki v2 不是对现有 Python skill 仓的增量修补，而是一轮完整的
 
 ```text
 skills/
+  awiki-bundle/
   awiki-shared/
   awiki-id/
   awiki-msg/
+  awiki-group/
   awiki-runtime/
   awiki-people/
   awiki-page/
   awiki-debug/
+  awiki-workflow-onboarding/
+  awiki-workflow-discovery/
 ```
 
 ## 附录 B：建议的核心顶层命令
 
 ```text
-awiki-cli init
 awiki-cli status
+awiki-cli docs
+awiki-cli schema
+awiki-cli doctor
+awiki-cli version
+awiki-cli completion
 awiki-cli config
 awiki-cli id
 awiki-cli msg
@@ -1010,11 +1043,6 @@ awiki-cli group
 awiki-cli people
 awiki-cli page
 awiki-cli runtime
-awiki-cli docs
-awiki-cli schema
-awiki-cli doctor
-awiki-cli completion
-awiki-cli api
 awiki-cli debug
 ```
 

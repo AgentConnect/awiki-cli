@@ -38,6 +38,16 @@ func NewIndex() *Index {
 			References: []string{
 				"docs/architecture/awiki-v2-architecture.md",
 				"docs/architecture/awiki-command-v2.md",
+				"docs/architecture/awiki-skill-architecture.md",
+			},
+		},
+		{
+			Name:    "skills",
+			Summary: "Skill topology, manifests, templates, and awiki skill entrypoints",
+			References: []string{
+				"docs/architecture/awiki-skill-architecture.md",
+				"skills/README.md",
+				"skills/manifests/skills.yaml",
 			},
 		},
 		{
