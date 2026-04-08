@@ -209,6 +209,11 @@ func writeTable(w io.Writer, value any) error {
 
 func tableViewValue(value any) any {
 	value = unwrapTableEnvelope(value)
+	if object, ok := value.(map[string]any); ok {
+		if _, hasCommand := object["command"]; hasCommand {
+			return value
+		}
+	}
 	if rows, ok := preferredTableRows(value); ok {
 		return rows
 	}

@@ -7,13 +7,13 @@ func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 
 	catalog := NewCatalog()
 
-	for _, name := range []string{"group show", "group kick", "group code get", "group code refresh", "group code enable"} {
+	for _, name := range []string{"group get", "group add", "group remove", "group code get", "group code refresh", "group code enable"} {
 		if _, ok := catalog.Lookup(name); !ok {
 			t.Fatalf("Lookup(%q) = false, want true", name)
 		}
 	}
 
-	for _, name := range []string{"group.get", "group add", "group remove"} {
+	for _, name := range []string{"group show", "group kick"} {
 		if _, ok := catalog.Lookup(name); ok {
 			t.Fatalf("Lookup(%q) = true, want false", name)
 		}

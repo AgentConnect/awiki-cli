@@ -11,7 +11,7 @@ var (
 	ErrSlugRequired         = errors.New("slug is required")
 	ErrTitleRequired        = errors.New("title is required")
 	ErrBodySourceConflict   = errors.New("use either inline markdown or markdown file, not both")
-	ErrNoUpdateFields       = errors.New("no page fields were provided for update")
+	ErrNoUpdateFields       = errors.New("no update fields were provided")
 	ErrVisibilityInvalid    = errors.New("visibility must be one of public, draft, or unlisted")
 	ErrAuthIdentityRequired = errors.New("active identity is required")
 )
