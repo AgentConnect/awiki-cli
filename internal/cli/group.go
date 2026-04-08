@@ -53,7 +53,7 @@ func (a *App) runGroupCreate(cmd *cobra.Command, args []string) error {
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
-func (a *App) runGroupGet(cmd *cobra.Command, args []string) error {
+func (a *App) runGroupShow(cmd *cobra.Command, args []string) error {
 	group, _ := cmd.Flags().GetString("group")
 	service, format, err := a.messageService()
 	if err != nil {
@@ -61,7 +61,7 @@ func (a *App) runGroupGet(cmd *cobra.Command, args []string) error {
 	}
 	request := message.GroupGetRequest{IdentityName: a.globals.Identity, Group: group}
 	if a.globals.DryRun {
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.get", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "group": group}}, "Dry run: group get planned", nil, a.identityMeta())
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.show", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "group": group}}, "Dry run: group show planned", nil, a.identityMeta())
 	}
 	result, err := service.GetGroup(context.Background(), request)
 	if err != nil {
@@ -89,14 +89,14 @@ func (a *App) runGroupJoin(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runGroupAdd(cmd *cobra.Command, args []string) error {
-	return a.runGroupMemberMutation(cmd, "add")
+	return a.runGroupMemberMutation(cmd, "add", "add")
 }
 
-func (a *App) runGroupRemove(cmd *cobra.Command, args []string) error {
-	return a.runGroupMemberMutation(cmd, "remove")
+func (a *App) runGroupKick(cmd *cobra.Command, args []string) error {
+	return a.runGroupMemberMutation(cmd, "kick", "remove")
 }
 
-func (a *App) runGroupMemberMutation(cmd *cobra.Command, action string) error {
+func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, memberAction string) error {
 	group, _ := cmd.Flags().GetString("group")
 	member, _ := cmd.Flags().GetString("member")
 	role, _ := cmd.Flags().GetString("role")
@@ -107,16 +107,22 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, action string) error {
 	}
 	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason}
 	if a.globals.DryRun {
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + action, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
 	}
 	var result *message.CommandResult
-	if action == "add" {
+	if memberAction == "add" {
 		result, err = service.AddGroupMember(context.Background(), request)
 	} else {
 		result, err = service.RemoveGroupMember(context.Background(), request)
 	}
 	if err != nil {
 		return a.messageExit(err, "Make sure the group and member exist and the active identity has the required role.")
+	}
+	switch publicAction {
+	case "add":
+		result.Summary = "Added member to group"
+	case "kick":
+		result.Summary = "Removed member from group"
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }

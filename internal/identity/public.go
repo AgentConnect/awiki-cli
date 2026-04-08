@@ -2,6 +2,13 @@ package identity
 
 import "encoding/json"
 
+// PublicValue returns a sanitized copy of any public CLI payload.
+// Internal linkage fields such as user_id must not be exposed through the
+// public CLI contract.
+func PublicValue(value any) any {
+	return sanitizePublicValue(value)
+}
+
 // PublicData returns a sanitized copy of identity-domain command output.
 // Internal linkage fields such as user_id must not be exposed through the
 // public CLI contract.
@@ -9,7 +16,7 @@ func PublicData(data map[string]any) map[string]any {
 	if data == nil {
 		return nil
 	}
-	sanitized, ok := sanitizePublicValue(data).(map[string]any)
+	sanitized, ok := PublicValue(data).(map[string]any)
 	if !ok {
 		return map[string]any{}
 	}

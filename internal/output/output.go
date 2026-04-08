@@ -197,6 +197,7 @@ func writeNDJSON(w io.Writer, value any) error {
 }
 
 func writeTable(w io.Writer, value any) error {
+	value = tableViewValue(value)
 	if rows, ok := value.([]any); ok {
 		return writeTableRows(w, rows)
 	}
@@ -204,6 +205,62 @@ func writeTable(w io.Writer, value any) error {
 		return writeTableObject(w, object)
 	}
 	return writeJSON(w, value, true)
+}
+
+func tableViewValue(value any) any {
+	value = unwrapTableEnvelope(value)
+	if rows, ok := preferredTableRows(value); ok {
+		return rows
+	}
+	return value
+}
+
+func unwrapTableEnvelope(value any) any {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	okValue, hasOK := object["ok"].(bool)
+	if !hasOK {
+		return value
+	}
+	if okValue {
+		if data, exists := object["data"]; exists {
+			return data
+		}
+		return value
+	}
+	if detail, exists := object["error"]; exists {
+		return detail
+	}
+	return value
+}
+
+func preferredTableRows(value any) ([]any, bool) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	for _, key := range []string{"rows", "items", "messages", "members", "pages", "identities", "groups", "followers", "following", "checks", "commands"} {
+		if rows, ok := tableRows(object[key]); ok {
+			return rows, true
+		}
+	}
+	sliceKeys := make([]string, 0, len(object))
+	for key, item := range object {
+		if _, ok := tableRows(item); ok {
+			sliceKeys = append(sliceKeys, key)
+		}
+	}
+	if len(sliceKeys) != 1 {
+		return nil, false
+	}
+	return tableRows(object[sliceKeys[0]])
+}
+
+func tableRows(value any) ([]any, bool) {
+	rows, ok := value.([]any)
+	return rows, ok
 }
 
 func writeTableObject(w io.Writer, value map[string]any) error {

@@ -172,14 +172,18 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgMarkRead
 	case "group.create":
 		return a.runGroupCreate
+	case "group.show":
+		return a.runGroupShow
 	case "group.get":
-		return a.runGroupGet
+		return a.runGroupShow
 	case "group.join":
 		return a.runGroupJoin
 	case "group.add":
 		return a.runGroupAdd
+	case "group.kick":
+		return a.runGroupKick
 	case "group.remove":
-		return a.runGroupRemove
+		return a.runGroupKick
 	case "group.leave":
 		return a.runGroupLeave
 	case "group.update":

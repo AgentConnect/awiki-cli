@@ -59,6 +59,7 @@ func (a *App) handleError(err error) int {
 		detail = exitErr.Detail
 		exitCode = exitErr.Code
 	}
+	detail.Details = identity.PublicValue(detail.Details)
 	envelope := output.ErrorEnvelope{
 		OK:    false,
 		Error: detail,
@@ -77,16 +78,16 @@ func (a *App) handleError(err error) int {
 	return exitCode
 }
 
-func (a *App) renderSuccess(command string, format output.Format, jqExpr string, data any, summary string, warnings []string, identity *output.IdentityMeta) error {
+func (a *App) renderSuccess(command string, format output.Format, jqExpr string, data any, summary string, warnings []string, identityMeta *output.IdentityMeta) error {
 	envelope := output.SuccessEnvelope{
 		OK:       true,
 		Command:  command,
-		Data:     data,
+		Data:     identity.PublicValue(data),
 		Warnings: warnings,
 		Summary:  summary,
 		Meta: output.Meta{
 			Version:  buildinfo.Version,
-			Identity: identity,
+			Identity: identityMeta,
 			DryRun:   a.globals.DryRun,
 			Format:   string(format),
 		},

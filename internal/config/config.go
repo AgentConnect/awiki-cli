@@ -46,7 +46,7 @@ type FileConfig struct {
 	} `yaml:"runtime"`
 	Output struct {
 		Format  string `yaml:"format"`
-		NoColor bool   `yaml:"no_color"`
+		NoColor *bool  `yaml:"no_color"`
 	} `yaml:"output"`
 	Services struct {
 		UserServiceURL      string `yaml:"user_service_url"`
@@ -246,9 +246,9 @@ func chooseValue(flagValue string, flagChanged bool, fileValue string, envOption
 	return defaultValue, ValueSource{Source: "default", Value: defaultValue}
 }
 
-func chooseBool(fileValue bool, envOptions []option, defaultValue bool) (bool, ValueSource) {
-	if fileValue {
-		return true, ValueSource{Source: "config_file", Value: "true"}
+func chooseBool(fileValue *bool, envOptions []option, defaultValue bool) (bool, ValueSource) {
+	if fileValue != nil {
+		return *fileValue, ValueSource{Source: "config_file", Value: fmt.Sprintf("%t", *fileValue)}
 	}
 	for _, opt := range envOptions {
 		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
