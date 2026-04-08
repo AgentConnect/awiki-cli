@@ -79,10 +79,11 @@ Bootstrap-only path:
 
 ### 8. Enable listener for websocket mode
 
-- `awiki-cli runtime listener install --dry-run`
-- `awiki-cli runtime listener install`
-- `awiki-cli runtime listener start`
+- preferred current path: `awiki-cli runtime listener start --dry-run`
+- preferred current path: `awiki-cli runtime listener start`
 - `awiki-cli runtime listener status`
+
+Note: the current repo exposes `runtime listener install`, but it delegates to the same implementation as `start`. Do not describe it as a richer install flow yet.
 
 ### 9. Run a messaging smoke-check
 
@@ -108,7 +109,7 @@ Bootstrap-only path:
 ## Safety Notes
 
 - never create or register identities silently
-- use dry-run first for listener installation and runtime bootstrap
+- use dry-run first for listener start and runtime bootstrap
 - do not send a real message without a user-provided or already-known target
 
 ## References

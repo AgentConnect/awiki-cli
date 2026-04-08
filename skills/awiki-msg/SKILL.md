@@ -29,6 +29,14 @@ metadata:
 
 CRITICAL — Read `../awiki-shared/SKILL.md` first.
 
+## Current Status
+
+This skill is **partial** in the current repo.
+
+- implemented now: `msg send`, `msg inbox`, `msg history`, `msg mark-read` for plain direct and plain group flows
+- reserved but not implemented: the `msg secure` subcommands
+- `--secure on` is part of the command contract, but the service currently returns unsupported for secure direct messaging
+
 ## Use This Skill For
 
 - sending direct messages

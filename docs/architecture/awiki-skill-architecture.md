@@ -63,7 +63,7 @@
 | msg secure | planned | `--secure` flag 已存在，但 secure 业务流尚未落地 |
 | group | implemented | create/get/join/add/remove/leave/update/members/messages |
 | runtime mode | implemented | `runtime status/setup/mode get/set` |
-| runtime listener | implemented | install/start/stop/restart/uninstall + hidden run |
+| runtime listener | partial | status/start/stop/restart 已可用；`install/uninstall` 当前分别复用 start/stop 路径；hidden run 可用 |
 | runtime heartbeat | planned | 命令存在但当前为 stub |
 | page | implemented | create/list/get/update/rename/delete |
 | people | planned | 命令 contract 已冻结，但处理器仍为 stub |
