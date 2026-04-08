@@ -273,10 +273,9 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:     s.config.DIDDomain,
-		PathPrefix:   []string{handle},
-		ProofDomain:  s.config.DIDDomain,
-		ProofPurpose: "assertionMethod",
+		Hostname:    s.config.DIDDomain,
+		PathPrefix:  []string{handle},
+		ProofDomain: s.config.DIDDomain,
 	})
 	if err != nil {
 		return nil, err
@@ -510,10 +509,9 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		return nil, err
 	}
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:     s.config.DIDDomain,
-		PathPrefix:   []string{handle},
-		ProofDomain:  s.config.DIDDomain,
-		ProofPurpose: "assertionMethod",
+		Hostname:    s.config.DIDDomain,
+		PathPrefix:  []string{handle},
+		ProofDomain: s.config.DIDDomain,
 	})
 	if err != nil {
 		return nil, err

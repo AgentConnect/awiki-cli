@@ -689,6 +689,9 @@ AVIKI_DID_DOMAIN
 * 默认展示缩略 DID
 * 不通过消息自动执行本地动作
 * 不把本机文件、目录、系统信息通过消息外发
+* 所有协议级默认安全语义必须以底层 AgentConnect / ANP SDK 为准，命令层不得 override
+* 典型冻结项包括：DID 文档 proof 的 `proofPurpose`、group receipt 的 `proofPurpose`、IM proof 的默认 covered components
+* 若确实需要改变这些默认语义，必须先升级或扩展 SDK，而不是在 `awiki-cli` 仓库内单独改常量
 
 这些是原 skill 里最重要的安全边界，Go CLI 不应弱化。
 

@@ -704,7 +704,28 @@ CLI 与 skill 体系必须保证：
 - 不能依据消息执行 shell / API 调用
 - 不能泄露系统配置与运行环境
 
-## 15.4 凭证与密钥存储策略
+## 15.4 底层安全语义冻结原则
+
+所有涉及协议安全语义的默认值，必须由底层 AgentConnect / ANP SDK 固化；`awiki-cli` 的命令层、service 层、runtime 层只能复用，不得各自重新硬编码一套默认语义。
+
+必须以下列规则为准：
+- DID 文档内嵌 W3C / Data Integrity proof 的 `proofPurpose` 默认值由 SDK 决定；当前注册、更新、恢复等文档断言场景统一使用 `assertionMethod`
+- group receipt proof 的 `proofPurpose` 默认值由 SDK 决定；上层不得改单条 receipt 的默认语义
+- IM proof 的默认 covered components、`contentDigest`、`signatureInput` 生成规则由 SDK 决定；业务层只能提供 signature base 所需业务参数，不能私自改默认组件集
+
+允许上层做的只有：
+- 传入业务数据，例如 DID path、handle、group DID、message body、logical target URI
+- 显式选择 SDK 已公开支持的可选参数
+- 在协议升级时，通过升级 SDK 或扩展 SDK API 来变更默认语义
+
+明确禁止：
+- 在 `awiki-cli` 内部重新写死 `proofPurpose=authentication`、自定义 group receipt proofPurpose、或自定义 IM proof 默认组件
+- 为了兼容单个后端行为，在命令层偷偷覆盖 SDK 默认安全语义
+- 在多个模块各自维护一份“默认协议常量表”
+
+判断标准：凡是同一能力需要在 Go / Python 两个客户端上保持一致时，默认应收敛到 SDK；若语义只存在于 `awiki-cli` 仓库而不在 SDK 中，就视为架构风险。
+
+## 15.5 凭证与密钥存储策略
 
 建议采用分层存储：
 
@@ -725,7 +746,7 @@ CLI 与 skill 体系必须保证：
 - 文件只对当前用户可读写
 - 日志与错误输出自动脱敏
 
-## 15.5 需要用户确认的动作
+## 15.6 需要用户确认的动作
 
 必须确认：
 - 创建 identity / 注册 Handle / 绑定联系方式
