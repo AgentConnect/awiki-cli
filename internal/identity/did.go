@@ -23,9 +23,14 @@ func GenerateIdentity(options GenerateOptions) (*GeneratedIdentity, error) {
 		proofDomain = hostname
 	}
 
+	proofPurpose := strings.TrimSpace(options.ProofPurpose)
+	if proofPurpose == "" {
+		proofPurpose = "assertionMethod"
+	}
+
 	bundle, err := anpsdk.CreateDidWBADocumentWithKeyBinding(hostname, anpsdk.DidDocumentOptions{
 		PathSegments: pathSegments,
-		ProofPurpose: "assertionMethod",
+		ProofPurpose: proofPurpose,
 		Domain:       proofDomain,
 		Challenge:    randomHex(16),
 	})

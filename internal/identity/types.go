@@ -141,9 +141,10 @@ type SaveInput struct {
 }
 
 type GenerateOptions struct {
-	Hostname    string
-	PathPrefix  []string
-	ProofDomain string
+	Hostname     string
+	PathPrefix   []string
+	ProofDomain  string
+	ProofPurpose string
 }
 
 type GeneratedIdentity struct {
