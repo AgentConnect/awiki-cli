@@ -41,12 +41,12 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（本地源码依赖）：`/Users/cs/work/anp/AgentConnect/golang`
+  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.7.2`
 
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并通过 `replace` 引入本地源码依赖 `github.com/agent-network-protocol/anp/golang => /Users/cs/work/anp/AgentConnect/golang`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.7.2`，要求 pure Go。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -54,7 +54,7 @@
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
-**internal/anpsdk/registry.go**: ANP Go SDK 的本地源码依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
+**internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  

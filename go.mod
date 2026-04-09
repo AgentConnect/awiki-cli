@@ -3,7 +3,7 @@ module github.com/agentconnect/awiki-cli
 go 1.22
 
 require (
-	github.com/agent-network-protocol/anp/golang v0.0.0
+	github.com/agent-network-protocol/anp/golang v0.7.2
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/itchyny/gojq v0.12.17
 	github.com/spf13/cobra v1.9.1
@@ -28,5 +28,3 @@ require (
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
 )
-
-replace github.com/agent-network-protocol/anp/golang => /Users/cs/work/anp/AgentConnect/golang

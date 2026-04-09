@@ -26,22 +26,15 @@ go version
 # go version go1.22.x darwin/arm64
 ```
 
-### 1.2 ANP Go SDK（本地源码依赖）
+### 1.2 ANP Go SDK（远端模块依赖）
 
-awiki-cli 通过 `go.mod` 的 `replace` 指令引用本地 ANP SDK 源码：
-
-```
-replace github.com/agent-network-protocol/anp/golang => /Users/cs/work/anp/AgentConnect/golang
-```
-
-需要确保 ANP SDK 源码存在于该路径：
+awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.7.2`：
 
 ```bash
-# 确认 ANP SDK 已就位
-ls /Users/cs/work/anp/AgentConnect/golang/go.mod
+go get github.com/agent-network-protocol/anp/golang@v0.7.2
 ```
 
-如果路径不同，需修改 `go.mod` 中的 `replace` 指令指向实际路径。
+首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
 
 ### 1.3 Docker 备选（无本地 Go 时）
 
@@ -334,11 +327,15 @@ CGO_ENABLED=0 go build ./cmd/awiki-cli/
 
 ### Q: 编译报错找不到 ANP SDK
 
-确认 `/Users/cs/work/anp/AgentConnect/golang` 路径存在且包含 `go.mod`。如路径不同，修改 `go.mod` 中的 `replace` 指令。
+确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.7.2`：
+
+```bash
+go get github.com/agent-network-protocol/anp/golang@v0.7.2
+```
 
 ### Q: `go mod tidy` 报错
 
-可能是 ANP SDK 本地路径不对，或 Go 版本不匹配。确认使用 Go 1.22.x：
+可能是远端依赖下载失败，或 Go 版本不匹配。确认使用 Go 1.22.x：
 
 ```bash
 go version

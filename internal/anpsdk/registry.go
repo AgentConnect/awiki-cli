@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	ModulePath = "github.com/agent-network-protocol/anp/golang"
-	SourcePath = "/Users/cs/work/anp/AgentConnect/golang"
+	ModulePath    = "github.com/agent-network-protocol/anp/golang"
+	ModuleVersion = "v0.7.2"
 )
 
 type (
