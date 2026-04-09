@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ type Session struct {
 	did          string
 	jwtToken     string
 	persistToken func(string) error
+	persistent   map[string]struct{}
 }
 
 func NewSession(didDocumentPath string, privateKeyPath string, identityName string, did string, jwtToken string, persistToken func(string) error) *Session {
@@ -36,6 +38,7 @@ func NewSession(didDocumentPath string, privateKeyPath string, identityName stri
 		did:          did,
 		jwtToken:     jwtToken,
 		persistToken: persistToken,
+		persistent:   map[string]struct{}{},
 	}
 	if strings.TrimSpace(jwtToken) != "" {
 		headers := map[string]string{"Authorization": "Bearer " + jwtToken}
@@ -49,6 +52,9 @@ func (s *Session) SetBearer(serverURL string, token string) {
 		return
 	}
 	s.helper.UpdateToken(serverURL, map[string]string{"Authorization": "Bearer " + token})
+	if scope := authScope(serverURL); scope != "" {
+		s.persistent[scope] = struct{}{}
+	}
 	s.jwtToken = token
 }
 
@@ -63,17 +69,18 @@ func (s *Session) Headers(serverURL string, method string, body []byte, forceNew
 	if s == nil {
 		return nil, fmt.Errorf("auth session is not configured")
 	}
-	if strings.TrimSpace(s.jwtToken) != "" && !forceNew {
-		return map[string]string{
-			"Content-Type":  "application/json",
-			"Authorization": "Bearer " + s.jwtToken,
-		}, nil
-	}
 	if s.helper == nil {
 		return nil, fmt.Errorf("auth session is not configured")
 	}
-	headers := map[string]string{"Content-Type": "application/json"}
-	return s.helper.GetAuthHeader(serverURL, forceNew, method, headers, body)
+	baseHeaders := map[string]string{"Content-Type": "application/json"}
+	authHeaders, err := s.helper.GetAuthHeader(serverURL, forceNew, method, baseHeaders, body)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range authHeaders {
+		baseHeaders[key] = value
+	}
+	return baseHeaders, nil
 }
 
 func (s *Session) ShouldRetryAfter401(headers http.Header) bool {
@@ -96,7 +103,9 @@ func (s *Session) ClearToken(serverURL string) {
 		return
 	}
 	s.helper.ClearToken(serverURL)
-	s.jwtToken = ""
+	if s.isPersistentScope(serverURL) {
+		s.jwtToken = ""
+	}
 }
 
 func (s *Session) CaptureToken(serverURL string, headers http.Header) string {
@@ -107,11 +116,32 @@ func (s *Session) CaptureToken(serverURL string, headers http.Header) string {
 	if token == "" {
 		return ""
 	}
-	s.jwtToken = token
-	if s.persistToken != nil {
-		_ = s.persistToken(token)
+	if s.isPersistentScope(serverURL) {
+		s.jwtToken = token
+		if s.persistToken != nil {
+			_ = s.persistToken(token)
+		}
 	}
 	return token
+}
+
+func (s *Session) isPersistentScope(serverURL string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.persistent[authScope(serverURL)]
+	return ok
+}
+
+func authScope(serverURL string) string {
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return strings.TrimSpace(serverURL)
+	}
+	if host := parsed.Hostname(); host != "" {
+		return host
+	}
+	return strings.TrimSpace(serverURL)
 }
 
 func (s *Session) DoJSONRPC(ctx context.Context, client *http.Client, requestURL string, method string, rpcMethod string, params any, out any) error {

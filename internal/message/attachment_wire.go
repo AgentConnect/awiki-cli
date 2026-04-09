@@ -129,6 +129,7 @@ func BuildAttachmentDownloadTicketRPCParams(
 	record *identity.StoredIdentity,
 	manager *identity.Manager,
 	serviceDID string,
+	senderDID string,
 	messageID string,
 	groupDID string,
 	selection *attachmentSelection,
@@ -137,7 +138,10 @@ func BuildAttachmentDownloadTicketRPCParams(
 		return nil, ErrAttachmentNotFound
 	}
 	if strings.TrimSpace(serviceDID) == "" {
-		return nil, fmt.Errorf("control service did is required")
+		return nil, fmt.Errorf("attachment service did is required")
+	}
+	if strings.TrimSpace(senderDID) == "" {
+		return nil, ErrAttachmentSenderRequired
 	}
 	auth, err := newAuthContext(record, manager)
 	if err != nil {
@@ -158,6 +162,7 @@ func BuildAttachmentDownloadTicketRPCParams(
 	body := map[string]any{
 		"attachment_id":            selection.AttachmentID,
 		"object_uri":               selection.ObjectURI,
+		"sender_did":               senderDID,
 		"requester_did":            record.DID,
 		"message_security_profile": "transport-protected",
 		"message_id":               messageID,

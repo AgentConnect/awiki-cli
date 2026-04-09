@@ -36,17 +36,16 @@ type attachmentCreateSlotResult struct {
 	UploadURI         string            `json:"upload_uri"`
 	UploadHeaders     map[string]string `json:"upload_headers"`
 	ObjectURI         string            `json:"object_uri"`
-	ControlServiceDID string            `json:"control_service_did"`
 	CommitToken       string            `json:"commit_token"`
 	ExpiresAt         string            `json:"expires_at"`
+	RequestServiceDID string            `json:"-"`
 }
 
 type attachmentCommitObjectResult struct {
-	Committed         bool   `json:"committed"`
-	AttachmentID      string `json:"attachment_id"`
-	ObjectURI         string `json:"object_uri"`
-	ControlServiceDID string `json:"control_service_did"`
-	CommittedAt       string `json:"committed_at"`
+	Committed    bool   `json:"committed"`
+	AttachmentID string `json:"attachment_id"`
+	ObjectURI    string `json:"object_uri"`
+	CommittedAt  string `json:"committed_at"`
 }
 
 type attachmentDownloadTicketResult struct {
@@ -56,16 +55,16 @@ type attachmentDownloadTicketResult struct {
 }
 
 type attachmentSelection struct {
-	MessageID         string
-	RequestedID       string
-	AttachmentID      string
-	Filename          string
-	MIMEType          string
-	Size              string
-	DigestB64U        string
-	ObjectURI         string
-	ControlServiceDID string
-	Caption           string
+	MessageID    string
+	RequestedID  string
+	SenderDID    string
+	AttachmentID string
+	Filename     string
+	MIMEType     string
+	Size         string
+	DigestB64U   string
+	ObjectURI    string
+	Caption      string
 }
 
 func loadAttachmentFile(filePath string, mimeOverride string) (*preparedAttachment, error) {
@@ -123,8 +122,7 @@ func buildAttachmentManifest(prepared *preparedAttachment, slot *attachmentCreat
 				"value_b64u": prepared.DigestB64U,
 			},
 			"access_info": map[string]any{
-				"object_uri":          slot.ObjectURI,
-				"control_service_did": slot.ControlServiceDID,
+				"object_uri": slot.ObjectURI,
 			},
 			"encryption_info": map[string]any{
 				"mode": "none",
@@ -175,16 +173,16 @@ func findAttachmentSelection(messages []map[string]any, requestedMessageID strin
 		}
 		digest, _ := selected["digest"].(map[string]any)
 		return &attachmentSelection{
-			MessageID:         actualMessageID,
-			RequestedID:       viewID,
-			AttachmentID:      stringFromAny(selected["attachment_id"]),
-			Filename:          stringFromAny(selected["filename"]),
-			MIMEType:          stringFromAny(selected["mime_type"]),
-			Size:              stringFromAny(selected["size"]),
-			DigestB64U:        stringFromAny(digest["value_b64u"]),
-			ObjectURI:         stringFromAny(accessInfo["object_uri"]),
-			ControlServiceDID: stringFromAny(accessInfo["control_service_did"]),
-			Caption:           stringFromAny(content["caption"]),
+			MessageID:    actualMessageID,
+			RequestedID:  viewID,
+			SenderDID:    stringFromAny(message["sender_did"]),
+			AttachmentID: stringFromAny(selected["attachment_id"]),
+			Filename:     stringFromAny(selected["filename"]),
+			MIMEType:     stringFromAny(selected["mime_type"]),
+			Size:         stringFromAny(selected["size"]),
+			DigestB64U:   stringFromAny(digest["value_b64u"]),
+			ObjectURI:    stringFromAny(accessInfo["object_uri"]),
+			Caption:      stringFromAny(content["caption"]),
 		}, nil
 	}
 	return nil, ErrMessageNotFound
@@ -276,9 +274,7 @@ func (t *HTTPTransport) CreateAttachmentSlot(
 	if err := t.rpcCall(ctx, "attachment.create_slot", params, &result); err != nil {
 		return nil, err
 	}
-	if result.ControlServiceDID == "" {
-		result.ControlServiceDID = serviceDID
-	}
+	result.RequestServiceDID = serviceDID
 	return &result, nil
 }
 

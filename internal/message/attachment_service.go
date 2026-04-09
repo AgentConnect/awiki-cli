@@ -112,7 +112,7 @@ func (s *Service) prepareAttachmentUpload(
 	if err := transport.UploadAttachmentObject(ctx, slot.UploadURI, slot.UploadHeaders, prepared.Payload); err != nil {
 		return nil, nil, nil, err
 	}
-	if _, err := transport.CommitAttachmentObject(ctx, slot.ControlServiceDID, prepared, slot); err != nil {
+	if _, err := transport.CommitAttachmentObject(ctx, slot.RequestServiceDID, prepared, slot); err != nil {
 		return nil, nil, nil, err
 	}
 	return prepared, slot, buildAttachmentManifest(prepared, slot, request.Text), nil
@@ -150,13 +150,12 @@ func (s *Service) persistDirectAttachmentSendResult(
 		SentAt:      result.AcceptedAt,
 		IsRead:      true,
 		Metadata: metadataString(map[string]any{
-			"delivery_state":      result.DeliveryState,
-			"operation_id":        result.OperationID,
-			"target_handle":       targetHandle,
-			"attachment_id":       slot.AttachmentID,
-			"object_uri":          slot.ObjectURI,
-			"control_service_did": slot.ControlServiceDID,
-			"caption":             caption,
+			"delivery_state": result.DeliveryState,
+			"operation_id":   result.OperationID,
+			"target_handle":  targetHandle,
+			"attachment_id":  slot.AttachmentID,
+			"object_uri":     slot.ObjectURI,
+			"caption":        caption,
 		}),
 		CredentialName: record.IdentityName,
 	}); err != nil {
@@ -179,13 +178,12 @@ func (s *Service) persistDirectAttachmentSendResult(
 				"sent_at":      result.AcceptedAt,
 			},
 			"attachment": map[string]any{
-				"attachment_id":       slot.AttachmentID,
-				"filename":            prepared.Filename,
-				"mime_type":           prepared.MIMEType,
-				"size":                prepared.SizeString,
-				"digest":              map[string]any{"alg": "sha-256", "value_b64u": prepared.DigestB64U},
-				"object_uri":          slot.ObjectURI,
-				"control_service_did": slot.ControlServiceDID,
+				"attachment_id": slot.AttachmentID,
+				"filename":      prepared.Filename,
+				"mime_type":     prepared.MIMEType,
+				"size":          prepared.SizeString,
+				"digest":        map[string]any{"alg": "sha-256", "value_b64u": prepared.DigestB64U},
+				"object_uri":    slot.ObjectURI,
 			},
 			"delivery": result,
 		},
@@ -238,7 +236,6 @@ func (s *Service) persistGroupAttachmentSendResult(
 			"operation_id":        result.OperationID,
 			"attachment_id":       slot.AttachmentID,
 			"object_uri":          slot.ObjectURI,
-			"control_service_did": slot.ControlServiceDID,
 			"caption":             caption,
 		}),
 		CredentialName: record.IdentityName,
@@ -262,13 +259,12 @@ func (s *Service) persistGroupAttachmentSendResult(
 				"sent_at":      result.AcceptedAt,
 			},
 			"attachment": map[string]any{
-				"attachment_id":       slot.AttachmentID,
-				"filename":            prepared.Filename,
-				"mime_type":           prepared.MIMEType,
-				"size":                prepared.SizeString,
-				"digest":              map[string]any{"alg": "sha-256", "value_b64u": prepared.DigestB64U},
-				"object_uri":          slot.ObjectURI,
-				"control_service_did": slot.ControlServiceDID,
+				"attachment_id": slot.AttachmentID,
+				"filename":      prepared.Filename,
+				"mime_type":     prepared.MIMEType,
+				"size":          prepared.SizeString,
+				"digest":        map[string]any{"alg": "sha-256", "value_b64u": prepared.DigestB64U},
+				"object_uri":    slot.ObjectURI,
 			},
 			"delivery": result,
 		},
@@ -333,10 +329,16 @@ func (s *Service) DownloadAttachment(ctx context.Context, request AttachmentDown
 	if err != nil {
 		return nil, err
 	}
+	attachmentService, err := resolveAttachmentRPCService(ctx, selection.SenderDID)
+	if err != nil {
+		return nil, err
+	}
+	ticketTransport := transport.WithRPCEndpoint(attachmentService.RPCEndpoint)
 	ticketParams, err := BuildAttachmentDownloadTicketRPCParams(
 		record,
 		nil,
-		selection.ControlServiceDID,
+		attachmentService.ServiceDID,
+		selection.SenderDID,
 		selection.MessageID,
 		request.Group,
 		selection,
@@ -344,7 +346,7 @@ func (s *Service) DownloadAttachment(ctx context.Context, request AttachmentDown
 	if err != nil {
 		return nil, err
 	}
-	ticket, err := transport.GetAttachmentDownloadTicket(ctx, ticketParams)
+	ticket, err := ticketTransport.GetAttachmentDownloadTicket(ctx, ticketParams)
 	if err != nil {
 		return nil, err
 	}
@@ -368,14 +370,14 @@ func (s *Service) DownloadAttachment(ctx context.Context, request AttachmentDown
 				"did":  groupOrDirectTarget(request.Group, messagePeer),
 			},
 			"attachment": map[string]any{
-				"attachment_id":       selection.AttachmentID,
-				"filename":            selection.Filename,
-				"mime_type":           selection.MIMEType,
-				"size":                selection.Size,
-				"digest":              map[string]any{"alg": "sha-256", "value_b64u": selection.DigestB64U},
-				"object_uri":          selection.ObjectURI,
-				"control_service_did": selection.ControlServiceDID,
-				"caption":             selection.Caption,
+				"attachment_id": selection.AttachmentID,
+				"filename":      selection.Filename,
+				"mime_type":     selection.MIMEType,
+				"size":          selection.Size,
+				"digest":        map[string]any{"alg": "sha-256", "value_b64u": selection.DigestB64U},
+				"object_uri":    selection.ObjectURI,
+				"sender_did":    selection.SenderDID,
+				"caption":       selection.Caption,
 			},
 			"output": map[string]any{
 				"path":         outputPath,

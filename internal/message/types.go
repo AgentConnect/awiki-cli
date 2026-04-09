@@ -26,6 +26,7 @@ var (
 	ErrAttachmentNotFound       = errors.New("attachment not found in message content")
 	ErrAttachmentIDRequired     = errors.New("attachment_id is required for messages with multiple attachments")
 	ErrAttachmentMessageInvalid = errors.New("message is not an attachment manifest")
+	ErrAttachmentSenderRequired = errors.New("attachment message sender_did is required")
 	ErrTransportUnavailable     = errors.New("message transport is unavailable")
 	ErrSecureNotSupported       = errors.New("direct secure messaging is not implemented yet")
 	ErrMessageNotFound          = errors.New("message not found")

@@ -65,10 +65,24 @@ type HTTPTransport struct {
 	resolved       *appconfig.Resolved
 	auth           *authContext
 	httpClient     *http.Client
-	baseMessageURL string
+	rpcEndpointURL string
 }
 
 func NewHTTPTransport(resolved *appconfig.Resolved, auth *authContext, httpClient *http.Client) *HTTPTransport {
+	return NewHTTPTransportForRPCEndpoint(
+		resolved,
+		auth,
+		httpClient,
+		strings.TrimRight(resolved.MessageServiceURL, "/")+MessageRPCEndpoint,
+	)
+}
+
+func NewHTTPTransportForRPCEndpoint(
+	resolved *appconfig.Resolved,
+	auth *authContext,
+	httpClient *http.Client,
+	rpcEndpointURL string,
+) *HTTPTransport {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -76,8 +90,20 @@ func NewHTTPTransport(resolved *appconfig.Resolved, auth *authContext, httpClien
 		resolved:       resolved,
 		auth:           auth,
 		httpClient:     httpClient,
-		baseMessageURL: strings.TrimRight(resolved.MessageServiceURL, "/"),
+		rpcEndpointURL: strings.TrimSpace(rpcEndpointURL),
 	}
+}
+
+func (t *HTTPTransport) WithRPCEndpoint(rpcEndpointURL string) *HTTPTransport {
+	if t == nil {
+		return nil
+	}
+	return NewHTTPTransportForRPCEndpoint(
+		t.resolved,
+		t.auth,
+		t.httpClient,
+		rpcEndpointURL,
+	)
 }
 
 func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*directSendResult, error) {
@@ -316,7 +342,7 @@ func (t *HTTPTransport) rpcMapCall(ctx context.Context, method string, params ma
 }
 
 func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[string]any, out any) error {
-	requestURL := t.baseMessageURL + MessageRPCEndpoint
+	requestURL := t.rpcEndpointURL
 	err := t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
 	if err == nil {
 		t.auth.record.JWTToken = t.auth.session.CurrentJWT()

@@ -109,6 +109,7 @@ func TestFindAttachmentSelectionMatchesVisibleOrRawMessageID(t *testing.T) {
 		{
 			"id":         "did:wba:awiki.ai:groups:test:e1_group:7",
 			"message_id": "msg-raw-1",
+			"sender_did": "did:wba:awiki.ai:user:alice:e1",
 			"content": map[string]any{
 				"attachments": []any{
 					map[string]any{
@@ -118,8 +119,7 @@ func TestFindAttachmentSelectionMatchesVisibleOrRawMessageID(t *testing.T) {
 						"size":          "5",
 						"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest"},
 						"access_info": map[string]any{
-							"object_uri":          "https://awiki.test/objects/obj-1",
-							"control_service_did": "did:wba:awiki.ai:services:message:e1",
+							"object_uri": "https://awiki.test/objects/obj-1",
 						},
 					},
 				},
@@ -138,5 +138,49 @@ func TestFindAttachmentSelectionMatchesVisibleOrRawMessageID(t *testing.T) {
 	}
 	if selection.AttachmentID != "att-1" {
 		t.Fatalf("selection.AttachmentID = %q, want %q", selection.AttachmentID, "att-1")
+	}
+	if selection.SenderDID != "did:wba:awiki.ai:user:alice:e1" {
+		t.Fatalf("selection.SenderDID = %q, want sender DID", selection.SenderDID)
+	}
+}
+
+func TestBuildAttachmentDownloadTicketRPCParamsIncludesSenderDID(t *testing.T) {
+	t.Parallel()
+
+	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
+		Hostname:    "awiki.ai",
+		PathPrefix:  []string{"user"},
+		ProofDomain: "awiki.ai",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	record := &identity.StoredIdentity{
+		IdentityName:   "bob",
+		DID:            generated.DID,
+		DIDDocument:    generated.DIDDocument,
+		Key1PrivatePEM: generated.Key1PrivatePEM,
+	}
+	params, err := BuildAttachmentDownloadTicketRPCParams(
+		record,
+		nil,
+		"did:wba:awiki.ai",
+		"did:wba:awiki.ai:user:alice:e1",
+		"msg-1",
+		"",
+		&attachmentSelection{
+			AttachmentID: "att-1",
+			ObjectURI:    "https://awiki.test/objects/obj-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("BuildAttachmentDownloadTicketRPCParams() error = %v", err)
+	}
+	body, ok := params["body"].(map[string]any)
+	if !ok {
+		t.Fatalf("params[body] = %#v, want map", params["body"])
+	}
+	if got := stringFromAny(body["sender_did"]); got != "did:wba:awiki.ai:user:alice:e1" {
+		t.Fatalf("body.sender_did = %q, want sender DID", got)
 	}
 }
