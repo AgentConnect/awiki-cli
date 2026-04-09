@@ -22,11 +22,24 @@ func GenerateIdentity(options GenerateOptions) (*GeneratedIdentity, error) {
 	if proofDomain == "" {
 		proofDomain = hostname
 	}
+	serviceEndpoint := strings.TrimSpace(options.ANPServiceEndpoint)
+	if serviceEndpoint == "" {
+		serviceEndpoint = DefaultANPServiceEndpoint(hostname)
+	}
+	serviceDID := strings.TrimSpace(options.ANPServiceDID)
+	if serviceDID == "" {
+		serviceDID = DefaultANPServiceDID(hostname)
+	}
+	service, err := BuildAgentANPMessageService(serviceEndpoint, serviceDID)
+	if err != nil {
+		return nil, err
+	}
 
 	bundle, err := anpsdk.CreateDidWBADocumentWithKeyBinding(hostname, anpsdk.DidDocumentOptions{
 		PathSegments: pathSegments,
 		Domain:       proofDomain,
 		Challenge:    randomHex(16),
+		Services:     []map[string]any{service},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("generate did document: %w", err)

@@ -19,6 +19,7 @@ type (
 	GeneratedKeyPairPEM      = anp.GeneratedKeyPairPEM
 	DidDocumentBundle        = anpauth.DidDocumentBundle
 	DidDocumentOptions       = anpauth.DidDocumentOptions
+	AnpMessageServiceOptions = anpauth.AnpMessageServiceOptions
 	DIDWbaAuthHeader         = anpauth.DIDWbaAuthHeader
 	DidWbaVerifierConfig     = anpauth.DidWbaVerifierConfig
 	AuthMode                 = anpauth.AuthMode
@@ -42,6 +43,7 @@ var (
 	GenerateKeyPairPEM                 = anp.GenerateKeyPairPEM
 	PrivateKeyFromPEM                  = anp.PrivateKeyFromPEM
 	PublicKeyFromPEM                   = anp.PublicKeyFromPEM
+	BuildANPMessageService             = anpauth.BuildANPMessageService
 	CreateDidWBADocument               = anpauth.CreateDidWBADocument
 	CreateDidWBADocumentWithKeyBinding = anpauth.CreateDidWBADocumentWithKeyBinding
 	ResolveDidDocument                 = anpauth.ResolveDidDocument

@@ -141,9 +141,11 @@ type SaveInput struct {
 }
 
 type GenerateOptions struct {
-	Hostname    string
-	PathPrefix  []string
-	ProofDomain string
+	Hostname           string
+	PathPrefix         []string
+	ProofDomain        string
+	ANPServiceEndpoint string
+	ANPServiceDID      string
 }
 
 type GeneratedIdentity struct {

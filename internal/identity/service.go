@@ -147,9 +147,11 @@ func (s *Service) Create(displayName string, identityName string) (*CommandResul
 	}
 	alias := chooseDefaultIdentityName(identityName, existing, displayName)
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{"user"},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{"user"},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -273,9 +275,11 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{handle},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{handle},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -509,9 +513,11 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		return nil, err
 	}
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{handle},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{handle},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err

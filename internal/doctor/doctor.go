@@ -38,6 +38,7 @@ func Run(resolved *config.Resolved) Report {
 		buildCheck(resolved),
 		configFileCheck(resolved),
 		envCheck(resolved),
+		anpServiceCheck(resolved),
 		runtimeCheck(resolved),
 		identityStoreCheck(resolved),
 		sqliteCheck(resolved),
@@ -157,6 +158,33 @@ func runtimeCheck(resolved *config.Resolved) Check {
 			"mode":        resolved.RuntimeMode,
 			"socket_path": resolved.RuntimeSocketPath,
 		},
+	}
+}
+
+func anpServiceCheck(resolved *config.Resolved) Check {
+	status := "ok"
+	summary := "ANP service discovery fields are ready for DID generation"
+	details := map[string]any{
+		"anp_service_endpoint": resolved.ANPServiceEndpoint,
+		"anp_service_did":      resolved.ANPServiceDID,
+	}
+	if err := identity.ValidateANPServiceEndpoint(resolved.ANPServiceEndpoint); err != nil {
+		status = "error"
+		summary = "ANP service endpoint is invalid for public DID discovery"
+		details["endpoint_error"] = err.Error()
+	}
+	if err := identity.ValidateANPServiceDID(resolved.ANPServiceDID); err != nil {
+		if status != "error" {
+			status = "error"
+			summary = "ANP service DID is invalid for public DID discovery"
+		}
+		details["service_did_error"] = err.Error()
+	}
+	return Check{
+		Name:    "anp_service",
+		Status:  status,
+		Summary: summary,
+		Details: details,
 	}
 }
 

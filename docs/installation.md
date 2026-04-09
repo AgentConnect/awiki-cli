@@ -132,10 +132,26 @@ services:
   message_service_url: "https://awiki.ai"    # message-service 地址
   message_service_ws_url: ""                 # WebSocket 地址（留空自动推导）
   did_domain: "awiki.ai"                     # DID 域名
+  anp_service_endpoint: "https://awiki.ai/message/rpc"  # 写入 DID 文档的公开 ANP RPC 入口
+  anp_service_did: "did:wba:awiki.ai"        # 写入 DID 文档的 federated service DID
   ca_bundle: ""                              # 自定义 CA 证书路径
 ```
 
 > 该文件可选。未创建时所有配置使用默认值，指向生产环境 `https://awiki.ai`。
+>
+> `anp_service_endpoint` 和 `anp_service_did` 专门用于 **生成本地 DID 文档中的 `ANPMessageService`**。它们和 `message_service_url` / `message_service_ws_url` 的职责不同：
+>
+> - `message_service_url`：CLI 实际发请求时使用
+> - `message_service_ws_url`：runtime listener 使用
+> - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址
+> - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID
+>
+> 当前 `awiki-cli` 生成的 `ANPMessageService` 只声明：
+>
+> - `profiles = ["anp.core.binding.v1", "anp.direct.base.v1", "anp.attachment.v1"]`
+> - `securityProfiles = ["transport-protected"]`
+>
+> 暂不在 DID 文档里声明 `anp.direct.e2ee.v1` / `direct-e2ee`。
 
 ### 3.3 本地开发配置
 
@@ -153,6 +169,8 @@ services:
   message_service_url: "https://awiki.test"
   message_service_ws_url: "wss://awiki.test/message/ws"
   did_domain: "awiki.test"
+  anp_service_endpoint: "https://awiki.test/message/rpc"
+  anp_service_did: "did:wba:awiki.test"
   ca_bundle: ""
 ```
 
@@ -162,9 +180,26 @@ services:
 export AWIKI_USER_SERVICE_URL=https://awiki.test
 export AWIKI_MESSAGE_SERVICE_URL=https://awiki.test
 export AWIKI_DID_DOMAIN=awiki.test
+export AWIKI_ANP_SERVICE_ENDPOINT=https://awiki.test/message/rpc
+export AWIKI_ANP_SERVICE_DID=did:wba:awiki.test
 ```
 
-### 3.4 身份文件布局
+### 3.4 DID 文档中的 ANP Service 约束
+
+`awiki-cli` 在生成 DID 文档时，会自动写入一个公开的 `ANPMessageService` 条目。为了避免把本地实现细节暴露到 DID 文档里，当前实现会拒绝以下配置：
+
+- `localhost`
+- `127.0.0.1` / `::1` 等 loopback 地址
+- `ws://` / `wss://` URL
+- 带 fragment 的 `serviceDid`
+- 非 bare-domain 的 `did:wba` service DID（例如 `did:wba:example.com:services:message:e1_local`）
+
+推荐做法：
+
+- `anp_service_endpoint` 使用公开 HTTPS RPC 地址，例如 `https://awiki.ai/message/rpc`
+- `anp_service_did` 使用裸域名 DID，例如 `did:wba:awiki.ai`
+
+### 3.5 身份文件布局
 
 DID 身份存储在 `~/.config/awiki-cli/identities/` 下，每个身份一个子目录：
 
@@ -184,7 +219,7 @@ identities/
 
 > 私钥文件权限为 `0600`，目录权限为 `0700`。
 
-### 3.5 环境变量完整列表
+### 3.6 环境变量完整列表
 
 | 环境变量 | 别名 | 用途 | 默认值 |
 |----------|------|------|--------|
@@ -201,6 +236,8 @@ identities/
 | `AWIKI_MESSAGE_SERVICE_URL` | `AVIKI_MESSAGE_SERVICE_URL` | message-service 地址 | `https://awiki.ai` |
 | `AWIKI_MESSAGE_WS_URL` | `AVIKI_MESSAGE_WS_URL` | WebSocket 地址 | 空 |
 | `AWIKI_DID_DOMAIN` | `AVIKI_DID_DOMAIN` | DID 域名 | `awiki.ai` |
+| `AWIKI_ANP_SERVICE_ENDPOINT` | `AVIKI_ANP_SERVICE_ENDPOINT` | DID 文档里的公开 ANP RPC 地址 | `https://<did_domain>/message/rpc` |
+| `AWIKI_ANP_SERVICE_DID` | `AVIKI_ANP_SERVICE_DID` | DID 文档里的 bare-domain service DID | `did:wba:<did_domain>` |
 | `AWIKI_CA_BUNDLE` | `AVIKI_CA_BUNDLE` | CA 证书路径 | 空 |
 
 > 兼容旧版环境变量：`E2E_USER_SERVICE_URL`、`E2E_MOLT_MESSAGE_URL`、`E2E_MOLT_MESSAGE_WS_URL`、`E2E_DID_DOMAIN`、`E2E_CA_BUNDLE`。

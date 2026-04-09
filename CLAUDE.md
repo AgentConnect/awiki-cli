@@ -102,6 +102,7 @@
 **internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
+**docs/architecture/anp-service-discovery.md**: awiki-cli 生成 DID 文档时的 `ANPMessageService` 填写规则、配置约束与实施记录。
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
 **docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。  
 **docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。  

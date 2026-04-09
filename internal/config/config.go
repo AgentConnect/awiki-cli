@@ -15,6 +15,7 @@ const (
 	legacySkillName  = "awiki-agent-id-message"
 	defaultService   = "https://awiki.ai"
 	defaultDIDDomain = "awiki.ai"
+	defaultANPPath   = "/message/rpc"
 )
 
 type Overrides struct {
@@ -53,6 +54,8 @@ type FileConfig struct {
 		MessageServiceURL   string `yaml:"message_service_url"`
 		MessageServiceWSURL string `yaml:"message_service_ws_url"`
 		DIDDomain           string `yaml:"did_domain"`
+		ANPServiceEndpoint  string `yaml:"anp_service_endpoint"`
+		ANPServiceDID       string `yaml:"anp_service_did"`
 		CABundle            string `yaml:"ca_bundle"`
 	} `yaml:"services"`
 }
@@ -81,6 +84,8 @@ type Resolved struct {
 	MessageServiceURL   string                 `json:"message_service_url"`
 	MessageServiceWSURL string                 `json:"message_service_ws_url,omitempty"`
 	DIDDomain           string                 `json:"did_domain"`
+	ANPServiceEndpoint  string                 `json:"anp_service_endpoint"`
+	ANPServiceDID       string                 `json:"anp_service_did"`
 	CABundle            string                 `json:"ca_bundle,omitempty"`
 	ConfigExists        bool                   `json:"config_exists"`
 	ConfigError         string                 `json:"config_error,omitempty"`
@@ -163,6 +168,26 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		append(envOptionSet("message_service_ws_url", "AWIKI_MESSAGE_WS_URL", "AVIKI_MESSAGE_WS_URL"), option{key: "E2E_MOLT_MESSAGE_WS_URL", target: "message_service_ws_url", tier: "legacy_env"}), "")
 	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue("", false, fileConfig.Services.DIDDomain,
 		append(envOptionSet("did_domain", "AWIKI_DID_DOMAIN", "AVIKI_DID_DOMAIN"), option{key: "E2E_DID_DOMAIN", target: "did_domain", tier: "legacy_env"}), defaultDIDDomain)
+	resolved.ANPServiceEndpoint, resolved.Sources["anp_service_endpoint"] = chooseValue("", false, fileConfig.Services.ANPServiceEndpoint,
+		envOptionSet("anp_service_endpoint", "AWIKI_ANP_SERVICE_ENDPOINT", "AVIKI_ANP_SERVICE_ENDPOINT"), "")
+	if strings.TrimSpace(resolved.ANPServiceEndpoint) == "" {
+		resolved.ANPServiceEndpoint = defaultANPServiceEndpoint(resolved.DIDDomain)
+		resolved.Sources["anp_service_endpoint"] = ValueSource{
+			Source: "derived_default",
+			Key:    "did_domain",
+			Value:  resolved.ANPServiceEndpoint,
+		}
+	}
+	resolved.ANPServiceDID, resolved.Sources["anp_service_did"] = chooseValue("", false, fileConfig.Services.ANPServiceDID,
+		envOptionSet("anp_service_did", "AWIKI_ANP_SERVICE_DID", "AVIKI_ANP_SERVICE_DID"), "")
+	if strings.TrimSpace(resolved.ANPServiceDID) == "" {
+		resolved.ANPServiceDID = defaultANPServiceDID(resolved.DIDDomain)
+		resolved.Sources["anp_service_did"] = ValueSource{
+			Source: "derived_default",
+			Key:    "did_domain",
+			Value:  resolved.ANPServiceDID,
+		}
+	}
 	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue("", false, fileConfig.Services.CABundle,
 		append(envOptionSet("ca_bundle", "AWIKI_CA_BUNDLE", "AVIKI_CA_BUNDLE"), option{key: "E2E_CA_BUNDLE", target: "ca_bundle", tier: "legacy_env"}), "")
 
@@ -187,6 +212,8 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"message_service_url":    resolved.MessageServiceURL,
 		"message_service_ws_url": resolved.MessageServiceWSURL,
 		"did_domain":             resolved.DIDDomain,
+		"anp_service_endpoint":   resolved.ANPServiceEndpoint,
+		"anp_service_did":        resolved.ANPServiceDID,
 		"ca_bundle":              resolved.CABundle,
 		"config_exists":          resolved.ConfigExists,
 		"config_error":           resolved.ConfigError,
@@ -266,6 +293,22 @@ func expandHome(home string, value string) string {
 	return value
 }
 
+func defaultANPServiceEndpoint(didDomain string) string {
+	trimmedDomain := strings.TrimSpace(didDomain)
+	if trimmedDomain == "" {
+		trimmedDomain = defaultDIDDomain
+	}
+	return "https://" + trimmedDomain + defaultANPPath
+}
+
+func defaultANPServiceDID(didDomain string) string {
+	trimmedDomain := strings.TrimSpace(didDomain)
+	if trimmedDomain == "" {
+		trimmedDomain = defaultDIDDomain
+	}
+	return "did:wba:" + trimmedDomain
+}
+
 func collectEnvHits() []EnvHit {
 	definitions := []EnvHit{
 		{Key: "AWIKI_CONFIG_DIR", Tier: "canonical_env", Target: "config_dir"},
@@ -281,6 +324,8 @@ func collectEnvHits() []EnvHit {
 		{Key: "AWIKI_MESSAGE_SERVICE_URL", Tier: "canonical_env", Target: "message_service_url"},
 		{Key: "AWIKI_MESSAGE_WS_URL", Tier: "canonical_env", Target: "message_service_ws_url"},
 		{Key: "AWIKI_DID_DOMAIN", Tier: "canonical_env", Target: "did_domain"},
+		{Key: "AWIKI_ANP_SERVICE_ENDPOINT", Tier: "canonical_env", Target: "anp_service_endpoint"},
+		{Key: "AWIKI_ANP_SERVICE_DID", Tier: "canonical_env", Target: "anp_service_did"},
 		{Key: "AWIKI_CA_BUNDLE", Tier: "canonical_env", Target: "ca_bundle"},
 		{Key: "AWIKI_WORKSPACE", Tier: "canonical_env", Target: "legacy_workspace"},
 		{Key: "AVIKI_CONFIG_DIR", Tier: "draft_alias_env", Target: "config_dir"},
@@ -296,6 +341,8 @@ func collectEnvHits() []EnvHit {
 		{Key: "AVIKI_MESSAGE_SERVICE_URL", Tier: "draft_alias_env", Target: "message_service_url"},
 		{Key: "AVIKI_MESSAGE_WS_URL", Tier: "draft_alias_env", Target: "message_service_ws_url"},
 		{Key: "AVIKI_DID_DOMAIN", Tier: "draft_alias_env", Target: "did_domain"},
+		{Key: "AVIKI_ANP_SERVICE_ENDPOINT", Tier: "draft_alias_env", Target: "anp_service_endpoint"},
+		{Key: "AVIKI_ANP_SERVICE_DID", Tier: "draft_alias_env", Target: "anp_service_did"},
 		{Key: "AVIKI_CA_BUNDLE", Tier: "draft_alias_env", Target: "ca_bundle"},
 		{Key: "E2E_USER_SERVICE_URL", Tier: "legacy_env", Target: "user_service_url"},
 		{Key: "E2E_MOLT_MESSAGE_URL", Tier: "legacy_env", Target: "message_service_url"},
