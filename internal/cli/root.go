@@ -164,6 +164,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDImportV1
 	case "msg.send":
 		return a.runMsgSend
+	case "msg.attachment.download":
+		return a.runMsgAttachmentDownload
 	case "msg.inbox":
 		return a.runMsgInbox
 	case "msg.history":

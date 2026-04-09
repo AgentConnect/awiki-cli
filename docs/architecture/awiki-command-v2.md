@@ -107,7 +107,8 @@ awiki-cli id use alice
 awiki-cli id profile get [--self | --handle alice | --did did:wba:...]
 awiki-cli id profile set [--display-name "Alice"] [--bio "..."] [--tags "ai,did,agent"] [--markdown "# About Me"] [--markdown-file ./profile.md]
 
-awiki-cli msg send (--to TARGET | --group GROUP_DID) [--text "Hello"] [--text-file ./message.txt] [--type text|event] [--secure off|on] [--identity alice]
+awiki-cli msg send (--to TARGET | --group GROUP_DID) [--text "Hello"] [--text-file ./message.txt] [--file ./hello.txt] [--mime-type text/plain] [--type text|event] [--secure off|on] [--identity alice]
+awiki-cli msg attachment download (--with TARGET | --group GROUP_DID) --message-id MSG_ID [--attachment-id ATTACHMENT_ID] --output ./downloads/file.bin [--identity alice]
 awiki-cli msg inbox [--scope all|direct|group] [--with TARGET] [--group GROUP_DID] [--unread] [--limit 20] [--mark-read] [--identity alice]
 awiki-cli msg history --with TARGET [--limit 50] [--cursor CURSOR] [--identity alice]
 awiki-cli msg mark-read MSG_ID...

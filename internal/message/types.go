@@ -1,6 +1,9 @@
 package message
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 const (
 	MessageRPCEndpoint = "/rpc"
@@ -8,13 +11,24 @@ const (
 )
 
 var (
-	ErrTargetRequired       = errors.New("direct message target is required")
-	ErrGroupRequired        = errors.New("group target is required")
-	ErrMemberRequired       = errors.New("group member target is required")
-	ErrTextRequired         = errors.New("message text is required")
-	ErrTransportUnavailable = errors.New("message transport is unavailable")
-	ErrSecureNotSupported   = errors.New("direct secure messaging is not implemented yet")
-	ErrMessageNotFound      = errors.New("message not found")
+	ErrTargetRequired         = errors.New("direct message target is required")
+	ErrGroupRequired          = errors.New("group target is required")
+	ErrMemberRequired         = errors.New("group member target is required")
+	ErrTextRequired           = errors.New("message text is required")
+	ErrFilePathRequired       = errors.New("attachment file path is required")
+	ErrMimeTypeWithoutFile    = errors.New("mime_type requires an attachment file")
+	ErrMessageIDRequired      = errors.New("attachment message id is required")
+	ErrOutputPathRequired     = errors.New("attachment output path is required")
+	ErrDownloadTargetNeeded   = errors.New("attachment download requires either --with or --group")
+	ErrDownloadTargetConflict = errors.New(
+		"attachment download accepts either --with or --group, but not both",
+	)
+	ErrAttachmentNotFound       = errors.New("attachment not found in message content")
+	ErrAttachmentIDRequired     = errors.New("attachment_id is required for messages with multiple attachments")
+	ErrAttachmentMessageInvalid = errors.New("message is not an attachment manifest")
+	ErrTransportUnavailable     = errors.New("message transport is unavailable")
+	ErrSecureNotSupported       = errors.New("direct secure messaging is not implemented yet")
+	ErrMessageNotFound          = errors.New("message not found")
 )
 
 type CommandResult struct {
@@ -30,6 +44,12 @@ type SendRequest struct {
 	Text         string
 	MessageType  string
 	SecureMode   string
+	FilePath     string
+	MIMEType     string
+}
+
+func (r SendRequest) HasAttachment() bool {
+	return strings.TrimSpace(r.FilePath) != ""
 }
 
 type InboxRequest struct {
@@ -52,6 +72,15 @@ type HistoryRequest struct {
 type MarkReadRequest struct {
 	IdentityName string
 	MessageIDs   []string
+}
+
+type AttachmentDownloadRequest struct {
+	IdentityName string
+	With         string
+	Group        string
+	MessageID    string
+	AttachmentID string
+	OutputPath   string
 }
 
 type directSendResult struct {

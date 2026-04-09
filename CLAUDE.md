@@ -25,7 +25,7 @@
   - Phase 2：配置 / local identity / credential layout 已实现首版
   - Phase 3：User / handle lifecycle 与 user gating 已实现首版
   - Phase 4：SQLite 本地状态与迁移已实现首版
-  - Phase 5：direct plain messaging 已实现首版（HTTP + WebSocket bridge 结构已接入）
+  - Phase 5：direct/group plain messaging 已实现首版，并已补齐 Base attachment 的单文件发送与下载首版（控制面 / 数据面固定走 HTTP）
   - Phase 7（部分提前落地）：websocket listener / local daemon 服务端已实现首版
   - Phase 7.1：ANP SDK 身份鉴权已接入 HTTP / websocket listener 主路径
 - 通信模式：通过 CLI 命令调用 API 连接 awiki 服务端
@@ -83,6 +83,9 @@
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
 **internal/message/proof.go**: direct/group 消息与 group lifecycle actor proof 的业务签名基线。  
+**internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
+**internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
+**internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  
 **internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。  
 **internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。  
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。  
@@ -141,11 +144,14 @@
 - Phase 5（当前首版已落地 direct plain）：
   - `msg send --to`
   - `msg send --group`
+  - `msg send --file`
+  - `msg attachment download`
   - `msg inbox`
   - `msg history --with`
   - `msg mark-read`
   - `group create/get/join/add/remove/leave/update/members/messages`
   - HTTP JSON-RPC adapter
+  - attachment control-plane / data-plane HTTP upload, ticket, download
   - websocket runtime bridge / local daemon direct+group client
   - direct/group actor proof 生成与本地消息落库
 - Phase 8（当前首版已落地 content page）：

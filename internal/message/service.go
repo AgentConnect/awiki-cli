@@ -41,6 +41,12 @@ func (s *Service) runtimeConfig() runtime.Resolved {
 }
 
 func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult, error) {
+	if request.HasAttachment() {
+		if strings.TrimSpace(request.Group) != "" {
+			return s.sendGroupAttachment(ctx, request)
+		}
+		return s.sendDirectAttachment(ctx, request)
+	}
 	if strings.TrimSpace(request.Group) != "" {
 		return s.sendGroup(ctx, request)
 	}
@@ -403,7 +409,11 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 	if err != nil {
 		return nil, nil, err
 	}
-	return NewHTTPTransport(s.resolved, auth, http.DefaultClient), nil, nil
+	client := http.DefaultClient
+	if s.remote != nil && s.remote.Client() != nil {
+		client = s.remote.Client()
+	}
+	return NewHTTPTransport(s.resolved, auth, client), nil, nil
 }
 
 func (s *Service) httpFallbackSend(ctx context.Context, record *identity.StoredIdentity, request SendRequest, targetDID string) (*directSendResult, []string, error) {
@@ -639,6 +649,8 @@ func collectMessageIDs(messages []map[string]any) []string {
 
 func contentTypeForMessageType(messageType string) string {
 	switch strings.ToLower(strings.TrimSpace(messageType)) {
+	case attachmentMessageType:
+		return attachmentManifestContentType
 	case "", "text":
 		return "text/plain"
 	case "event":

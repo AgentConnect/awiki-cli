@@ -276,10 +276,16 @@ gofmt -w $(find cmd internal -name '*.go')
 
 ```bash
 # 私聊
-./awiki-cli msg send --to <handle> --content "hello"
+./awiki-cli msg send --to <handle> --text "hello"
 
 # 群聊
-./awiki-cli msg send --group <group-id> --content "hello"
+./awiki-cli msg send --group <group-id> --text "hello"
+
+# 发送附件（caption 可选）
+./awiki-cli msg send --to <handle> --file ./hello.txt --text "hello attachment"
+
+# 下载附件
+./awiki-cli msg attachment download --with <handle> --message-id <msg-id> --output ./downloads/hello.txt
 
 # 查看收件箱
 ./awiki-cli msg inbox

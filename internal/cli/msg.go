@@ -40,11 +40,28 @@ func (a *App) messageExit(err error, hint string) error {
 			return output.NewExitError("not_found", 5, err.Error(), hint)
 		case serviceErr.StatusCode == 409 || serviceErr.RPCCode == -32003 || serviceErr.RPCCode == -32004:
 			return output.NewExitError("conflict", 1, err.Error(), hint)
+		case serviceErr.RPCCode == 6000 || serviceErr.RPCCode == 6005 || serviceErr.RPCCode == 6007 || serviceErr.RPCCode == 6012:
+			return output.NewExitError("not_found", 5, err.Error(), hint)
+		case serviceErr.RPCCode == 6006 || serviceErr.RPCCode == 6008 || serviceErr.RPCCode == 6009 || serviceErr.RPCCode == 6010 || serviceErr.RPCCode == 6011 || serviceErr.RPCCode == 6013:
+			return output.NewExitError("invalid_argument", 2, err.Error(), hint)
 		}
 	}
 	switch {
-	case errors.Is(err, message.ErrTargetRequired), errors.Is(err, message.ErrGroupRequired), errors.Is(err, message.ErrMemberRequired), errors.Is(err, message.ErrTextRequired), errors.Is(err, message.ErrMessageNotFound):
+	case errors.Is(err, message.ErrTargetRequired),
+		errors.Is(err, message.ErrGroupRequired),
+		errors.Is(err, message.ErrMemberRequired),
+		errors.Is(err, message.ErrTextRequired),
+		errors.Is(err, message.ErrFilePathRequired),
+		errors.Is(err, message.ErrMimeTypeWithoutFile),
+		errors.Is(err, message.ErrMessageIDRequired),
+		errors.Is(err, message.ErrOutputPathRequired),
+		errors.Is(err, message.ErrDownloadTargetNeeded),
+		errors.Is(err, message.ErrDownloadTargetConflict),
+		errors.Is(err, message.ErrAttachmentIDRequired),
+		errors.Is(err, message.ErrAttachmentMessageInvalid):
 		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
+	case errors.Is(err, message.ErrMessageNotFound), errors.Is(err, message.ErrAttachmentNotFound):
+		return output.NewExitError("not_found", 5, err.Error(), hint)
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg commands.")
 	case errors.Is(err, message.ErrSecureNotSupported):
@@ -63,8 +80,11 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 	group, _ := cmd.Flags().GetString("group")
 	text, _ := cmd.Flags().GetString("text")
 	textFile, _ := cmd.Flags().GetString("text-file")
+	filePath, _ := cmd.Flags().GetString("file")
+	mimeType, _ := cmd.Flags().GetString("mime-type")
 	messageType, _ := cmd.Flags().GetString("type")
 	secure, _ := cmd.Flags().GetString("secure")
+	hasAttachment := strings.TrimSpace(filePath) != ""
 	if strings.TrimSpace(group) == "" && strings.TrimSpace(to) == "" {
 		return output.NewExitError("invalid_argument", 2, "msg send requires either --to or --group.", "Usage: awiki-cli msg send --to <handle|did> --text \"Hello\" or awiki-cli msg send --group <group_did> --text \"Hello group\"")
 	}
@@ -78,7 +98,13 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 		}
 		text = string(raw)
 	}
-	if strings.TrimSpace(text) == "" {
+	if !hasAttachment && strings.TrimSpace(mimeType) != "" {
+		return output.NewExitError("invalid_argument", 2, message.ErrMimeTypeWithoutFile.Error(), "Use --mime-type only together with --file.")
+	}
+	if hasAttachment && cmd.Flags().Changed("type") {
+		return output.NewExitError("invalid_argument", 2, "msg send does not accept --type together with --file.", "Attachment sends always use attachment manifests.")
+	}
+	if !hasAttachment && strings.TrimSpace(text) == "" {
 		return output.NewExitError("invalid_argument", 2, "msg send requires --text or --text-file.", "Provide the message body via --text or --text-file.")
 	}
 	service, format, err := a.messageService()
@@ -92,6 +118,8 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 		Text:         text,
 		MessageType:  messageType,
 		SecureMode:   secure,
+		FilePath:     filePath,
+		MIMEType:     mimeType,
 	}
 	if a.globals.DryRun {
 		action := "direct.send"
@@ -99,6 +127,9 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(group) != "" {
 			action = "group.send"
 			target = map[string]any{"did": group, "kind": "group"}
+		}
+		if hasAttachment {
+			action = "attachment.send"
 		}
 		data := map[string]any{
 			"plan": map[string]any{
@@ -111,11 +142,58 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 				"local_writes": []string{"messages"},
 			},
 		}
+		if hasAttachment {
+			data["plan"].(map[string]any)["message_type"] = "attachment_manifest"
+			data["plan"].(map[string]any)["transport"] = "http"
+			data["plan"].(map[string]any)["attachment"] = map[string]any{
+				"path":      filePath,
+				"mime_type": mimeType,
+				"caption":   text,
+			}
+		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: message send planned", nil, a.identityMeta())
 	}
 	result, err := service.Send(context.Background(), request)
 	if err != nil {
 		return a.messageExit(err, "Ensure the target exists, the active identity is valid, and runtime mode is configured correctly.")
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+}
+
+func (a *App) runMsgAttachmentDownload(cmd *cobra.Command, args []string) error {
+	with, _ := cmd.Flags().GetString("with")
+	group, _ := cmd.Flags().GetString("group")
+	messageID, _ := cmd.Flags().GetString("message-id")
+	attachmentID, _ := cmd.Flags().GetString("attachment-id")
+	outputPath, _ := cmd.Flags().GetString("output")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.AttachmentDownloadRequest{
+		IdentityName: a.globals.Identity,
+		With:         with,
+		Group:        group,
+		MessageID:    messageID,
+		AttachmentID: attachmentID,
+		OutputPath:   outputPath,
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":        "download_attachment",
+			"identity":      a.globals.Identity,
+			"with":          with,
+			"group":         group,
+			"message_id":    messageID,
+			"attachment_id": attachmentID,
+			"output":        outputPath,
+			"transport":     "http",
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: attachment download planned", nil, a.identityMeta())
+	}
+	result, err := service.DownloadAttachment(context.Background(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the message id, attachment id, and target context are correct.")
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
