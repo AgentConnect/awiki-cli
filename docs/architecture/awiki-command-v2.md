@@ -192,9 +192,8 @@ awiki-cli completion <bash|zsh|fish|powershell>
 
 `init` 作为显式初始化命令，用于：
 
-* 帮用户创建默认工作目录（例如 `~/.awiki-cli`）及其子目录；
+* 帮用户创建工作目录（默认是 `~/.awiki-cli`，或由 `AWIKI_HOME` 指定）及其子目录；
 * 在首次需要时生成一份最小的 `config.json` 骨架；
-* 在用户通过 `--home PATH` 指定自定义工作目录时，写入默认工作目录下的 `home.json` 指针，记录真实的 workdir root，后续普通调用不再依赖长期设置 `AWIKI_HOME`。
 
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 

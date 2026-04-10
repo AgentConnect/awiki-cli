@@ -52,16 +52,6 @@ type Paths struct {
 	LegacyDataDir        string `json:"legacy_data_dir"`
 }
 
-// HomePointer is a small JSON file stored under the default workdir root
-// (usually $HOME/.awiki-cli). It records the "real" workdir root when the
-// user has chosen a custom directory via an explicit init flow.
-//
-// When present, and when AWIKI_HOME is not set, Resolve() will prefer the
-// pointer target over the built-in default root.
-type HomePointer struct {
-	RootDir string `json:"root_dir"`
-}
-
 // FileConfig mirrors the on-disk JSON config structure under <AWIKI_HOME>/config.json.
 type FileConfig struct {
 	Services struct {
@@ -272,7 +262,7 @@ func Snapshot(resolved *Resolved) map[string]any {
 }
 
 // DefaultRootDir returns the built-in default workdir root for the current
-// platform without considering AWIKI_HOME or any pointer files.
+// platform without considering AWIKI_HOME.
 func DefaultRootDir(home string) string {
 	if runtime.GOOS == "windows" {
 		base := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
@@ -282,66 +272,6 @@ func DefaultRootDir(home string) string {
 		return filepath.Join(base, "AwikiCli")
 	}
 	return filepath.Join(home, "."+appName)
-}
-
-// LoadHomePointer, if present and valid, returns the target root directory
-// recorded in the default workdir's home.json pointer file.
-//
-// The pointer file is intentionally tiny and human-inspectable. The current
-// format is:
-//
-//	{ "root_dir": "/custom/path" }
-//
-// If the file does not exist, is empty, or cannot be parsed, LoadHomePointer
-// returns an empty string and a nil error.
-func LoadHomePointer(home string) (string, error) {
-	defaultRoot := DefaultRootDir(home)
-	pointerPath := filepath.Join(defaultRoot, "home.json")
-	raw, err := os.ReadFile(pointerPath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
-		}
-		return "", err
-	}
-	text := strings.TrimSpace(string(raw))
-	if text == "" {
-		return "", nil
-	}
-
-	// Prefer JSON, but fall back to treating the file as a plain path for
-	// robustness if someone hand-edits it.
-	var pointer HomePointer
-	if err := json.Unmarshal([]byte(text), &pointer); err == nil {
-		if strings.TrimSpace(pointer.RootDir) != "" {
-			return pointer.RootDir, nil
-		}
-		// Invalid or empty JSON payload is treated as "no pointer".
-		return "", nil
-	}
-	// Not valid JSON – treat the raw content as the path.
-	return text, nil
-}
-
-// WriteHomePointer writes or updates the home.json pointer file under the
-// default workdir root to record the chosen root directory. It ensures the
-// default root exists with 0700 permissions and writes the pointer file
-// with 0600 permissions.
-func WriteHomePointer(home, targetRoot string) error {
-	defaultRoot := DefaultRootDir(home)
-	if err := os.MkdirAll(defaultRoot, 0o700); err != nil {
-		return fmt.Errorf("create default workdir root %s: %w", defaultRoot, err)
-	}
-	pointer := HomePointer{RootDir: targetRoot}
-	raw, err := json.MarshalIndent(pointer, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal home pointer: %w", err)
-	}
-	pointerPath := filepath.Join(defaultRoot, "home.json")
-	if err := os.WriteFile(pointerPath, raw, 0o600); err != nil {
-		return fmt.Errorf("write home pointer: %w", err)
-	}
-	return nil
 }
 
 func resolveRootDir(home string) (string, ValueSource) {
@@ -356,19 +286,7 @@ func resolveRootDir(home string) (string, ValueSource) {
 		}
 	}
 
-	// 2. Pointer file under the default root (set by awiki-cli init --home).
-	if pointer, err := LoadHomePointer(home); err == nil {
-		if trimmed := strings.TrimSpace(pointer); trimmed != "" {
-			root := ExpandHome(home, trimmed)
-			return root, ValueSource{
-				Source: "home_pointer",
-				Key:    "home.json",
-				Value:  root,
-			}
-		}
-	}
-
-	// 3. Fallback to the built-in default root.
+	// 2. Fallback to the built-in default root.
 	root := DefaultRootDir(home)
 	return root, ValueSource{
 		Source: "default",

@@ -83,12 +83,9 @@ awiki-cli 使用一个统一的“工作目录”存放所有本地数据、配�
 ```bash
 # 使用默认工作目录（例如 ~/.awiki-cli）
 ./awiki-cli init
-
-# 使用自定义工作目录，并在默认目录下写入 home.json 指针
-./awiki-cli init --home "$HOME/my-awiki"
 ```
 
-高级场景（如 CI、系统测试或一次性试验）仍可以通过环境变量 `AWIKI_HOME` 覆盖默认位置：
+高级场景（如 CI、系统测试或一次性试验）可以通过环境变量 `AWIKI_HOME` 覆盖默认位置：
 
 ```bash
 export AWIKI_HOME="$HOME/my-awiki"
@@ -99,7 +96,7 @@ export AWIKI_HOME="$HOME/my-awiki"
 # 缓存与临时: $AWIKI_HOME/cache/ / $AWIKI_HOME/tmp/
 ```
 
-> 提示：awiki-cli 会在需要时自动创建上述目录，权限为 `0700`，数据库和敏感文件权限为 `0600`。普通用户不需要长期在 shell rc 中设置 `AWIKI_HOME`；一旦通过 `init --home` 选择工作目录后，后续调用无需再记住路径。
+> 提示：awiki-cli 会在需要时自动创建上述目录，权限为 `0700`，数据库和敏感文件权限为 `0600`。普通用户可以直接使用默认工作目录；在多环境 / CI 场景下再通过 `AWIKI_HOME` 明确指定工作目录根。
 
 ---
 
@@ -122,9 +119,8 @@ $AWIKI_HOME/
 - macOS / Linux 默认工作目录根：`$HOME/.awiki-cli`
 - Windows 默认工作目录根：`%LOCALAPPDATA%\AwikiCli`
 - 运行时解析工作目录根的规则：
-  1. 若设置环境变量 `AWIKI_HOME`，本次运行优先使用该路径（高级/临时覆写入口）；
-  2. 否则，如果默认根目录下存在 `home.json` 指针文件，则读取其中的 `root_dir` 字段作为真实工作目录根（由 `awiki-cli init --home` 生成）；
-  3. 否则使用默认根本身。
+  1. 若设置环境变量 `AWIKI_HOME`，本次运行优先使用该路径（高级/临时覆写入口）；  
+  2. 否则使用默认根本身。
 
 ### 3.2 config.json 结构
 

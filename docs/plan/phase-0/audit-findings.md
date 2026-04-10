@@ -149,7 +149,7 @@
 
 **裁决**：
 
-- v2 原生写入改为单一工作目录 `AWIKI_HOME`（见 implementation-constraints 5.1）；
+- v2 原生写入改为单一工作目录 `AWIKI_HOME`（见 implementation-constraints 5.1），根目录解析规则为：`AWIKI_HOME` 环境变量优先，其次使用默认根（`$HOME/.awiki-cli` / `%LOCALAPPDATA%\AwikiCli`），不再通过 `home.json` 指针跳转；  
 - `doctor` / `runtime setup` / `migrate from-v1` 负责检测 `.openclaw` 旧路径；
 - 默认只提示导入，不原地修改旧数据。
 

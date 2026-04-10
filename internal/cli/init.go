@@ -13,41 +13,10 @@ import (
 // runInit initializes the awiki-cli workdir and a minimal config.json.
 //
 // It is the primary entrypoint for users to discover and prepare the workdir:
-// - Without flags, it uses the same root resolution as other commands.
-// - With --home, it treats the flag as the desired root for this run and
-//   records it in the default root's home.json pointer.
+// it uses the same root resolution as other commands (AWIKI_HOME override or
+// the built-in default root) and ensures the directory layout and config.json
+// are in place.
 func (a *App) runInit(cmd *cobra.Command, args []string) error {
-	homeFlag, _ := cmd.Flags().GetString("home")
-	homeFlag = strings.TrimSpace(homeFlag)
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return output.NewExitError(
-			"internal_error",
-			1,
-			err.Error(),
-			"Resolve a valid user home directory before running awiki-cli.",
-		)
-	}
-
-	// If --home is provided, treat it as the canonical workdir root for this
-	// init invocation by temporarily overriding AWIKI_HOME. This makes the
-	// root resolution behavior consistent with other commands.
-	var previousAWIKIHome string
-	if homeFlag != "" {
-		expanded := appconfig.ExpandHome(home, homeFlag)
-		previousAWIKIHome = os.Getenv("AWIKI_HOME")
-		if err := os.Setenv("AWIKI_HOME", expanded); err != nil {
-			return output.NewExitError(
-				"internal_error",
-				1,
-				err.Error(),
-				"Set AWIKI_HOME for this process before running init.",
-			)
-		}
-		defer os.Setenv("AWIKI_HOME", previousAWIKIHome)
-	}
-
 	resolved, err := a.resolveConfig()
 	if err != nil {
 		return output.NewExitError(
@@ -59,8 +28,6 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	format := normalizedFormat(resolved.OutputFormat)
-	defaultRoot := appconfig.DefaultRootDir(home)
-	pointerPath := filepath.Join(defaultRoot, "home.json")
 	rootSource := resolved.Sources["root_dir"]
 
 	dirs := []string{
@@ -73,8 +40,6 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		resolved.Paths.LogsDir,
 	}
 
-	willWritePointer := homeFlag != ""
-
 	if a.globals.DryRun {
 		data := map[string]any{
 			"plan": map[string]any{
@@ -85,10 +50,6 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 				"config_file":   resolved.Paths.ConfigFile,
 				"config_exists": resolved.ConfigExists,
 				"config_error":  resolved.ConfigError,
-				"home_pointer": map[string]any{
-					"path":       pointerPath,
-					"will_write": willWritePointer,
-				},
 			},
 		}
 		return a.renderSuccess(
@@ -151,17 +112,6 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		resolved.ConfigExists = true
 	}
 
-	if willWritePointer {
-		if err := appconfig.WriteHomePointer(home, resolved.Paths.RootDir); err != nil {
-			return output.NewExitError(
-				"internal_error",
-				1,
-				err.Error(),
-				"Check write permissions under the default awiki-cli home directory.",
-			)
-		}
-	}
-
 	result := map[string]any{
 		"workdir": map[string]any{
 			"root_dir":      resolved.Paths.RootDir,
@@ -169,10 +119,6 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 			"paths":         resolved.Paths,
 			"config_file":   resolved.Paths.ConfigFile,
 			"config_exists": resolved.ConfigExists,
-		},
-		"home_pointer": map[string]any{
-			"path":    pointerPath,
-			"written": willWritePointer,
 		},
 	}
 

@@ -74,43 +74,10 @@ func TestResolve_NoColorFromConfigWhenNoEnv(t *testing.T) {
 	}
 }
 
-func TestLoadHomePointer_MissingFileReturnsEmpty(t *testing.T) {
+func TestResolveRootDir_PrefersEnvOverDefaultRoot(t *testing.T) {
 	home := t.TempDir()
-
-	root, err := LoadHomePointer(home)
-	if err != nil {
-		t.Fatalf("LoadHomePointer() error = %v", err)
-	}
-	if root != "" {
-		t.Fatalf("LoadHomePointer() = %q, want empty string for missing pointer", root)
-	}
-}
-
-func TestLoadHomePointer_JSONPointerRoundTrip(t *testing.T) {
-	home := t.TempDir()
-	target := filepath.Join(home, "custom-root")
-
-	if err := WriteHomePointer(home, target); err != nil {
-		t.Fatalf("WriteHomePointer() error = %v", err)
-	}
-
-	root, err := LoadHomePointer(home)
-	if err != nil {
-		t.Fatalf("LoadHomePointer() error = %v", err)
-	}
-	if root != target {
-		t.Fatalf("LoadHomePointer() = %q, want %q", root, target)
-	}
-}
-
-func TestResolveRootDir_PrefersEnvOverPointer(t *testing.T) {
-	home := t.TempDir()
-	pointerTarget := filepath.Join(home, "pointer-root")
 	envTarget := filepath.Join(home, "env-root")
 
-	if err := WriteHomePointer(home, pointerTarget); err != nil {
-		t.Fatalf("WriteHomePointer() error = %v", err)
-	}
 	t.Setenv("AWIKI_HOME", envTarget)
 
 	root, source := resolveRootDir(home)
@@ -122,20 +89,16 @@ func TestResolveRootDir_PrefersEnvOverPointer(t *testing.T) {
 	}
 }
 
-func TestResolveRootDir_UsesHomePointerWhenNoEnv(t *testing.T) {
+func TestResolveRootDir_UsesDefaultRootWhenNoEnv(t *testing.T) {
 	home := t.TempDir()
-	target := filepath.Join(home, "pointer-root")
-
-	if err := WriteHomePointer(home, target); err != nil {
-		t.Fatalf("WriteHomePointer() error = %v", err)
-	}
 	t.Setenv("AWIKI_HOME", "")
 
 	root, source := resolveRootDir(home)
-	if root != target {
-		t.Fatalf("resolveRootDir() root = %q, want %q from home pointer", root, target)
+	expected := DefaultRootDir(home)
+	if root != expected {
+		t.Fatalf("resolveRootDir() root = %q, want %q from default root", root, expected)
 	}
-	if source.Source != "home_pointer" || source.Key != "home.json" {
-		t.Fatalf("resolveRootDir() source = %+v, want home_pointer home.json", source)
+	if source.Source != "default" || source.Key != "" {
+		t.Fatalf("resolveRootDir() source = %+v, want default with empty key", source)
 	}
 }

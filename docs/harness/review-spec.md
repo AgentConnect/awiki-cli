@@ -49,7 +49,7 @@
 
 | 路径 | 类型 | review 关注点 | 核心约束摘要 |
 |---|---|---|---|
-| `docs/plan/phase-0/implementation-constraints.md` | 冻结约束 | **最高优先级** | canonical 顶级命令、`group` 顶级归属、全局 flags、输出 envelope、错误码/退出码、AWIKI_HOME 工作目录与 config.json、`AWIKI_*` 环境变量集合、`owner_did`、Phase 边界全部以此为准。 |
+| `docs/plan/phase-0/implementation-constraints.md` | 冻结约束 | **最高优先级** | canonical 顶级命令、`group` 顶级归属、全局 flags、输出 envelope、错误码/退出码、AWIKI_HOME 工作目录与 config.json（仅支持 AWIKI_HOME 或默认根，不再使用 home.json 指针）、`AWIKI_*` 环境变量集合、`owner_did`、Phase 边界全部以此为准。 |
 | `docs/plan/phase-0/audit-findings.md` | 冻结裁决 | 冲突消歧 | 解决了 `group` vs `msg group`、`AWIKI_*` vs `AVIKI_*`、顶级 `api` 是否暴露、`e2ee_outbox` 是否必保留、XDG 与 `.openclaw` 兼容、pure Go / no CGO 等冲突。 |
 | `docs/plan/phase-0/adr-index.md` | ADR 索引 | 规则引用 | 用于快速确认哪类问题已经被冻结，不必每次重新讨论。 |
 | `docs/plan/phase-0/capability-mapping.md` | 能力映射 | 改动溯源 | v2 命令与 v1 脚本、user-service / message-service API 的映射关系，适合 review“改动有没有脱离既定能力映射”。 |
