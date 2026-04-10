@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -72,9 +71,7 @@ func Start(resolved *appconfig.Resolved) (Status, error) {
 	command.Stdout = logFile
 	command.Stderr = logFile
 	command.Env = os.Environ()
-	if runtime.GOOS != "windows" {
-		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	}
+	setSysProcAttr(command)
 	if err := command.Start(); err != nil {
 		return Status{}, err
 	}

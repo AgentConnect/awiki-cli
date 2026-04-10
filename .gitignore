@@ -32,3 +32,5 @@ go.work.sum
 # .vscode/
 
 awiki-cli
+awiki-cli-dev
+dist/

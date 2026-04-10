@@ -1,12 +1,12 @@
 {
   "name": "@agentconnect/awiki-cli",
-  "version": "0.1.0",
+  "version": "0.0.1-beta.1",
   "description": "Awiki command-line interface (awiki-cli)",
   "engines": {
     "node": ">=18"
   },
   "awikiCli": {
-    "minSupportedVersion": "0.1.0"
+    "minSupportedVersion": "0.0.1-beta.1"
   },
   "bin": {
     "awiki-cli": "scripts/run.js"
