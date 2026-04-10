@@ -18,12 +18,12 @@
 
 | ADR | 主题 | 状态 | 影响阶段 | 冻结结论 |
 |---|---|---|---|---|
-| ADR-0001 | 公共命令面冻结 | Frozen | Phase 1+ | 顶级命令以 `status/docs/schema/doctor/version/completion/config/id/msg/group/runtime/people/page/debug` 为准 |
+| ADR-0001 | 公共命令面冻结 | Frozen | Phase 1+ | 顶级命令以 `status/docs/schema/doctor/version/init/completion/config/id/msg/group/runtime/people/page/debug` 为准 |
 | ADR-0002 | `group` 域归属 | Frozen | Phase 1+ | `group` 为 canonical 顶级域；`msg send --group` 负责群发消息；`msg group` 只可作为兼容 alias |
 | ADR-0003 | raw API 暴露方式 | Frozen | Phase 1+ | 首发不暴露顶级 `api`；raw RPC 挂在 `debug raw rpc` |
 | ADR-0004 | 用户术语与存储术语 | Frozen | Phase 1+ | 用户层使用 `identity`；存储层 Phase 1 保留 `credential_name` / `default_credential_name` |
 | ADR-0005 | 输出协议与 `_notice` 字段 | Frozen | Phase 1+ | 统一 JSON envelope；更新提示字段固定为 `_notice` |
-| ADR-0006 | 环境变量与路径兼容 | Frozen | Phase 1+ | `AWIKI_*` 为 canonical；`AVIKI_*` 为 typo alias；`E2E_*` 为 legacy fallback；v2 原生路径用单根目录工作区 |
+| ADR-0006 | 环境变量与路径兼容 | Frozen | Phase 1+ | `AWIKI_*` 为 canonical；`AWIKI_WORKSPACE_HOME` 为主入口，`AWIKI_HOME` 为根目录别名；`AVIKI_*` 为 typo alias；`E2E_*` 为 legacy fallback；v2 原生路径用单根目录工作区 |
 | ADR-0007 | 凭证文件基线 | Frozen | Phase 2+ | 凭证布局以 `credential_layout.py` / `credential_store.py` 为基线，兼容 indexed multi-credential layout |
 | ADR-0008 | SQLite 基线与 source of truth | Frozen | Phase 3+ | SQLite 以 `local_store.py` 为 source of truth；`e2ee_outbox` 是首版必保留表 |
 | ADR-0009 | runtime mode 与 listener 边界 | Frozen | Phase 1 / 6+ | transport 只在 `runtime` 暴露；websocket mode 下 listener 持有唯一远端连接 |

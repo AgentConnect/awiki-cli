@@ -41,23 +41,24 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.2`
+  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.3`
 
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`yaml.v3`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.2`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`yaml.v3`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.3`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
-**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、AWIKI/AVIKI/E2E 环境变量兼容读取、config.yaml 解析。  
+**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、优先支持 `AWIKI_WORKSPACE_HOME`、兼容 `AWIKI_HOME` 根目录别名，以及 AWIKI/AVIKI/E2E 环境变量兼容读取与 `config.yaml` 解析。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
 **internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
-**internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/config show 的实现。  
+**internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。  
+**internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1。  
 **internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  
@@ -82,7 +83,7 @@
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: 基于 ANP Go SDK 0.8.2 的 RFC 9421 origin proof 薄封装。  
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.3 的 RFC 9421 origin proof 薄封装。  
 **internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
 **internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  
@@ -116,6 +117,7 @@
 
 - Phase 1：
   - `awiki-cli` 根命令与顶级命令树
+  - `init` 工作区初始化命令
   - 全局 flags：`--format`、`--jq`、`--dry-run`、`--identity`、`--verbose`
   - 统一输出 envelope
   - 静态 `schema`

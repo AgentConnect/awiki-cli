@@ -93,6 +93,7 @@ awiki-cli docs [TOPIC]
 awiki-cli schema [COMMAND]
 awiki-cli doctor
 awiki-cli version
+awiki-cli init
 awiki-cli completion <bash|zsh|fish|powershell>
 
 awiki-cli id status
@@ -186,10 +187,16 @@ awiki-cli debug logs [--follow]
 
 ```bash
 awiki-cli docs [TOPIC]
+awiki-cli init
 awiki-cli completion <bash|zsh|fish|powershell>
 ```
 
 `docs` 作为一级命令，用于承载 onboarding、identity、secure-messaging、transport-modes 等产品内建文档。
+
+`init` 作为显式初始化命令，用于：
+
+* 帮用户创建工作目录（默认是 `~/.awiki-cli`，优先支持 `AWIKI_WORKSPACE_HOME`，并兼容 `AWIKI_HOME` 根目录别名）及其子目录；
+* 在首次需要时生成一份最小的 `config.yaml` 骨架；
 
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 

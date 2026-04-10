@@ -76,6 +76,9 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.Paths.WorkspaceHomeDir != root {
 		t.Fatalf("workspace home dir = %q, want %q", resolved.Paths.WorkspaceHomeDir, root)
 	}
+	if resolved.Paths.RootDir != root {
+		t.Fatalf("root dir = %q, want %q", resolved.Paths.RootDir, root)
+	}
 	if resolved.Paths.ConfigDir != root {
 		t.Fatalf("config dir = %q, want %q", resolved.Paths.ConfigDir, root)
 	}
@@ -91,7 +94,30 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.Paths.CacheDir != filepath.Join(root, "cache") {
 		t.Fatalf("cache dir = %q", resolved.Paths.CacheDir)
 	}
+	if resolved.Paths.LogsDir != filepath.Join(root, "logs") {
+		t.Fatalf("logs dir = %q", resolved.Paths.LogsDir)
+	}
 	if resolved.RuntimeSocketPath != filepath.Join(root, "runtime", "message-daemon.sock") {
 		t.Fatalf("runtime socket path = %q", resolved.RuntimeSocketPath)
+	}
+}
+
+func TestResolveSupportsAWIKIHomeAlias(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AWIKI_HOME", root)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Paths.WorkspaceHomeDir != root {
+		t.Fatalf("workspace home dir = %q, want %q", resolved.Paths.WorkspaceHomeDir, root)
+	}
+	source := resolved.Sources["workspace_home_dir"]
+	if source.Source != "canonical_env" {
+		t.Fatalf("resolved.Sources[workspace_home_dir].Source = %q, want %q", source.Source, "canonical_env")
+	}
+	if source.Key != "AWIKI_HOME" {
+		t.Fatalf("resolved.Sources[workspace_home_dir].Key = %q, want %q", source.Key, "AWIKI_HOME")
 	}
 }

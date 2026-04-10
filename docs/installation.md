@@ -28,10 +28,10 @@ go version
 
 ### 1.2 ANP Go SDK（远端模块依赖）
 
-awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.8.2`：
+awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.8.3`：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.8.2
+go get github.com/agent-network-protocol/anp/golang@v0.8.3
 ```
 
 首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
@@ -88,6 +88,12 @@ Schema 版本为 v11，包含以下本地表：
 推荐优先使用工作区根目录覆盖：
 
 ```bash
+awiki-cli init
+```
+
+如需显式切换工作区根目录，优先使用 `AWIKI_WORKSPACE_HOME`；`AWIKI_HOME` 也会被接受为根目录别名：
+
+```bash
 export AWIKI_WORKSPACE_HOME=~/my-awiki
 # 数据库将位于 ~/my-awiki/data/awiki-cli.db
 ```
@@ -109,13 +115,15 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
 | 用途 | 默认路径 | 环境变量覆盖 |
 |------|----------|-------------|
-| 工作区目录 | `~/.awiki-cli/` | `AWIKI_WORKSPACE_HOME`（推荐） |
+| 工作区目录 | `~/.awiki-cli/` | `AWIKI_WORKSPACE_HOME`（推荐） / `AWIKI_HOME`（根目录别名） |
 | 配置目录 | `~/.awiki-cli/` | `AWIKI_CONFIG_DIR`（兼容 override） |
 | 数据目录 | `~/.awiki-cli/data/` | `AWIKI_DATA_DIR`（兼容 override） |
 | runtime 目录 | `~/.awiki-cli/runtime/` | `AWIKI_STATE_DIR`（兼容 override） |
 | 缓存目录 | `~/.awiki-cli/cache/` | `AWIKI_CACHE_DIR`（兼容 override） |
+| 日志目录 | `~/.awiki-cli/logs/` | 无（始终跟随工作区根目录） |
 
 > 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\\.awiki-cli\\`），也是**默认唯一推荐入口**。  
+> `AWIKI_WORKSPACE_HOME` 是首选根目录入口；`AWIKI_HOME` 会被接受为同义根目录别名，用于兼容 release/0325 合并后的初始化入口。  
 > `AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 继续保留，但仅作为兼容 override 使用。
 >
 > 工作区内容包括：
@@ -125,13 +133,14 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - `data/awiki-cli.db`
 > - `cache/`
 > - `runtime/`
+> - `logs/`
 > - workspace upgrade 元数据
 > - upgrade lock / journal
 > - 备份快照
 
 ### 3.2 config.yaml
 
-配置文件位于 `~/.awiki-cli/config.yaml`，首次运行前可手动创建：
+配置文件位于 `~/.awiki-cli/config.yaml`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考：
 
 ```yaml
 schema_version: 1
@@ -252,6 +261,7 @@ identities/
 | 环境变量 | 别名 | 用途 | 默认值 |
 |----------|------|------|--------|
 | `AWIKI_WORKSPACE_HOME` | `AVIKI_WORKSPACE_HOME` | 工作区根目录（推荐） | `~/.awiki-cli` |
+| `AWIKI_HOME` | 无 | 工作区根目录别名（兼容 `init` 根目录入口） | `~/.awiki-cli` |
 | `AWIKI_CONFIG_DIR` | `AVIKI_CONFIG_DIR` | 配置目录（兼容 override） | `~/.awiki-cli` |
 | `AWIKI_DATA_DIR` | `AVIKI_DATA_DIR` | 数据目录（兼容 override） | `~/.awiki-cli/data` |
 | `AWIKI_STATE_DIR` | `AVIKI_STATE_DIR` | runtime 目录（兼容 override） | `~/.awiki-cli/runtime` |
@@ -399,10 +409,10 @@ CGO_ENABLED=0 go build ./cmd/awiki-cli/
 
 ### Q: 编译报错找不到 ANP SDK
 
-确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.8.2`：
+确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.8.3`：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.8.2
+go get github.com/agent-network-protocol/anp/golang@v0.8.3
 ```
 
 ### Q: `go mod tidy` 报错

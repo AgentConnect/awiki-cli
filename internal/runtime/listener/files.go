@@ -14,16 +14,23 @@ import (
 
 func paths(resolved *appconfig.Resolved) (pidFile string, logFile string, statusFile string, socketPath string, err error) {
 	bridge := runtime.Resolve(resolved)
-	root := resolved.Paths.StateDir
-	if strings.TrimSpace(root) == "" {
-		root = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime")
+	stateRoot := strings.TrimSpace(resolved.Paths.StateDir)
+	if stateRoot == "" {
+		stateRoot = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime")
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
 		return "", "", "", "", fmt.Errorf("create runtime state dir: %w", err)
 	}
-	return filepath.Join(root, "listener.pid"),
-		filepath.Join(root, "listener.log"),
-		filepath.Join(root, "listener.status.json"),
+	logDir := strings.TrimSpace(resolved.Paths.LogsDir)
+	if logDir == "" {
+		logDir = stateRoot
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return "", "", "", "", fmt.Errorf("create runtime log dir: %w", err)
+	}
+	return filepath.Join(stateRoot, "listener.pid"),
+		filepath.Join(logDir, "listener.log"),
+		filepath.Join(stateRoot, "listener.status.json"),
 		bridge.SocketPath,
 		nil
 }

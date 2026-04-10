@@ -37,6 +37,7 @@ awiki-cli docs
 awiki-cli schema
 awiki-cli doctor
 awiki-cli version
+awiki-cli init
 awiki-cli completion
 awiki-cli config
 awiki-cli id
@@ -198,12 +199,14 @@ v2 原生路径固定为单根目录工作区模型：
 ~/.awiki-cli/data/awiki-cli.db
 ~/.awiki-cli/cache/
 ~/.awiki-cli/runtime/
+~/.awiki-cli/logs/
 ~/.awiki-cli/upgrade/
 ```
 
 说明：
 
 - `~/.awiki-cli/runtime/` 用于 runtime / listener 运行时状态
+- `~/.awiki-cli/logs/` 用于 listener 与 runtime 的持久化日志
 - `~/.awiki-cli/upgrade/` 用于升级元数据、upgrade journal、lock 与备份
 
 ### 5.2 环境变量前缀冻结
@@ -220,12 +223,13 @@ Phase 1 读取优先级固定为：
 flag > config file > AWIKI_* > AVIKI_* > E2E_* > default
 ```
 
-其中默认推荐入口是 `AWIKI_WORKSPACE_HOME`；`AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留。
+其中默认推荐入口是 `AWIKI_WORKSPACE_HOME`；`AWIKI_HOME` 作为根目录别名兼容 release/0325 的初始化入口；`AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留。
 
 至少要支持：
 
 ```text
 AWIKI_WORKSPACE_HOME    # primary entry
+AWIKI_HOME              # root alias for init/workspace bootstrapping
 AWIKI_CONFIG_DIR        # compatibility override
 AWIKI_DATA_DIR          # compatibility override
 AWIKI_STATE_DIR         # compatibility override

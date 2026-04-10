@@ -82,6 +82,7 @@
 **裁决**：
 
 - canonical 前缀冻结为 **`AWIKI_*`**
+- `AWIKI_WORKSPACE_HOME` 是首选工作区根目录入口，`AWIKI_HOME` 作为兼容根目录别名保留
 - `AVIKI_*` 视为 draft typo alias，Phase 1 可以兼容读取
 - `E2E_*` 保留 legacy fallback
 
@@ -149,6 +150,7 @@
 **裁决**：
 
 - v2 原生写入 `~/.awiki-cli/` 工作区
+- `AWIKI_WORKSPACE_HOME` 是首选工作区根目录入口，`AWIKI_HOME` 仅作为兼容根目录别名
 - `doctor` / `runtime setup` / `migrate from-v1` 负责检测旧路径
 - 默认只提示导入，不原地修改旧数据
 

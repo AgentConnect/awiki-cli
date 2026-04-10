@@ -28,10 +28,12 @@ type Overrides struct {
 
 type Paths struct {
 	WorkspaceHomeDir     string `json:"workspace_home_dir"`
+	RootDir              string `json:"root_dir"`
 	ConfigDir            string `json:"config_dir"`
 	DataDir              string `json:"data_dir"`
 	StateDir             string `json:"state_dir"`
 	CacheDir             string `json:"cache_dir"`
+	LogsDir              string `json:"logs_dir"`
 	ConfigFile           string `json:"config_file"`
 	IdentityDir          string `json:"identity_dir"`
 	DatabaseFile         string `json:"database_file"`
@@ -103,16 +105,17 @@ type option struct {
 	tier   string
 }
 
+func DefaultWorkspaceHomeDir(home string) string {
+	return filepath.Join(home, "."+appName)
+}
+
 func Resolve(overrides Overrides) (*Resolved, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home: %w", err)
 	}
-	workspaceHomeDir, workspaceHomeSource := resolvePath(
-		home,
-		envOptionSet("workspace_home_dir", "AWIKI_WORKSPACE_HOME", "AVIKI_WORKSPACE_HOME"),
-		filepath.Join(home, "."+appName),
-	)
+
+	workspaceHomeDir, workspaceHomeSource := resolveWorkspaceHome(home)
 	configDir, configDirSource := resolvePath(
 		home,
 		envOptionSet("config_dir", "AWIKI_CONFIG_DIR", "AVIKI_CONFIG_DIR"),
@@ -133,19 +136,22 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		envOptionSet("cache_dir", "AWIKI_CACHE_DIR", "AVIKI_CACHE_DIR"),
 		filepath.Join(workspaceHomeDir, "cache"),
 	)
+	logsDir := filepath.Join(workspaceHomeDir, "logs")
 
-	legacyWorkspace := os.Getenv("AWIKI_WORKSPACE")
+	legacyWorkspace := strings.TrimSpace(os.Getenv("AWIKI_WORKSPACE"))
 	legacyDataDir := filepath.Join(home, ".openclaw", "workspace", "data", legacySkillName)
-	if strings.TrimSpace(legacyWorkspace) != "" {
-		legacyDataDir = filepath.Join(legacyWorkspace, "data", legacySkillName)
+	if legacyWorkspace != "" {
+		legacyDataDir = filepath.Join(expandHome(home, legacyWorkspace), "data", legacySkillName)
 	}
 
 	paths := Paths{
 		WorkspaceHomeDir:     workspaceHomeDir,
+		RootDir:              workspaceHomeDir,
 		ConfigDir:            configDir,
 		DataDir:              dataDir,
 		StateDir:             stateDir,
 		CacheDir:             cacheDir,
+		LogsDir:              logsDir,
 		ConfigFile:           filepath.Join(configDir, "config.yaml"),
 		IdentityDir:          filepath.Join(configDir, "identities"),
 		DatabaseFile:         filepath.Join(dataDir, appName+".db"),
@@ -163,10 +169,16 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		DIDDomain:           defaultDIDDomain,
 		Sources: map[string]ValueSource{
 			"workspace_home_dir": workspaceHomeSource,
+			"root_dir":           workspaceHomeSource,
 			"config_dir":         configDirSource,
 			"data_dir":           dataDirSource,
 			"state_dir":          stateDirSource,
 			"cache_dir":          cacheDirSource,
+			"logs_dir": {
+				Source: "derived",
+				Key:    "workspace_home_dir",
+				Value:  logsDir,
+			},
 		},
 	}
 	resolved.EnvHits = collectEnvHits()
@@ -178,26 +190,86 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		resolved.ConfigError = configError.Error()
 	}
 
-	resolved.ActiveIdentity, resolved.Sources["active_identity"] = chooseValue(overrides.Identity, overrides.IdentityChanged, fileConfig.Identity.Active,
-		envOptionSet("active_identity", "AWIKI_IDENTITY", "AVIKI_IDENTITY"), "")
-	resolved.RuntimeMode, resolved.Sources["runtime_mode"] = chooseValue("", false, fileConfig.Runtime.Mode,
-		envOptionSet("runtime_mode", "AWIKI_RUNTIME_MODE", "AVIKI_RUNTIME_MODE"), "http")
-	resolved.RuntimeSocketPath, resolved.Sources["runtime_socket_path"] = chooseValue("", false, fileConfig.Runtime.SocketPath,
-		envOptionSet("runtime_socket_path", "AWIKI_RUNTIME_SOCKET", "AVIKI_RUNTIME_SOCKET"), filepath.Join(paths.StateDir, "message-daemon.sock"))
-	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(overrides.Format, overrides.FormatChanged, fileConfig.Output.Format,
-		envOptionSet("output_format", "AWIKI_FORMAT", "AVIKI_FORMAT"), "json")
-	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(fileConfig.Output.NoColor,
-		envOptionSet("no_color", "AWIKI_NO_COLOR", "AVIKI_NO_COLOR"), false)
-	resolved.UserServiceURL, resolved.Sources["user_service_url"] = chooseValue("", false, fileConfig.Services.UserServiceURL,
-		append(envOptionSet("user_service_url", "AWIKI_USER_SERVICE_URL", "AVIKI_USER_SERVICE_URL"), option{key: "E2E_USER_SERVICE_URL", target: "user_service_url", tier: "legacy_env"}), defaultService)
-	resolved.MessageServiceURL, resolved.Sources["message_service_url"] = chooseValue("", false, fileConfig.Services.MessageServiceURL,
-		append(envOptionSet("message_service_url", "AWIKI_MESSAGE_SERVICE_URL", "AVIKI_MESSAGE_SERVICE_URL"), option{key: "E2E_MOLT_MESSAGE_URL", target: "message_service_url", tier: "legacy_env"}), defaultService)
-	resolved.MessageServiceWSURL, resolved.Sources["message_service_ws_url"] = chooseValue("", false, fileConfig.Services.MessageServiceWSURL,
-		append(envOptionSet("message_service_ws_url", "AWIKI_MESSAGE_WS_URL", "AVIKI_MESSAGE_WS_URL"), option{key: "E2E_MOLT_MESSAGE_WS_URL", target: "message_service_ws_url", tier: "legacy_env"}), "")
-	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue("", false, fileConfig.Services.DIDDomain,
-		append(envOptionSet("did_domain", "AWIKI_DID_DOMAIN", "AVIKI_DID_DOMAIN"), option{key: "E2E_DID_DOMAIN", target: "did_domain", tier: "legacy_env"}), defaultDIDDomain)
-	resolved.ANPServiceEndpoint, resolved.Sources["anp_service_endpoint"] = chooseValue("", false, fileConfig.Services.ANPServiceEndpoint,
-		envOptionSet("anp_service_endpoint", "AWIKI_ANP_SERVICE_ENDPOINT", "AVIKI_ANP_SERVICE_ENDPOINT"), "")
+	resolved.ActiveIdentity, resolved.Sources["active_identity"] = chooseValue(
+		overrides.Identity,
+		overrides.IdentityChanged,
+		fileConfig.Identity.Active,
+		envOptionSet("active_identity", "AWIKI_IDENTITY", "AVIKI_IDENTITY"),
+		"",
+	)
+	resolved.RuntimeMode, resolved.Sources["runtime_mode"] = chooseValue(
+		"",
+		false,
+		fileConfig.Runtime.Mode,
+		envOptionSet("runtime_mode", "AWIKI_RUNTIME_MODE", "AVIKI_RUNTIME_MODE"),
+		"http",
+	)
+	resolved.RuntimeSocketPath, resolved.Sources["runtime_socket_path"] = chooseValue(
+		"",
+		false,
+		fileConfig.Runtime.SocketPath,
+		envOptionSet("runtime_socket_path", "AWIKI_RUNTIME_SOCKET", "AVIKI_RUNTIME_SOCKET"),
+		filepath.Join(paths.StateDir, "message-daemon.sock"),
+	)
+	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(
+		overrides.Format,
+		overrides.FormatChanged,
+		fileConfig.Output.Format,
+		envOptionSet("output_format", "AWIKI_FORMAT", "AVIKI_FORMAT"),
+		"json",
+	)
+	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(
+		fileConfig.Output.NoColor,
+		envOptionSet("no_color", "AWIKI_NO_COLOR", "AVIKI_NO_COLOR"),
+		false,
+	)
+	resolved.UserServiceURL, resolved.Sources["user_service_url"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.UserServiceURL,
+		append(
+			envOptionSet("user_service_url", "AWIKI_USER_SERVICE_URL", "AVIKI_USER_SERVICE_URL"),
+			option{key: "E2E_USER_SERVICE_URL", target: "user_service_url", tier: "legacy_env"},
+		),
+		defaultService,
+	)
+	resolved.MessageServiceURL, resolved.Sources["message_service_url"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.MessageServiceURL,
+		append(
+			envOptionSet("message_service_url", "AWIKI_MESSAGE_SERVICE_URL", "AVIKI_MESSAGE_SERVICE_URL"),
+			option{key: "E2E_MOLT_MESSAGE_URL", target: "message_service_url", tier: "legacy_env"},
+		),
+		defaultService,
+	)
+	resolved.MessageServiceWSURL, resolved.Sources["message_service_ws_url"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.MessageServiceWSURL,
+		append(
+			envOptionSet("message_service_ws_url", "AWIKI_MESSAGE_WS_URL", "AVIKI_MESSAGE_WS_URL"),
+			option{key: "E2E_MOLT_MESSAGE_WS_URL", target: "message_service_ws_url", tier: "legacy_env"},
+		),
+		"",
+	)
+	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.DIDDomain,
+		append(
+			envOptionSet("did_domain", "AWIKI_DID_DOMAIN", "AVIKI_DID_DOMAIN"),
+			option{key: "E2E_DID_DOMAIN", target: "did_domain", tier: "legacy_env"},
+		),
+		defaultDIDDomain,
+	)
+	resolved.ANPServiceEndpoint, resolved.Sources["anp_service_endpoint"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.ANPServiceEndpoint,
+		envOptionSet("anp_service_endpoint", "AWIKI_ANP_SERVICE_ENDPOINT", "AVIKI_ANP_SERVICE_ENDPOINT"),
+		"",
+	)
 	if strings.TrimSpace(resolved.ANPServiceEndpoint) == "" {
 		resolved.ANPServiceEndpoint = defaultANPServiceEndpoint(resolved.DIDDomain)
 		resolved.Sources["anp_service_endpoint"] = ValueSource{
@@ -206,8 +278,13 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 			Value:  resolved.ANPServiceEndpoint,
 		}
 	}
-	resolved.ANPServiceDID, resolved.Sources["anp_service_did"] = chooseValue("", false, fileConfig.Services.ANPServiceDID,
-		envOptionSet("anp_service_did", "AWIKI_ANP_SERVICE_DID", "AVIKI_ANP_SERVICE_DID"), "")
+	resolved.ANPServiceDID, resolved.Sources["anp_service_did"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.ANPServiceDID,
+		envOptionSet("anp_service_did", "AWIKI_ANP_SERVICE_DID", "AVIKI_ANP_SERVICE_DID"),
+		"",
+	)
 	if strings.TrimSpace(resolved.ANPServiceDID) == "" {
 		resolved.ANPServiceDID = defaultANPServiceDID(resolved.DIDDomain)
 		resolved.Sources["anp_service_did"] = ValueSource{
@@ -216,8 +293,16 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 			Value:  resolved.ANPServiceDID,
 		}
 	}
-	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue("", false, fileConfig.Services.CABundle,
-		append(envOptionSet("ca_bundle", "AWIKI_CA_BUNDLE", "AVIKI_CA_BUNDLE"), option{key: "E2E_CA_BUNDLE", target: "ca_bundle", tier: "legacy_env"}), "")
+	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.CABundle,
+		append(
+			envOptionSet("ca_bundle", "AWIKI_CA_BUNDLE", "AVIKI_CA_BUNDLE"),
+			option{key: "E2E_CA_BUNDLE", target: "ca_bundle", tier: "legacy_env"},
+		),
+		"",
+	)
 
 	if resolved.OutputFormat == "" {
 		resolved.OutputFormat = "json"
@@ -285,10 +370,20 @@ func envOptionSet(target string, keys ...string) []option {
 	return options
 }
 
+func resolveWorkspaceHome(home string) (string, ValueSource) {
+	options := []option{
+		{key: "AWIKI_WORKSPACE_HOME", target: "workspace_home_dir", tier: "canonical_env"},
+		{key: "AWIKI_HOME", target: "workspace_home_dir", tier: "canonical_env"},
+		{key: "AVIKI_WORKSPACE_HOME", target: "workspace_home_dir", tier: "draft_alias_env"},
+	}
+	return resolvePath(home, options, DefaultWorkspaceHomeDir(home))
+}
+
 func resolvePath(home string, options []option, defaultValue string) (string, ValueSource) {
 	for _, opt := range options {
 		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
-			return expandHome(home, value), ValueSource{Source: opt.tier, Key: opt.key, Value: value}
+			expanded := expandHome(home, value)
+			return expanded, ValueSource{Source: opt.tier, Key: opt.key, Value: expanded}
 		}
 	}
 	return defaultValue, ValueSource{Source: "default", Value: defaultValue}
@@ -296,10 +391,12 @@ func resolvePath(home string, options []option, defaultValue string) (string, Va
 
 func chooseValue(flagValue string, flagChanged bool, fileValue string, envOptions []option, defaultValue string) (string, ValueSource) {
 	if flagChanged && strings.TrimSpace(flagValue) != "" {
-		return strings.TrimSpace(flagValue), ValueSource{Source: "flag", Value: strings.TrimSpace(flagValue)}
+		value := strings.TrimSpace(flagValue)
+		return value, ValueSource{Source: "flag", Value: value}
 	}
 	if strings.TrimSpace(fileValue) != "" {
-		return strings.TrimSpace(fileValue), ValueSource{Source: "config_file", Value: strings.TrimSpace(fileValue)}
+		value := strings.TrimSpace(fileValue)
+		return value, ValueSource{Source: "config_file", Value: value}
 	}
 	for _, opt := range envOptions {
 		if value := strings.TrimSpace(os.Getenv(opt.key)); value != "" {
@@ -348,6 +445,7 @@ func defaultANPServiceDID(didDomain string) string {
 func collectEnvHits() []EnvHit {
 	definitions := []EnvHit{
 		{Key: "AWIKI_WORKSPACE_HOME", Tier: "canonical_env", Target: "workspace_home_dir"},
+		{Key: "AWIKI_HOME", Tier: "canonical_env", Target: "workspace_home_dir"},
 		{Key: "AWIKI_CONFIG_DIR", Tier: "canonical_env", Target: "config_dir"},
 		{Key: "AWIKI_DATA_DIR", Tier: "canonical_env", Target: "data_dir"},
 		{Key: "AWIKI_STATE_DIR", Tier: "canonical_env", Target: "state_dir"},
@@ -388,7 +486,7 @@ func collectEnvHits() []EnvHit {
 		{Key: "E2E_DID_DOMAIN", Tier: "legacy_env", Target: "did_domain"},
 		{Key: "E2E_CA_BUNDLE", Tier: "legacy_env", Target: "ca_bundle"},
 	}
-	hits := make([]EnvHit, 0)
+	hits := make([]EnvHit, 0, len(definitions))
 	for _, definition := range definitions {
 		if value := strings.TrimSpace(os.Getenv(definition.Key)); value != "" {
 			definition.Value = value
