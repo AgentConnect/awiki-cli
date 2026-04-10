@@ -229,6 +229,9 @@ func BuildGroupMessagesRPCParams(record *identity.StoredIdentity, request GroupM
 	if cursor := strings.TrimSpace(request.Cursor); cursor != "" {
 		body["since_seq"] = cursor
 	}
+	if request.Skip > 0 {
+		body["skip"] = request.Skip
+	}
 	return map[string]any{
 		"meta": map[string]any{
 			"anp_version":      "1.0",

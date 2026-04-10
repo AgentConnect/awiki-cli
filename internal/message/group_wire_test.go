@@ -58,7 +58,12 @@ func TestBuildGroupMessagesRPCParamsUsesLocalProfile(t *testing.T) {
 	t.Parallel()
 
 	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
-	params, err := BuildGroupMessagesRPCParams(record, GroupMessagesRequest{Group: "did:wba:awiki.ai:groups:demo:e1_group", Limit: 25, Cursor: "12"})
+	params, err := BuildGroupMessagesRPCParams(record, GroupMessagesRequest{
+		Group:  "did:wba:awiki.ai:groups:demo:e1_group",
+		Limit:  25,
+		Cursor: "12",
+		Skip:   50,
+	})
 	if err != nil {
 		t.Fatalf("BuildGroupMessagesRPCParams() error = %v", err)
 	}
@@ -69,5 +74,8 @@ func TestBuildGroupMessagesRPCParamsUsesLocalProfile(t *testing.T) {
 	body, _ := params["body"].(map[string]any)
 	if got := stringFromAny(body["since_seq"]); got != "12" {
 		t.Fatalf("body.since_seq = %q, want 12", got)
+	}
+	if got := intValueFromAny(body["skip"], 0); got != 50 {
+		t.Fatalf("body.skip = %d, want 50", got)
 	}
 }

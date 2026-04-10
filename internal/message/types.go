@@ -68,6 +68,7 @@ type HistoryRequest struct {
 	With         string
 	Limit        int
 	Cursor       string
+	Skip         int
 }
 
 type MarkReadRequest struct {
@@ -171,6 +172,7 @@ type GroupMessagesRequest struct {
 	Group        string
 	Limit        int
 	Cursor       string
+	Skip         int
 }
 
 type groupSendResult struct {

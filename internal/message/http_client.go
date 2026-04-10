@@ -176,6 +176,9 @@ func (t *HTTPTransport) GetHistory(ctx context.Context, request HistoryRequest) 
 	if strings.TrimSpace(request.Cursor) != "" {
 		body["since_seq"] = request.Cursor
 	}
+	if request.Skip > 0 {
+		body["skip"] = request.Skip
+	}
 	params := map[string]any{
 		"meta": map[string]any{
 			"anp_version":      "1.0",

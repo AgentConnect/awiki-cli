@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -66,6 +67,8 @@ type attachmentSelection struct {
 	ObjectURI    string
 	Caption      string
 }
+
+type attachmentPageFetcher func(skip int) ([]map[string]any, bool, error)
 
 func loadAttachmentFile(filePath string, mimeOverride string) (*preparedAttachment, error) {
 	path := strings.TrimSpace(filePath)
@@ -186,6 +189,31 @@ func findAttachmentSelection(messages []map[string]any, requestedMessageID strin
 		}, nil
 	}
 	return nil, ErrMessageNotFound
+}
+
+func findAttachmentSelectionWithPaging(
+	fetchPage attachmentPageFetcher,
+	requestedMessageID string,
+	requestedAttachmentID string,
+) (*attachmentSelection, error) {
+	skip := 0
+	for {
+		messages, hasMore, err := fetchPage(skip)
+		if err != nil {
+			return nil, err
+		}
+		selection, err := findAttachmentSelection(messages, requestedMessageID, requestedAttachmentID)
+		if err == nil {
+			return selection, nil
+		}
+		if !errors.Is(err, ErrMessageNotFound) {
+			return nil, err
+		}
+		if !hasMore || len(messages) == 0 {
+			return nil, ErrMessageNotFound
+		}
+		skip += len(messages)
+	}
 }
 
 func decodeAttachmentContent(value any) (map[string]any, error) {

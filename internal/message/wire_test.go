@@ -196,3 +196,67 @@ func TestBuildAttachmentDownloadTicketRPCParamsIncludesSenderDID(t *testing.T) {
 		t.Fatalf("download ticket params should not include auth: %#v", params["auth"])
 	}
 }
+
+func TestFindAttachmentSelectionWithPagingFetchesOlderPages(t *testing.T) {
+	t.Parallel()
+
+	pages := map[int][]map[string]any{
+		0: {{
+			"id":         "msg-newer",
+			"message_id": "msg-newer",
+			"sender_did": "did:wba:awiki.ai:user:alice:e1_alice",
+			"content": map[string]any{
+				"attachments": []any{map[string]any{
+					"attachment_id": "att-newer",
+					"filename":      "newer.txt",
+					"mime_type":     "text/plain",
+					"size":          "5",
+					"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest-newer"},
+					"access_info":   map[string]any{"object_uri": "https://awiki.test/objects/newer"},
+				}},
+			},
+		}},
+		1: {{
+			"id":         "msg-target",
+			"message_id": "msg-target",
+			"sender_did": "did:wba:awiki.ai:user:alice:e1_alice",
+			"content": map[string]any{
+				"attachments": []any{map[string]any{
+					"attachment_id": "att-target",
+					"filename":      "target.txt",
+					"mime_type":     "text/plain",
+					"size":          "5",
+					"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest-target"},
+					"access_info":   map[string]any{"object_uri": "https://awiki.test/objects/target"},
+				}},
+				"caption": "paged attachment",
+			},
+		}},
+	}
+	var visitedSkips []int
+
+	selection, err := findAttachmentSelectionWithPaging(
+		func(skip int) ([]map[string]any, bool, error) {
+			visitedSkips = append(visitedSkips, skip)
+			page, ok := pages[skip]
+			if !ok {
+				return nil, false, nil
+			}
+			return page, skip == 0, nil
+		},
+		"msg-target",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("findAttachmentSelectionWithPaging() error = %v", err)
+	}
+	if selection.MessageID != "msg-target" {
+		t.Fatalf("selection.MessageID = %q, want msg-target", selection.MessageID)
+	}
+	if selection.AttachmentID != "att-target" {
+		t.Fatalf("selection.AttachmentID = %q, want att-target", selection.AttachmentID)
+	}
+	if len(visitedSkips) != 2 || visitedSkips[0] != 0 || visitedSkips[1] != 1 {
+		t.Fatalf("visitedSkips = %#v, want [0 1]", visitedSkips)
+	}
+}

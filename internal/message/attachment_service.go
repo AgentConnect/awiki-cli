@@ -11,6 +11,8 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/store"
 )
 
+const attachmentDownloadLookupPageSize = 100
+
 func (s *Service) sendDirectAttachment(ctx context.Context, request SendRequest) (*CommandResult, error) {
 	if strings.TrimSpace(request.Target) == "" {
 		return nil, ErrTargetRequired
@@ -298,36 +300,54 @@ func (s *Service) DownloadAttachment(ctx context.Context, request AttachmentDown
 		warnings = append(warnings, "Attachment downloads use HTTP transport even when runtime.mode is websocket.")
 	}
 	var (
-		messages    []map[string]any
 		messagePeer string
 	)
+	var selection *attachmentSelection
 	if strings.TrimSpace(request.Group) != "" {
-		raw, fetchErr := transport.ListGroupMessages(ctx, GroupMessagesRequest{
-			Group: request.Group,
-			Limit: 100,
-		})
-		if fetchErr != nil {
-			return nil, fetchErr
+		var findErr error
+		selection, findErr = findAttachmentSelectionWithPaging(
+			func(skip int) ([]map[string]any, bool, error) {
+				raw, fetchErr := transport.ListGroupMessages(ctx, GroupMessagesRequest{
+					Group: request.Group,
+					Limit: attachmentDownloadLookupPageSize,
+					Skip:  skip,
+				})
+				if fetchErr != nil {
+					return nil, false, fetchErr
+				}
+				return messagesFromResult(raw["messages"]), boolFromAny(raw["has_more"]), nil
+			},
+			request.MessageID,
+			request.AttachmentID,
+		)
+		if findErr != nil {
+			return nil, findErr
 		}
-		messages = messagesFromResult(raw["messages"])
 	} else {
 		peerDID, _, resolveErr := s.resolveTarget(ctx, request.With)
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
 		messagePeer = peerDID
-		raw, fetchErr := transport.GetHistory(ctx, HistoryRequest{
-			With:  peerDID,
-			Limit: 100,
-		})
-		if fetchErr != nil {
-			return nil, fetchErr
+		var findErr error
+		selection, findErr = findAttachmentSelectionWithPaging(
+			func(skip int) ([]map[string]any, bool, error) {
+				raw, fetchErr := transport.GetHistory(ctx, HistoryRequest{
+					With:  peerDID,
+					Limit: attachmentDownloadLookupPageSize,
+					Skip:  skip,
+				})
+				if fetchErr != nil {
+					return nil, false, fetchErr
+				}
+				return messagesFromResult(raw["messages"]), boolFromAny(raw["has_more"]), nil
+			},
+			request.MessageID,
+			request.AttachmentID,
+		)
+		if findErr != nil {
+			return nil, findErr
 		}
-		messages = messagesFromResult(raw["messages"])
-	}
-	selection, err := findAttachmentSelection(messages, request.MessageID, request.AttachmentID)
-	if err != nil {
-		return nil, err
 	}
 	attachmentService, err := resolveAttachmentRPCService(ctx, selection.SenderDID)
 	if err != nil {
