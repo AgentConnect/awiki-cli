@@ -41,16 +41,16 @@ echo
 echo "2) Adjust GitHub Release (requires GitHub CLI 'gh'):"
 echo "   gh release delete ${TAG} --yes || true"
 echo
-echo "3) Adjust npm registry state for @agentconnect/awiki-cli@${VERSION}:"
+echo "3) Adjust npm registry state for @awiki/cli@${VERSION}:"
 echo "   # Option A: mark deprecated but keep the version:"
-echo "   npm deprecate @agentconnect/awiki-cli@${VERSION} \"Deprecated due to bad release; please upgrade.\""
+echo "   npm deprecate @awiki/cli@${VERSION} \"Deprecated due to bad release; please upgrade.\""
 echo
 echo "   # Option B: move dist-tags away from the bad version (if applicable):"
-echo "   # npm dist-tag add @agentconnect/awiki-cli@<good-version> latest"
-echo "   # npm dist-tag rm @agentconnect/awiki-cli@${VERSION} latest"
+echo "   # npm dist-tag add @awiki/cli@<good-version> latest"
+echo "   # npm dist-tag rm @awiki/cli@${VERSION} latest"
 echo
 echo "   # Option C: unpublish (only for very new versions; may be restricted by npm policy):"
-echo "   # npm unpublish @agentconnect/awiki-cli@${VERSION}"
+echo "   # npm unpublish @awiki/cli@${VERSION}"
 echo
 
 if [ "${EXECUTE}" != "1" ]; then
@@ -76,4 +76,3 @@ else
 fi
 
 echo "Rollback commands executed. You may still need to run npm deprecate/dist-tag commands manually as appropriate."
-

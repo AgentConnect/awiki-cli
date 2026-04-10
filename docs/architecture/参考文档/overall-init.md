@@ -572,7 +572,7 @@ type CommandMeta struct {
 **主渠道**
 
 * GitHub Releases：发布原生二进制
-* npm wrapper：`@agentconnect/awiki-cli`
+* npm wrapper：`@awiki/cli`
 
 **二级渠道**
 
@@ -589,7 +589,7 @@ type CommandMeta struct {
 ### 我建议你的包名
 
 * 二进制：`awiki`
-* npm：`@agentconnect/awiki-cli`
+* npm：`@awiki/cli`
 * GitHub Releases asset：
 
   * `awiki_2.0.0_darwin_amd64.tar.gz`
@@ -604,7 +604,7 @@ type CommandMeta struct {
 我建议对外只保留两条主路径：
 
 ```bash
-npm install -g @agentconnect/awiki-cli
+npm install -g @awiki/cli
 # AI agent 如需 skills
 npx skills add agentconnect/awiki-cli -y -g
 ```

@@ -4,7 +4,7 @@
 
 ## 1. 版本号与 Tag 约定
 
-- 单一版本真相：仓库根目录的 `package.json.version`，npm 包名为 `@agentconnect/awiki-cli`。
+- 单一版本真相：仓库根目录的 `package.json.version`，npm 包名为 `@awiki/cli`。
 - Git Tag 规则：
   - 正式版：`vX.Y.Z`（例如 `v0.1.0`）。
   - 预发布版：`vX.Y.Z-<pre>`（例如 `v0.2.0-beta.1` / `v0.2.0-rc.1`）。
@@ -27,7 +27,7 @@
 
 3. 在 GitHub 仓库的 workflow secrets 中配置 npm 凭据：
 
-   - `NPM_TOKEN`：具有发布 `@agentconnect/awiki-cli` 的权限。
+   - `NPM_TOKEN`：具有发布 `@awiki/cli` 的权限。
 
 ### 2.2 创建并推送 Tag
 
@@ -58,7 +58,7 @@ scripts/release/tag-release.sh
 发布完成后可以做一个最小自检：
 
 ```bash
-npm view @agentconnect/awiki-cli version
+npm view @awiki/cli version
 ```
 
 确认 registry 上的版本号与刚刚发布的一致。
@@ -167,4 +167,3 @@ awiki-cli 内部通过 `internal/update` 模块和配置项：
 - 何时对过旧版本执行强制升级拦截。
 
 一旦通过正式发布或预发布调整了 npm 上的 `version` 和 `awikiCli.minSupportedVersion`，客户端的版本策略会在缓存 TTL 过期或手动刷新后自动生效。坏版本被回滚或标记为 deprecated 后，也建议同步更新 `minSupportedVersion`，确保新版本的强制升级逻辑与发布状态一致。 
-

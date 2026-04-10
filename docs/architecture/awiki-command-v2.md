@@ -823,7 +823,7 @@ scripts/query_db.py                      -> awiki-cli debug db query
 首发只做：
 
 * GitHub Releases
-* npm wrapper（`@agentconnect/awiki-cli`）
+* npm wrapper（`@awiki/cli`）
 * 多平台二进制：
 
   * macOS: amd64 / arm64
@@ -842,7 +842,7 @@ GoReleaser 和它的 GitHub Action 已经把 tag 触发发布、上传 artifacts
 
 ```bash
 # 1) 直接下载 release 压缩包
-# 2) npm install -g @agentconnect/awiki-cli
+# 2) npm install -g @awiki/cli
 # 3) curl 安装脚本（官方自建）
 # 4) go install（仅开发者/高级用户）
 go install github.com/AgentConnect/awiki-cli/cmd/awiki-cli@latest

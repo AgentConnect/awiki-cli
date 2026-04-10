@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultMetadataCacheTTLSeconds = 3600
-	npmLatestURL                   = "https://registry.npmjs.org/@agentconnect%2Fawiki-cli/latest"
+	npmLatestURL                   = "https://registry.npmjs.org/@awiki%2Fcli/latest"
 )
 
 // Metadata captures the remote version strategy state that we cache locally.

@@ -494,7 +494,7 @@ skills、docs、schema 可与二进制一起发布，但不要求安装技能后
 
 ### 主渠道
 - GitHub Releases
-- npm wrapper：`@agentconnect/awiki-cli`
+- npm wrapper：`@awiki/cli`
 
 ### 补充渠道
 - Homebrew tap

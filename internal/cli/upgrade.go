@@ -34,7 +34,7 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 		"dev_build":             decision.DevBuild,
 		"has_newer_version":     decision.HasNewerVersion,
 		"blocked":               decision.Blocked,
-		"upgrade_hint":          "To upgrade awiki-cli, run: npm install -g @agentconnect/awiki-cli@latest",
+		"upgrade_hint":          "To upgrade awiki-cli, run: npm install -g @awiki/cli@latest",
 	}
 
 	summary := "awiki-cli is up to date"
