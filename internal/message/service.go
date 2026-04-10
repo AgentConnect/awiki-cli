@@ -409,6 +409,11 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 	if err != nil {
 		return nil, nil, err
 	}
+	if auth != nil && auth.session != nil && strings.TrimSpace(record.JWTToken) != "" {
+		auth.session.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
+		auth.session.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
+		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, record.JWTToken)
+	}
 	client := http.DefaultClient
 	if s.remote != nil && s.remote.Client() != nil {
 		client = s.remote.Client()

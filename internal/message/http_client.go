@@ -107,31 +107,26 @@ func (t *HTTPTransport) WithRPCEndpoint(rpcEndpointURL string) *HTTPTransport {
 }
 
 func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*directSendResult, error) {
-	payload, err := buildDirectTextPayload(t.auth.record.DID, request.Target, request.Text, contentTypeForMessageType(request.MessageType))
+	params, err := BuildDirectSendRPCParams(
+		t.auth.record,
+		nil,
+		request.Target,
+		request.Text,
+		request.MessageType,
+	)
 	if err != nil {
 		return nil, err
 	}
-	originProof, err := buildOriginProof(t.auth, payload)
-	if err != nil {
-		return nil, err
-	}
-	params := map[string]any{
-		"meta": payload.Meta,
-		"auth": map[string]any{
-			"scheme":       OriginProofScheme,
-			"origin_proof": originProof,
-		},
-		"body": payload.Body,
-	}
+	meta, _ := params["meta"].(map[string]any)
 	var result directSendResult
-	if err := t.rpcCall(ctx, payload.Method, params, &result); err != nil {
+	if err := t.rpcCall(ctx, "direct.send", params, &result); err != nil {
 		return nil, err
 	}
 	if result.MessageID == "" {
-		result.MessageID = stringFromAny(payload.Meta["message_id"])
+		result.MessageID = stringFromAny(meta["message_id"])
 	}
 	if result.OperationID == "" {
-		result.OperationID = stringFromAny(payload.Meta["operation_id"])
+		result.OperationID = stringFromAny(meta["operation_id"])
 	}
 	if result.TargetDID == "" {
 		result.TargetDID = request.Target

@@ -3,7 +3,7 @@ module github.com/agentconnect/awiki-cli
 go 1.22
 
 require (
-	github.com/agent-network-protocol/anp/golang v0.8.0
+	github.com/agent-network-protocol/anp/golang v0.8.1
 	github.com/coder/websocket v1.8.12
 	github.com/itchyny/gojq v0.12.17
 	github.com/spf13/cobra v1.9.1
