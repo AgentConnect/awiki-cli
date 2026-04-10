@@ -9,7 +9,7 @@ import (
 
 const (
 	ModulePath    = "github.com/agent-network-protocol/anp/golang"
-	ModuleVersion = "v0.8.1"
+	ModuleVersion = "v0.8.2"
 )
 
 type (
@@ -67,6 +67,8 @@ var (
 	EncodeIMSignature                  = anpproof.EncodeIMSignature
 	GenerateIMProof                    = anpproof.GenerateIMProof
 	VerifyIMProofWithDocument          = anpproof.VerifyIMProofWithDocument
+	GenerateGroupReceiptProof          = anpproof.GenerateGroupReceiptProof
+	VerifyGroupReceiptProof            = anpproof.VerifyGroupReceiptProof
 	BuildSignedRequestObject           = anpproof.BuildSignedRequestObject
 	CanonicalizeSignedRequestObject    = anpproof.CanonicalizeSignedRequestObject
 	BuildLogicalTargetURI              = anpproof.BuildLogicalTargetURI

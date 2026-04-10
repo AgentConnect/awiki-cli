@@ -41,12 +41,12 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.1`
+  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.2`
 
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.8.1`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.8.2`，要求 pure Go。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -82,7 +82,7 @@
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: 基于 ANP Go SDK 0.8.0 的 RFC 9421 origin proof 薄封装。  
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.2 的 RFC 9421 origin proof 薄封装。  
 **internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
 **internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  
