@@ -236,14 +236,16 @@ identities/
     ├── identity.json             # 身份元数据
     ├── auth.json                 # JWT token 缓存
     ├── did_document.json         # DID 文档
-    ├── key-1-private.pem         # secp256k1 身份私钥
-    ├── key-1-public.pem          # secp256k1 身份公钥
+    ├── key-1-private.pem         # Ed25519 身份私钥
+    ├── key-1-public.pem          # Ed25519 身份公钥
     ├── e2ee-signing-private.pem  # E2EE 签名私钥
     ├── e2ee-agreement-private.pem # E2EE 密钥协商私钥
     └── e2ee-state.json           # E2EE 会话状态
 ```
 
 > 私钥文件权限为 `0600`，目录权限为 `0700`。
+
+当前 `awiki-cli` 不再保留本地 `k1` / secp256k1 `key-1` 兼容转换逻辑；活跃身份应使用当前生成的 `e1` / Ed25519 `key-1` 材料。若本地仍保留旧 `k1` 身份，请重新创建或通过 `id recover` 迁移到新的 `e1` 身份。
 
 ### 3.6 环境变量完整列表
 

@@ -46,7 +46,7 @@
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.8.2`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`yaml.v3`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.2`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -66,7 +66,7 @@
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。  
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
-**internal/identity/did.go**: 本地 DID 文档与 proof 生成，使用 pure Go secp256k1。  
+**internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
 **internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle 与远端 API。  
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  

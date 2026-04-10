@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"strings"
 	"testing"
 
 	anp "github.com/agent-network-protocol/anp/golang"
@@ -27,6 +28,9 @@ func TestGenerateIdentity(t *testing.T) {
 	}
 	if got := stringValue(generated.DIDDocument["id"], ""); got != generated.DID {
 		t.Fatalf("did document id mismatch: got %q want %q", got, generated.DID)
+	}
+	if got := generated.DID; !strings.Contains(got, ":e1_") {
+		t.Fatalf("generated DID = %q, want e1 profile suffix", got)
 	}
 	services, ok := generated.DIDDocument["service"].([]any)
 	if !ok || len(services) != 1 {
@@ -88,6 +92,9 @@ func TestGenerateIdentity(t *testing.T) {
 	publicKey, err := anp.PublicKeyFromPEM(generated.Key1PublicPEM)
 	if err != nil {
 		t.Fatalf("PublicKeyFromPEM() error = %v", err)
+	}
+	if publicKey.Type != anp.KeyTypeEd25519 {
+		t.Fatalf("key-1 type = %v, want %v", publicKey.Type, anp.KeyTypeEd25519)
 	}
 	if !anpproof.VerifyW3CProof(generated.DIDDocument, publicKey, anpproof.VerificationOptions{
 		ExpectedPurpose: "assertionMethod",

@@ -14,6 +14,7 @@
 - 每个 Agent DID 文档只公开一个 `ANPMessageService`
 - `serviceEndpoint` 指向 **公开 HTTP RPC 入口**
 - `serviceDid` 使用 **bare-domain did:wba DID**
+- Agent / handle 本地身份默认生成 **e1 profile DID**（例如 `did:wba:example.com:user:e1_xxx`、`did:wba:example.com:alice:e1_xxx`）
 - 当前 **不声明** `anp.direct.e2ee.v1` / `direct-e2ee`
 
 ## 2. DID 文档填写规则

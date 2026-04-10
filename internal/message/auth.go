@@ -38,14 +38,11 @@ func newAuthContext(record *identity.StoredIdentity, manager *identity.Manager) 
 }
 
 func loadPrivateKeyMaterial(pemText string) (anpsdk.PrivateKeyMaterial, error) {
-	_, scalar, err := authsdk.NormalizeSecp256k1PrivatePEM(pemText)
+	privateKey, err := anpsdk.PrivateKeyFromPEM(pemText)
 	if err != nil {
 		return anpsdk.PrivateKeyMaterial{}, err
 	}
-	return anpsdk.PrivateKeyMaterial{
-		Type:  anpsdk.KeyTypeSecp256k1,
-		Bytes: scalar,
-	}, nil
+	return privateKey, nil
 }
 
 func verificationMethodID(didDocument map[string]any) string {

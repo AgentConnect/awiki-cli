@@ -35,11 +35,12 @@ func GenerateIdentity(options GenerateOptions) (*GeneratedIdentity, error) {
 		return nil, err
 	}
 
-	bundle, err := anpsdk.CreateDidWBADocumentWithKeyBinding(hostname, anpsdk.DidDocumentOptions{
+	bundle, err := anpsdk.CreateDidWBADocument(hostname, anpsdk.DidDocumentOptions{
 		PathSegments: pathSegments,
 		Domain:       proofDomain,
 		Challenge:    randomHex(16),
 		Services:     []map[string]any{service},
+		DidProfile:   anpsdk.DidProfileE1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("generate did document: %w", err)
