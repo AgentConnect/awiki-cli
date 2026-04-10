@@ -49,8 +49,8 @@
 
 | 路径 | 类型 | review 关注点 | 核心约束摘要 |
 |---|---|---|---|
-| `docs/plan/phase-0/implementation-constraints.md` | 冻结约束 | **最高优先级** | canonical 顶级命令、`group` 顶级归属、全局 flags、输出 envelope、错误码/退出码、`AWIKI_*` 环境变量、XDG 路径、`owner_did`、Phase 边界全部以此为准。 |
-| `docs/plan/phase-0/audit-findings.md` | 冻结裁决 | 冲突消歧 | 解决了 `group` vs `msg group`、`AWIKI_*` vs `AVIKI_*`、顶级 `api` 是否暴露、`e2ee_outbox` 是否必保留、XDG 与 `.openclaw` 兼容、pure Go / no CGO 等冲突。 |
+| `docs/plan/phase-0/implementation-constraints.md` | 冻结约束 | **最高优先级** | canonical 顶级命令、`group` 顶级归属、全局 flags、输出 envelope、错误码/退出码、`AWIKI_*` 环境变量、单根目录工作区路径、`owner_did`、Phase 边界全部以此为准。 |
+| `docs/plan/phase-0/audit-findings.md` | 冻结裁决 | 冲突消歧 | 解决了 `group` vs `msg group`、`AWIKI_*` vs `AVIKI_*`、顶级 `api` 是否暴露、`e2ee_outbox` 是否必保留、工作区路径与 `.openclaw` 兼容、pure Go / no CGO 等冲突。 |
 | `docs/plan/phase-0/adr-index.md` | ADR 索引 | 规则引用 | 用于快速确认哪类问题已经被冻结，不必每次重新讨论。 |
 | `docs/plan/phase-0/capability-mapping.md` | 能力映射 | 改动溯源 | v2 命令与 v1 脚本、user-service / message-service API 的映射关系，适合 review“改动有没有脱离既定能力映射”。 |
 | `docs/plan/awiki-v2-implementation-plan.md` | 实施基线 | 阶段与模块边界 | 规定 Phase 1~5/7 的实现次序、目录结构、参考基线、优先级与迁移目标。 |
@@ -123,7 +123,7 @@
 | `internal/cmdmeta/catalog.go` | 当前 Phase 1 静态命令元数据目录 | 是否与冻结命令面一致；是否错误地引入新公共命令或错误归属。 |
 | `internal/cli/root.go` | Cobra 根命令与 handler 装配 | 全局 flags、help/handler 装配、当前 Phase 1 已实现能力是否符合 docs。 |
 | `internal/output/output.go` | 统一 success/error envelope 与渲染 | `--format`、`--jq`、`_notice`、table/ndjson 行为是否保持统一。 |
-| `internal/config/config.go` | XDG / env / config 解析 | `AWIKI_* > AVIKI_* > E2E_*` 兼容读取、XDG 路径、legacy path 检测是否符合冻结规则。 |
+| `internal/config/config.go` | workspace / env / config 解析 | `AWIKI_* > AVIKI_* > E2E_*` 兼容读取、单根目录工作区路径、legacy path 检测是否符合冻结规则。 |
 | `internal/doctor/doctor.go` | 当前 doctor | pure-Go/no-CGO 检查、config/env/identity/sqlite/legacy path 诊断是否符合定位。 |
 | `internal/docs/topics.go` | docs topic 索引 | 内建 docs 主题是否指向正确的一级源文档。 |
 | `CLAUDE.md` | 当前项目上下文摘要 | 当前实现边界、关键文件入口、Phase 1 已有能力范围。 |
@@ -270,11 +270,15 @@ review 要关注：
 
 - [ ] 用户接口是否始终使用 `identity` 术语
 - [ ] 存储兼容字段是否仍能桥接 v1 的 `credential_*`
-- [ ] XDG 原生路径是否保持：
-  - `~/.config/awiki-cli/`
-  - `~/.local/share/awiki-cli/`
-  - `~/.local/state/awiki-cli/`
-  - `~/.cache/awiki-cli/`
+- [ ] 单根目录工作区路径是否保持：
+  - `~/.awiki-cli/`
+  - `~/.awiki-cli/identities/`
+  - `~/.awiki-cli/data/`
+  - `~/.awiki-cli/cache/`
+- [ ] runtime / listener 状态目录是否固定为：
+  - `~/.awiki-cli/runtime/`
+- [ ] workspace upgrade 目录是否固定为：
+  - `~/.awiki-cli/upgrade/`
 - [ ] 环境变量是否仍遵循优先级：`flag > config > AWIKI_* > AVIKI_* > E2E_* > default`
 - [ ] 是否仍然只检测 legacy `.openclaw` 路径而非默认原地写回
 - [ ] 正式迁移入口是否仍为 `awiki-cli migrate from-v1`

@@ -13,7 +13,7 @@ import (
 )
 
 func (a *App) messageService() (*message.Service, output.Format, error) {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return nil, output.FormatJSON, err
 	}

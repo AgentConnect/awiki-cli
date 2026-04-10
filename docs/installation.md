@@ -53,10 +53,10 @@ awiki-cli 使用 **pure Go SQLite** 作为本地存储，无需安装外部数�
 
 ### 2.1 自动初始化
 
-数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于 XDG 数据目录下：
+数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于工作区数据目录下：
 
 ```
-~/.local/share/awiki-cli/awiki-cli.db
+~/.awiki-cli/data/awiki-cli.db
 ```
 
 Schema 版本为 v11，包含以下本地表：
@@ -85,7 +85,14 @@ Schema 版本为 v11，包含以下本地表：
 
 ### 2.3 数据库路径覆盖
 
-通过环境变量可自定义数据目录：
+推荐优先使用工作区根目录覆盖：
+
+```bash
+export AWIKI_WORKSPACE_HOME=~/my-awiki
+# 数据库将位于 ~/my-awiki/data/awiki-cli.db
+```
+
+`AWIKI_DATA_DIR` 仍然支持，但作为**兼容 override**，仅建议在调试或局部路径隔离时使用：
 
 ```bash
 export AWIKI_DATA_DIR=~/my-awiki-data
@@ -96,22 +103,39 @@ export AWIKI_DATA_DIR=~/my-awiki-data
 
 ## 3. 配置文件
 
-### 3.1 XDG 目录布局
+### 3.1 工作区目录布局
 
-awiki-cli 遵循 XDG Base Directory 规范，默认路径如下：
+awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
 | 用途 | 默认路径 | 环境变量覆盖 |
 |------|----------|-------------|
-| 配置文件 | `~/.config/awiki-cli/` | `AWIKI_CONFIG_DIR` |
-| 数据目录 | `~/.local/share/awiki-cli/` | `AWIKI_DATA_DIR` |
-| 状态目录 | `~/.local/state/awiki-cli/` | `AWIKI_STATE_DIR` |
-| 缓存目录 | `~/.cache/awiki-cli/` | `AWIKI_CACHE_DIR` |
+| 工作区目录 | `~/.awiki-cli/` | `AWIKI_WORKSPACE_HOME`（推荐） |
+| 配置目录 | `~/.awiki-cli/` | `AWIKI_CONFIG_DIR`（兼容 override） |
+| 数据目录 | `~/.awiki-cli/data/` | `AWIKI_DATA_DIR`（兼容 override） |
+| runtime 目录 | `~/.awiki-cli/runtime/` | `AWIKI_STATE_DIR`（兼容 override） |
+| 缓存目录 | `~/.awiki-cli/cache/` | `AWIKI_CACHE_DIR`（兼容 override） |
+
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\\.awiki-cli\\`），也是**默认唯一推荐入口**。  
+> `AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 继续保留，但仅作为兼容 override 使用。
+>
+> 工作区内容包括：
+>
+> - `config.yaml`
+> - `identities/`
+> - `data/awiki-cli.db`
+> - `cache/`
+> - `runtime/`
+> - workspace upgrade 元数据
+> - upgrade lock / journal
+> - 备份快照
 
 ### 3.2 config.yaml
 
-配置文件位于 `~/.config/awiki-cli/config.yaml`，首次运行前可手动创建：
+配置文件位于 `~/.awiki-cli/config.yaml`，首次运行前可手动创建：
 
 ```yaml
+schema_version: 1
+
 # 身份配置
 identity:
   active: "default"          # 当前活跃身份名称
@@ -158,6 +182,8 @@ services:
 连接本地后端服务时，创建如下 `config.yaml`：
 
 ```yaml
+schema_version: 1
+
 identity:
   active: "default"
 
@@ -201,7 +227,7 @@ export AWIKI_ANP_SERVICE_DID=did:wba:awiki.test
 
 ### 3.5 身份文件布局
 
-DID 身份存储在 `~/.config/awiki-cli/identities/` 下，每个身份一个子目录：
+DID 身份存储在 `~/.awiki-cli/identities/` 下，每个身份一个子目录：
 
 ```
 identities/
@@ -223,13 +249,14 @@ identities/
 
 | 环境变量 | 别名 | 用途 | 默认值 |
 |----------|------|------|--------|
-| `AWIKI_CONFIG_DIR` | `AVIKI_CONFIG_DIR` | 配置目录 | `~/.config/awiki-cli` |
-| `AWIKI_DATA_DIR` | `AVIKI_DATA_DIR` | 数据目录 | `~/.local/share/awiki-cli` |
-| `AWIKI_STATE_DIR` | `AVIKI_STATE_DIR` | 状态目录 | `~/.local/state/awiki-cli` |
-| `AWIKI_CACHE_DIR` | `AVIKI_CACHE_DIR` | 缓存目录 | `~/.cache/awiki-cli` |
+| `AWIKI_WORKSPACE_HOME` | `AVIKI_WORKSPACE_HOME` | 工作区根目录（推荐） | `~/.awiki-cli` |
+| `AWIKI_CONFIG_DIR` | `AVIKI_CONFIG_DIR` | 配置目录（兼容 override） | `~/.awiki-cli` |
+| `AWIKI_DATA_DIR` | `AVIKI_DATA_DIR` | 数据目录（兼容 override） | `~/.awiki-cli/data` |
+| `AWIKI_STATE_DIR` | `AVIKI_STATE_DIR` | runtime 目录（兼容 override） | `~/.awiki-cli/runtime` |
+| `AWIKI_CACHE_DIR` | `AVIKI_CACHE_DIR` | 缓存目录（兼容 override） | `~/.awiki-cli/cache` |
 | `AWIKI_IDENTITY` | `AVIKI_IDENTITY` | 活跃身份 | config.yaml 中的 active |
 | `AWIKI_RUNTIME_MODE` | `AVIKI_RUNTIME_MODE` | 运行模式 | `http` |
-| `AWIKI_RUNTIME_SOCKET` | `AVIKI_RUNTIME_SOCKET` | 本地 socket 路径 | `<state_dir>/runtime/message-daemon.sock` |
+| `AWIKI_RUNTIME_SOCKET` | `AVIKI_RUNTIME_SOCKET` | 本地 socket 路径 | `<state_dir>/message-daemon.sock` |
 | `AWIKI_FORMAT` | `AVIKI_FORMAT` | 输出格式 | `json` |
 | `AWIKI_NO_COLOR` | `AVIKI_NO_COLOR` | 禁用颜色 | `false` |
 | `AWIKI_USER_SERVICE_URL` | `AVIKI_USER_SERVICE_URL` | user-service 地址 | `https://awiki.ai` |
@@ -389,7 +416,7 @@ go version
 数据库在首次使用相关命令时自动创建。如需重置：
 
 ```bash
-rm ~/.local/share/awiki-cli/awiki-cli.db
+rm ~/.awiki-cli/data/awiki-cli.db
 ```
 
 下次运行会自动重建 schema。

@@ -643,20 +643,32 @@ type CommandSpec struct {
 
 ## 9.1 新的目录规范
 
-我建议 Go CLI 进入 XDG 风格：
+我建议 Go CLI 进入单根目录工作区模型：
 
 ```text
-~/.config/awiki-cli/config.yaml
-~/.config/awiki-cli/identities/index.json
-~/.config/awiki-cli/identities/<name>/
-~/.local/share/awiki-cli/awiki-cli.db
-~/.local/state/awiki-cli/
-~/.cache/awiki-cli/
+~/.awiki-cli/
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/cache/
+~/.awiki-cli/runtime/
+~/.awiki-cli/upgrade/
 ```
+
+其中：
+
+- `~/.awiki-cli/runtime/` 用于 runtime socket / listener 状态
+- `~/.awiki-cli/upgrade/` 用于 workspace upgrade 元数据、lock、journal、备份
 
 环境变量：
 
 ```text
+AWIKI_WORKSPACE_HOME
+AWIKI_CONFIG_DIR       # compatibility override
+AWIKI_DATA_DIR         # compatibility override
+AWIKI_STATE_DIR        # compatibility override
+AWIKI_CACHE_DIR        # compatibility override
+AVIKI_WORKSPACE_HOME
 AVIKI_CONFIG_DIR
 AVIKI_DATA_DIR
 AVIKI_STATE_DIR
@@ -668,6 +680,11 @@ AVIKI_USER_SERVICE_URL
 AVIKI_MESSAGE_SERVICE_URL
 AVIKI_DID_DOMAIN
 ```
+
+说明：
+
+- `AWIKI_WORKSPACE_HOME` 是主入口，默认应优先使用它整体切换或隔离工作区
+- `AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留
 
 ## 9.3 安全规则
 

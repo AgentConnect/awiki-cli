@@ -1,0 +1,89 @@
+package upgrade
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+var ErrUpgradeLocked = errors.New("workspace upgrade is already running")
+
+func AcquireFileLock(path string, appVersion string) (func() error, error) {
+	if path == "" {
+		return nil, fmt.Errorf("workspace lock path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create upgrade lock dir: %w", err)
+	}
+	metadata := lockMetadata{
+		PID:        os.Getpid(),
+		AppVersion: appVersion,
+		StartedAt:  nowUTC().Format(timeLayout),
+	}
+	if err := tryCreateLock(path, metadata); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return nil, err
+		}
+		stale, staleErr := staleLock(path)
+		if staleErr != nil {
+			return nil, staleErr
+		}
+		if !stale {
+			return nil, fmt.Errorf("%w: %s", ErrUpgradeLocked, path)
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove stale upgrade lock: %w", err)
+		}
+		if err := tryCreateLock(path, metadata); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return nil, fmt.Errorf("%w: %s", ErrUpgradeLocked, path)
+			}
+			return nil, err
+		}
+	}
+	return func() error {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove upgrade lock: %w", err)
+		}
+		return nil
+	}, nil
+}
+
+func tryCreateLock(path string, metadata lockMetadata) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	raw, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal upgrade lock: %w", err)
+	}
+	if _, err := file.Write(raw); err != nil {
+		return fmt.Errorf("write upgrade lock: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync upgrade lock: %w", err)
+	}
+	return syncDirectory(filepath.Dir(path))
+}
+
+func staleLock(path string) (bool, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read upgrade lock: %w", err)
+	}
+	var metadata lockMetadata
+	if err := json.Unmarshal(raw, &metadata); err != nil {
+		return true, nil
+	}
+	if metadata.PID <= 0 {
+		return true, nil
+	}
+	return !processAlive(metadata.PID), nil
+}

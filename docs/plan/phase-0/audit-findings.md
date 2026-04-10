@@ -139,16 +139,16 @@
 
 - 后补同步 `local-store-schema.md`
 
-### AF-006：XDG 新路径 vs `.openclaw` 旧路径冲突
+### AF-006：单根目录工作区 vs `.openclaw` 旧路径冲突
 
 **证据**：
 
-- v2 文档要求 XDG 路径
+- v2 文档要求单根目录工作区路径
 - v1 Python CLI 实际使用 `~/.openclaw/credentials/awiki-agent-id-message/` 与 `~/.openclaw/workspace/data/awiki-agent-id-message/`
 
 **裁决**：
 
-- v2 原生写入 XDG 路径
+- v2 原生写入 `~/.awiki-cli/` 工作区
 - `doctor` / `runtime setup` / `migrate from-v1` 负责检测旧路径
 - 默认只提示导入，不原地修改旧数据
 

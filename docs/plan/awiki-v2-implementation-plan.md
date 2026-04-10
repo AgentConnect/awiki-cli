@@ -30,6 +30,7 @@ awiki-cli v2 的实施目标是：
 | 类别 | 路径 | 用途 |
 |---|---|---|
 | 总体架构 | `docs/architecture/awiki-v2-architecture.md` | v2 总体分层、域模型、runtime、安全、发布 |
+| 本地状态升级 | `docs/architecture/local-state-upgrade.md` | workspace schema、meta/journal、backup、legacy 导入与统一升级入口 |
 | 命令与执行方案 | `docs/architecture/awiki-command-v2.md` | 最终命令树、参数、输出、目录、阶段划分 |
 | 输出契约 | `docs/architecture/output-format.md` | JSON envelope、dry-run、schema、exit code |
 | 飞书 CLI 参考 | `../cli/` | Cobra 命令组织、schema/doctor/completion、skills、shortcuts、发布 |
@@ -189,7 +190,7 @@ awiki-cli v2 的实施目标是：
 | `internal/cli` | Cobra 命令树、flag 绑定、命令执行入口 |
 | `internal/cmdmeta` | 命令元数据、schema/help/docs 生成的单一事实来源 |
 | `internal/output` | JSON envelope、pretty/table/ndjson、错误输出、_notice |
-| `internal/config` | XDG 路径、env 兼容、配置加载、默认 identity 选择 |
+| `internal/config` | 单根目录工作区路径、env 兼容、配置加载、默认 identity 选择 |
 | `internal/identity` | DID、注册、绑定、恢复、profile、多 identity 管理 |
 | `internal/messaging` | direct/group 消息收发、history、mark-read |
 | `internal/group` | group 生命周期与本地快照管理 |
@@ -216,19 +217,23 @@ v2 的 identity 存储设计，参考以下实现：
 
 #### 4.1.1 目录布局基线
 
-v2 采用 XDG 目录，但 identity 内部文件布局继续参考 v1 的 indexed multi-credential layout：
+v2 采用单根目录工作区模型，identity 内部文件布局继续参考 v1 的 indexed multi-credential layout：
 
 ```text
-~/.config/awiki-cli/config.yaml
-~/.config/awiki-cli/identities/index.json
-~/.config/awiki-cli/identities/<identity-dir>/identity.json
-~/.config/awiki-cli/identities/<identity-dir>/auth.json
-~/.config/awiki-cli/identities/<identity-dir>/did_document.json
-~/.config/awiki-cli/identities/<identity-dir>/key-1-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/key-1-public.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-signing-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-agreement-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-state.json
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/index.json
+~/.awiki-cli/identities/<identity-dir>/identity.json
+~/.awiki-cli/identities/<identity-dir>/auth.json
+~/.awiki-cli/identities/<identity-dir>/did_document.json
+~/.awiki-cli/identities/<identity-dir>/key-1-private.pem
+~/.awiki-cli/identities/<identity-dir>/key-1-public.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-signing-private.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-agreement-private.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-state.json
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/runtime/
+~/.awiki-cli/cache/
+~/.awiki-cli/upgrade/
 ```
 
 #### 4.1.2 index.json 基线
@@ -368,7 +373,7 @@ v2 本地 SQLite 设计参考以下来源：
    - v2 文档与 v1 Python 行为差异
    - v2 文档与 API 文档差异
 4. 明确 E2EE 协议冻结结果。
-5. 明确环境变量兼容顺序与 XDG 目录规则。
+5. 明确环境变量兼容顺序与单根目录工作区规则。
 
 **交付物**：
 
@@ -435,10 +440,11 @@ v2 本地 SQLite 设计参考以下来源：
 
 **主要任务**：
 
-1. 落地 XDG 目录解析：
+1. 落地单根目录工作区解析：
+   - workspace home
    - config
    - data
-   - state
+   - runtime
    - cache
 2. 落地 env 兼容读取：
    - `AVIKI_*`
@@ -768,7 +774,7 @@ v2 本地 SQLite 设计参考以下来源：
 | 编号 | 工作包 | 对应阶段 | 完成定义 |
 |---|---|---|---|
 | EPIC-01 | 命令壳与输出协议 | Phase 0-1 | 根命令、输出 envelope、schema/doctor 骨架完成 |
-| EPIC-02 | 配置与路径体系 | Phase 2 | XDG、env 兼容、default identity 解析完成 |
+| EPIC-02 | 配置与路径体系 | Phase 2 | 单根目录工作区、env 兼容、default identity 解析完成 |
 | EPIC-03 | identity store 与迁移 | Phase 2 | index.json、identity dir、v1 credential import 完成 |
 | EPIC-04 | user + handle lifecycle | Phase 3 | register/bind/recover/profile/current + user gating 完成 |
 | EPIC-05 | SQLite schema 与 DAO | Phase 4 | 表/视图/migration/fixtures 完成 |

@@ -11,6 +11,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/upgrade"
 )
 
 type Check struct {
@@ -42,6 +43,7 @@ func Run(resolved *config.Resolved) Report {
 		runtimeCheck(resolved),
 		identityStoreCheck(resolved),
 		sqliteCheck(resolved),
+		upgradeStateCheck(resolved),
 		legacyCheck(resolved),
 	}
 	counts := Counts{}
@@ -88,12 +90,55 @@ func buildCheck(resolved *config.Resolved) Check {
 	}
 }
 
+func upgradeStateCheck(resolved *config.Resolved) Check {
+	inspection, err := upgrade.Inspect(context.Background(), resolved, buildinfo.Version)
+	if err != nil {
+		paths := upgrade.ResolvePaths(resolved)
+		return Check{
+			Name:    "workspace_upgrade",
+			Status:  "error",
+			Summary: "Workspace upgrade state inspection failed",
+			Details: map[string]any{
+				"meta_path":    paths.MetaPath,
+				"journal_path": paths.JournalPath,
+				"error":        err.Error(),
+			},
+		}
+	}
+	status := "ok"
+	summary := "Workspace upgrade metadata is up to date"
+	if inspection.Journal != nil {
+		status = "warn"
+		summary = "Workspace upgrade journal indicates an interrupted upgrade"
+	} else if inspection.Detection.CurrentVersion < inspection.Detection.LatestVersion {
+		status = "warn"
+		summary = "Workspace data still needs to be upgraded"
+	} else if inspection.Detection.CurrentVersionSource == "legacy_detector" {
+		status = "warn"
+		summary = "Workspace upgrade metadata has not been initialized yet"
+	}
+	return Check{
+		Name:    "workspace_upgrade",
+		Status:  status,
+		Summary: summary,
+		Details: map[string]any{
+			"meta":      inspection.Meta,
+			"journal":   inspection.Journal,
+			"detection": inspection.Detection,
+		},
+	}
+}
+
 func configFileCheck(resolved *config.Resolved) Check {
 	status := "warn"
 	summary := "No config file found yet"
 	if resolved.ConfigExists {
 		status = "ok"
 		summary = "Config file loaded"
+	}
+	if resolved.ConfigExists && resolved.ConfigSchemaVersion < config.ConfigSchemaVersion {
+		status = "warn"
+		summary = "Config file exists but schema version is not current"
 	}
 	if resolved.ConfigError != "" {
 		status = "error"
@@ -104,9 +149,10 @@ func configFileCheck(resolved *config.Resolved) Check {
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"path":   resolved.Paths.ConfigFile,
-			"exists": resolved.ConfigExists,
-			"error":  resolved.ConfigError,
+			"path":           resolved.Paths.ConfigFile,
+			"exists":         resolved.ConfigExists,
+			"schema_version": resolved.ConfigSchemaVersion,
+			"error":          resolved.ConfigError,
 		},
 	}
 }

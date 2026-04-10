@@ -64,3 +64,34 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 		t.Fatalf("resolved.Sources[anp_service_did].Source = %q, want %q", source.Source, "derived_default")
 	}
 }
+
+func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("AWIKI_WORKSPACE_HOME", root)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.Paths.WorkspaceHomeDir != root {
+		t.Fatalf("workspace home dir = %q, want %q", resolved.Paths.WorkspaceHomeDir, root)
+	}
+	if resolved.Paths.ConfigDir != root {
+		t.Fatalf("config dir = %q, want %q", resolved.Paths.ConfigDir, root)
+	}
+	if resolved.Paths.IdentityDir != filepath.Join(root, "identities") {
+		t.Fatalf("identity dir = %q", resolved.Paths.IdentityDir)
+	}
+	if resolved.Paths.DatabaseFile != filepath.Join(root, "data", "awiki-cli.db") {
+		t.Fatalf("database file = %q", resolved.Paths.DatabaseFile)
+	}
+	if resolved.Paths.StateDir != filepath.Join(root, "runtime") {
+		t.Fatalf("state dir = %q", resolved.Paths.StateDir)
+	}
+	if resolved.Paths.CacheDir != filepath.Join(root, "cache") {
+		t.Fatalf("cache dir = %q", resolved.Paths.CacheDir)
+	}
+	if resolved.RuntimeSocketPath != filepath.Join(root, "runtime", "message-daemon.sock") {
+		t.Fatalf("runtime socket path = %q", resolved.RuntimeSocketPath)
+	}
+}

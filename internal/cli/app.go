@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	docindex "github.com/agentconnect/awiki-cli/internal/docs"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/agentconnect/awiki-cli/internal/upgrade"
 )
 
 type GlobalOptions struct {
@@ -120,6 +122,20 @@ func (a *App) resolveConfig() (*appconfig.Resolved, error) {
 		}
 	}
 	return resolved, nil
+}
+
+func (a *App) resolveConfigForWorkspace() (*appconfig.Resolved, error) {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return nil, err
+	}
+	if a.globals.DryRun {
+		return resolved, nil
+	}
+	if err := upgrade.UpgradeIfNeeded(context.Background(), resolved, buildinfo.Version); err != nil {
+		return nil, err
+	}
+	return a.resolveConfig()
 }
 
 func (a *App) identityMeta() *output.IdentityMeta {

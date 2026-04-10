@@ -189,16 +189,22 @@ Phase 1 冻结以下退出码：
 
 ### 5.1 v2 原生路径
 
-v2 原生路径固定为 XDG 风格：
+v2 原生路径固定为单根目录工作区模型：
 
 ```text
-~/.config/awiki-cli/config.yaml
-~/.config/awiki-cli/identities/index.json
-~/.config/awiki-cli/identities/<identity-dir>/...
-~/.local/share/awiki-cli/awiki-cli.db
-~/.local/state/awiki-cli/
-~/.cache/awiki-cli/
+~/.awiki-cli/
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/cache/
+~/.awiki-cli/runtime/
+~/.awiki-cli/upgrade/
 ```
+
+说明：
+
+- `~/.awiki-cli/runtime/` 用于 runtime / listener 运行时状态
+- `~/.awiki-cli/upgrade/` 用于升级元数据、upgrade journal、lock 与备份
 
 ### 5.2 环境变量前缀冻结
 
@@ -214,13 +220,16 @@ Phase 1 读取优先级固定为：
 flag > config file > AWIKI_* > AVIKI_* > E2E_* > default
 ```
 
+其中默认推荐入口是 `AWIKI_WORKSPACE_HOME`；`AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留。
+
 至少要支持：
 
 ```text
-AWIKI_CONFIG_DIR
-AWIKI_DATA_DIR
-AWIKI_STATE_DIR
-AWIKI_CACHE_DIR
+AWIKI_WORKSPACE_HOME    # primary entry
+AWIKI_CONFIG_DIR        # compatibility override
+AWIKI_DATA_DIR          # compatibility override
+AWIKI_STATE_DIR         # compatibility override
+AWIKI_CACHE_DIR         # compatibility override
 AWIKI_IDENTITY
 AWIKI_FORMAT
 AWIKI_NO_COLOR

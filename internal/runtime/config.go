@@ -35,7 +35,10 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	}
 	socketPath := strings.TrimSpace(resolved.RuntimeSocketPath)
 	if socketPath == "" {
-		socketPath = filepath.Join(resolved.Paths.StateDir, "runtime", "message-daemon.sock")
+		socketPath = filepath.Join(resolved.Paths.StateDir, "message-daemon.sock")
+		if strings.TrimSpace(resolved.Paths.StateDir) == "" {
+			socketPath = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime", "message-daemon.sock")
+		}
 	}
 	socketPath = normalizeSocketPath(socketPath)
 	return Resolved{

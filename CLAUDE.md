@@ -50,7 +50,7 @@
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
-**internal/config/config.go**: XDG 路径解析、AWIKI/AVIKI/E2E 环境变量兼容读取、config.yaml 解析。  
+**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、AWIKI/AVIKI/E2E 环境变量兼容读取、config.yaml 解析。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
@@ -123,7 +123,7 @@
   - 基础 `doctor`
   - `config show`
 - Phase 2：
-  - XDG identity store 与 `index.json`
+  - 单根目录 identity store 与 `index.json`
   - default identity 解析与 `id list/current/use/status`
   - 本地 DID identity 创建 `id create`（内部/bootstrap，用于迁移或调试；默认从公开 help 隐藏）
   - v1 legacy credential scan / import：`id import-v1`
@@ -194,7 +194,7 @@
   - `gofmt -w $(find cmd internal -name '*.go')`
   - `CGO_ENABLED=0 go build ./...`
   - `CGO_ENABLED=0 go test ./...`
-- Phase 2 / Phase 3 / Phase 4 的本地 smoke test 可通过临时 `AWIKI_*` XDG 环境变量完成，避免污染真实目录。
+- Phase 2 / Phase 3 / Phase 4 的本地 smoke test 可通过临时 `AWIKI_*` 工作区环境变量完成，避免污染真实目录。
 - 代码注释和日志保持英文；命令行对用户的交互输出遵循统一 JSON envelope。
 
 ⚡触发器: 一旦本文件夹增删文件、调整架构、修改服务依赖、补充新的 Go 模块目录，或切换 Phase 实现边界，请立即重写此文档。

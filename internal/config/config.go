@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	appName          = "awiki-cli"
-	legacySkillName  = "awiki-agent-id-message"
-	defaultService   = "https://awiki.ai"
-	defaultDIDDomain = "awiki.ai"
-	defaultANPPath   = "/message/rpc"
+	appName             = "awiki-cli"
+	legacySkillName     = "awiki-agent-id-message"
+	defaultService      = "https://awiki.ai"
+	defaultDIDDomain    = "awiki.ai"
+	defaultANPPath      = "/message/rpc"
+	ConfigSchemaVersion = 1
 )
 
 type Overrides struct {
@@ -26,6 +27,7 @@ type Overrides struct {
 }
 
 type Paths struct {
+	WorkspaceHomeDir     string `json:"workspace_home_dir"`
 	ConfigDir            string `json:"config_dir"`
 	DataDir              string `json:"data_dir"`
 	StateDir             string `json:"state_dir"`
@@ -38,7 +40,8 @@ type Paths struct {
 }
 
 type FileConfig struct {
-	Identity struct {
+	SchemaVersion int `yaml:"schema_version,omitempty"`
+	Identity      struct {
 		Active string `yaml:"active"`
 	} `yaml:"identity"`
 	Runtime struct {
@@ -75,6 +78,7 @@ type ValueSource struct {
 
 type Resolved struct {
 	Paths               Paths                  `json:"paths"`
+	ConfigSchemaVersion int                    `json:"config_schema_version"`
 	ActiveIdentity      string                 `json:"active_identity,omitempty"`
 	RuntimeMode         string                 `json:"runtime_mode"`
 	RuntimeSocketPath   string                 `json:"runtime_socket_path,omitempty"`
@@ -104,10 +108,31 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home: %w", err)
 	}
-	configDir, configDirSource := resolvePath(home, envOptionSet("config_dir", "AWIKI_CONFIG_DIR", "AVIKI_CONFIG_DIR"), filepath.Join(home, ".config", appName))
-	dataDir, dataDirSource := resolvePath(home, envOptionSet("data_dir", "AWIKI_DATA_DIR", "AVIKI_DATA_DIR"), filepath.Join(home, ".local", "share", appName))
-	stateDir, stateDirSource := resolvePath(home, envOptionSet("state_dir", "AWIKI_STATE_DIR", "AVIKI_STATE_DIR"), filepath.Join(home, ".local", "state", appName))
-	cacheDir, cacheDirSource := resolvePath(home, envOptionSet("cache_dir", "AWIKI_CACHE_DIR", "AVIKI_CACHE_DIR"), filepath.Join(home, ".cache", appName))
+	workspaceHomeDir, workspaceHomeSource := resolvePath(
+		home,
+		envOptionSet("workspace_home_dir", "AWIKI_WORKSPACE_HOME", "AVIKI_WORKSPACE_HOME"),
+		filepath.Join(home, "."+appName),
+	)
+	configDir, configDirSource := resolvePath(
+		home,
+		envOptionSet("config_dir", "AWIKI_CONFIG_DIR", "AVIKI_CONFIG_DIR"),
+		workspaceHomeDir,
+	)
+	dataDir, dataDirSource := resolvePath(
+		home,
+		envOptionSet("data_dir", "AWIKI_DATA_DIR", "AVIKI_DATA_DIR"),
+		filepath.Join(workspaceHomeDir, "data"),
+	)
+	stateDir, stateDirSource := resolvePath(
+		home,
+		envOptionSet("state_dir", "AWIKI_STATE_DIR", "AVIKI_STATE_DIR"),
+		filepath.Join(workspaceHomeDir, "runtime"),
+	)
+	cacheDir, cacheDirSource := resolvePath(
+		home,
+		envOptionSet("cache_dir", "AWIKI_CACHE_DIR", "AVIKI_CACHE_DIR"),
+		filepath.Join(workspaceHomeDir, "cache"),
+	)
 
 	legacyWorkspace := os.Getenv("AWIKI_WORKSPACE")
 	legacyDataDir := filepath.Join(home, ".openclaw", "workspace", "data", legacySkillName)
@@ -116,6 +141,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 	}
 
 	paths := Paths{
+		WorkspaceHomeDir:     workspaceHomeDir,
 		ConfigDir:            configDir,
 		DataDir:              dataDir,
 		StateDir:             stateDir,
@@ -136,16 +162,18 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		MessageServiceWSURL: "",
 		DIDDomain:           defaultDIDDomain,
 		Sources: map[string]ValueSource{
-			"config_dir": configDirSource,
-			"data_dir":   dataDirSource,
-			"state_dir":  stateDirSource,
-			"cache_dir":  cacheDirSource,
+			"workspace_home_dir": workspaceHomeSource,
+			"config_dir":         configDirSource,
+			"data_dir":           dataDirSource,
+			"state_dir":          stateDirSource,
+			"cache_dir":          cacheDirSource,
 		},
 	}
 	resolved.EnvHits = collectEnvHits()
 
-	fileConfig, configExists, configError := loadFileConfig(paths.ConfigFile)
+	fileConfig, configExists, configError := ReadFileConfig(paths.ConfigFile)
 	resolved.ConfigExists = configExists
+	resolved.ConfigSchemaVersion = normalizedConfigSchemaVersion(fileConfig.SchemaVersion)
 	if configError != nil {
 		resolved.ConfigError = configError.Error()
 	}
@@ -155,7 +183,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 	resolved.RuntimeMode, resolved.Sources["runtime_mode"] = chooseValue("", false, fileConfig.Runtime.Mode,
 		envOptionSet("runtime_mode", "AWIKI_RUNTIME_MODE", "AVIKI_RUNTIME_MODE"), "http")
 	resolved.RuntimeSocketPath, resolved.Sources["runtime_socket_path"] = chooseValue("", false, fileConfig.Runtime.SocketPath,
-		envOptionSet("runtime_socket_path", "AWIKI_RUNTIME_SOCKET", "AVIKI_RUNTIME_SOCKET"), filepath.Join(paths.StateDir, "runtime", "message-daemon.sock"))
+		envOptionSet("runtime_socket_path", "AWIKI_RUNTIME_SOCKET", "AVIKI_RUNTIME_SOCKET"), filepath.Join(paths.StateDir, "message-daemon.sock"))
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(overrides.Format, overrides.FormatChanged, fileConfig.Output.Format,
 		envOptionSet("output_format", "AWIKI_FORMAT", "AVIKI_FORMAT"), "json")
 	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(fileConfig.Output.NoColor,
@@ -203,6 +231,7 @@ func Snapshot(resolved *Resolved) map[string]any {
 	}
 	return map[string]any{
 		"paths":                  resolved.Paths,
+		"config_schema_version":  resolved.ConfigSchemaVersion,
 		"active_identity":        resolved.ActiveIdentity,
 		"runtime_mode":           resolved.RuntimeMode,
 		"runtime_socket_path":    resolved.RuntimeSocketPath,
@@ -222,7 +251,7 @@ func Snapshot(resolved *Resolved) map[string]any {
 	}
 }
 
-func loadFileConfig(path string) (FileConfig, bool, error) {
+func ReadFileConfig(path string) (FileConfig, bool, error) {
 	var config FileConfig
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -235,6 +264,13 @@ func loadFileConfig(path string) (FileConfig, bool, error) {
 		return config, true, err
 	}
 	return config, true, nil
+}
+
+func normalizedConfigSchemaVersion(version int) int {
+	if version < 0 {
+		return 0
+	}
+	return version
 }
 
 func envOptionSet(target string, keys ...string) []option {
@@ -311,6 +347,7 @@ func defaultANPServiceDID(didDomain string) string {
 
 func collectEnvHits() []EnvHit {
 	definitions := []EnvHit{
+		{Key: "AWIKI_WORKSPACE_HOME", Tier: "canonical_env", Target: "workspace_home_dir"},
 		{Key: "AWIKI_CONFIG_DIR", Tier: "canonical_env", Target: "config_dir"},
 		{Key: "AWIKI_DATA_DIR", Tier: "canonical_env", Target: "data_dir"},
 		{Key: "AWIKI_STATE_DIR", Tier: "canonical_env", Target: "state_dir"},
@@ -328,6 +365,7 @@ func collectEnvHits() []EnvHit {
 		{Key: "AWIKI_ANP_SERVICE_DID", Tier: "canonical_env", Target: "anp_service_did"},
 		{Key: "AWIKI_CA_BUNDLE", Tier: "canonical_env", Target: "ca_bundle"},
 		{Key: "AWIKI_WORKSPACE", Tier: "canonical_env", Target: "legacy_workspace"},
+		{Key: "AVIKI_WORKSPACE_HOME", Tier: "draft_alias_env", Target: "workspace_home_dir"},
 		{Key: "AVIKI_CONFIG_DIR", Tier: "draft_alias_env", Target: "config_dir"},
 		{Key: "AVIKI_DATA_DIR", Tier: "draft_alias_env", Target: "data_dir"},
 		{Key: "AVIKI_STATE_DIR", Tier: "draft_alias_env", Target: "state_dir"},

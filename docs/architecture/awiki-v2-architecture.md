@@ -11,6 +11,10 @@
 
 本文档用于定义 awiki v2 的目标架构、核心设计原则、分层模型、技术选型、分发方案与迁移路径。
 
+与本地 config / identity store / SQLite / legacy 导入有关的升级编排设计，见：
+
+- `docs/architecture/local-state-upgrade.md`
+
 本文档重点回答以下问题：
 
 1. awiki v2 要解决什么问题，边界在哪里  

@@ -14,7 +14,7 @@ import (
 )
 
 func (a *App) openStore() (*appconfig.Resolved, *sql.DB, output.Format, error) {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return nil, nil, output.FormatJSON, err
 	}

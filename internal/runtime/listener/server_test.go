@@ -265,6 +265,7 @@ func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resol
 
 	root := t.TempDir()
 	manager := identity.NewManager(appconfig.Paths{
+		WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
 		IdentityDir:          filepath.Join(root, "identities"),
 		LegacyCredentialsDir: filepath.Join(root, "legacy"),
 		DataDir:              filepath.Join(root, "data"),
@@ -280,6 +281,7 @@ func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resol
 	})
 	return &appconfig.Resolved{
 		Paths: appconfig.Paths{
+			WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
 			IdentityDir:          filepath.Join(root, "identities"),
 			LegacyCredentialsDir: filepath.Join(root, "legacy"),
 			DataDir:              filepath.Join(root, "data"),
