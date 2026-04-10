@@ -4,7 +4,6 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const https = require('https');
 const { spawn } = require('child_process');
 
 function mapPlatform() {
@@ -36,51 +35,71 @@ function getDownloadUrl(version, osName, arch) {
   const fileName = `${archiveBaseName}.${ext}`;
 
   const mirror = (process.env.AWIKI_CLI_DOWNLOAD_MIRROR || '').trim();
-  const base = mirror || 'https://github.com/AgentConnect/awiki-cli/releases/download';
-  const baseNoSlash = base.replace(/\/+$/, '');
+  const mirrorBase = mirror ? mirror.replace(/\/+$/, '') : '';
+  const githubBase = 'https://github.com/AgentConnect/awiki-cli/releases/download'.replace(/\/+$/, '');
   const tag = `v${version}`;
 
+  const urls = [];
+  // If a mirror is configured, try it first.
+  if (mirrorBase) {
+    urls.push(`${mirrorBase}/${tag}/${fileName}`);
+  }
+  // Always fall back to GitHub.
+  urls.push(`${githubBase}/${tag}/${fileName}`);
+
   return {
-    url: `${baseNoSlash}/${tag}/${fileName}`,
+    urls,
     fileName,
   };
 }
 
 function download(url, destPath) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    let finished = false;
+    const curlCmd = process.env.AWIKI_CLI_CURL || 'curl';
+    const isWindows = process.platform === 'win32';
+    const args = [];
 
-    const req = https.get(url, res => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // handle redirect
-        res.destroy();
-        file.close(() => fs.unlink(destPath, () => {
-          download(res.headers.location, destPath).then(resolve, reject);
-        }));
-        return;
-      }
+    if (isWindows) {
+      // On Windows, avoid CRYPT_E_REVOCATION_OFFLINE errors when the
+      // certificate revocation list server is unreachable.
+      args.push('--ssl-revoke-best-effort');
+    }
 
-      if (res.statusCode !== 200) {
-        res.resume();
-        file.close(() => fs.unlink(destPath, () => {
-          reject(new Error(`Download failed with status code ${res.statusCode}`));
-        }));
-        return;
-      }
+    args.push(
+      '--fail',
+      '--location',
+      '--silent',
+      '--show-error',
+      '--connect-timeout',
+      '10',
+      '--max-time',
+      '60',
+      '--output',
+      destPath,
+      url
+    );
 
-      res.pipe(file);
-      file.on('finish', () => {
-        finished = true;
-        file.close(resolve);
-      });
+    const child = spawn(curlCmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+
+    child.stderr.on('data', chunk => {
+      stderr += chunk.toString();
     });
 
-    req.on('error', err => {
-      if (!finished) {
-        file.close(() => fs.unlink(destPath, () => reject(err)));
+    child.on('error', err => {
+      if (err && err.code === 'ENOENT') {
+        reject(new Error('curl not found. Please install curl or set AWIKI_CLI_CURL to a valid curl binary.'));
       } else {
         reject(err);
+      }
+    });
+
+    child.on('exit', code => {
+      if (code === 0) {
+        resolve();
+      } else {
+        const msg = stderr.trim() || `curl exited with code ${code}`;
+        reject(new Error(msg));
       }
     });
   });
@@ -126,7 +145,7 @@ async function main() {
   const version = getVersion(pkg);
   const osName = mapPlatform();
   const arch = mapArch();
-  const { url, fileName } = getDownloadUrl(version, osName, arch);
+  const { urls, fileName } = getDownloadUrl(version, osName, arch);
 
   const binDir = path.join(rootDir, 'bin');
   ensureDir(binDir);
@@ -134,11 +153,33 @@ async function main() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awiki-cli-'));
   const archivePath = path.join(tmpDir, fileName);
 
-  console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url} ...`);
-  await download(url, archivePath);
+  let lastError;
+  for (const url of urls) {
+    console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url} ...`);
+    try {
+      await download(url, archivePath);
+      lastError = undefined;
+      break;
+    } catch (err) {
+      lastError = err;
+      console.error(`[awiki-cli] Download failed from ${url}: ${err.message}`);
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
 
   console.log(`Extracting to ${binDir} ...`);
-  await extractArchive(archivePath, binDir, osName);
+  try {
+    await extractArchive(archivePath, binDir, osName);
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (e) {
+      // best effort cleanup
+    }
+  }
 
   const exeName = osName === 'windows' ? 'awiki-cli.exe' : 'awiki-cli';
   const exePath = path.join(binDir, exeName);
@@ -157,6 +198,11 @@ async function main() {
 if (require.main === module) {
   main().catch(err => {
     console.error(`[awiki-cli] Failed to install binary: ${err.message}`);
+     console.error(
+       '\nIf you are behind a firewall or using a restricted network, you can:\n' +
+       '  - Set AWIKI_CLI_DOWNLOAD_MIRROR to a reachable HTTPS base URL,\n' +
+       '  - Or manually download the archive and extract it into the awiki-cli bin directory.\n'
+     );
     process.exit(1);
   });
 }
