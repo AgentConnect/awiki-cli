@@ -28,6 +28,8 @@ type App struct {
 	globals GlobalOptions
 	catalog *cmdmeta.Catalog
 	docs    *docindex.Index
+
+	updateWarning string
 }
 
 func Execute() int {
@@ -79,11 +81,15 @@ func (a *App) handleError(err error) int {
 }
 
 func (a *App) renderSuccess(command string, format output.Format, jqExpr string, data any, summary string, warnings []string, identityMeta *output.IdentityMeta) error {
+	mergedWarnings := warnings
+	if a.updateWarning != "" {
+		mergedWarnings = append([]string{a.updateWarning}, warnings...)
+	}
 	envelope := output.SuccessEnvelope{
 		OK:       true,
 		Command:  command,
 		Data:     identity.PublicValue(data),
-		Warnings: warnings,
+		Warnings: mergedWarnings,
 		Summary:  summary,
 		Meta: output.Meta{
 			Version:  buildinfo.Version,

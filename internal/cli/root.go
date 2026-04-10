@@ -14,6 +14,7 @@ import (
 	doccheck "github.com/agentconnect/awiki-cli/internal/doctor"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ func newRootCommand(app *App) *cobra.Command {
 			if err != nil {
 				return output.NewExitError("invalid_argument", 2, err.Error(), "Use --format json, pretty, ndjson, or table.")
 			}
-			return nil
+			return app.maybeCheckForUpdates(cmd)
 		},
 	}
 	rootCmd.PersistentFlags().StringVar(&app.globals.Format, "format", string(output.FormatJSON), "Output format: json | pretty | ndjson | table")
@@ -138,6 +139,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runDoctor
 	case "version":
 		return a.runVersion
+	case "upgrade":
+		return a.runUpgrade
 	case "config.show":
 		return a.runConfigShow
 	case "id.status":
@@ -408,4 +411,89 @@ func normalizedFormat(raw string) output.Format {
 		return output.FormatJSON
 	}
 	return format
+}
+
+// maybeCheckForUpdates performs a best-effort version policy check before
+// running most commands. It is intentionally soft-fail: network / metadata
+// errors do not break the CLI, but when we have a clear "below minSupported"
+// signal we block remote-affecting commands.
+func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
+	// Some commands must always be available regardless of version policy.
+	if isUpdateExemptCommand(cmd) {
+		return nil
+	}
+
+	// Resolve config to get update-related knobs and cache paths.
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		// Config errors are surfaced by individual commands; do not double-fail here.
+		return nil
+	}
+
+	decision, err := update.Check(resolved)
+	if err != nil {
+		// Best-effort: log to stderr in verbose mode, but never break the command.
+		if a.globals.Verbose {
+			fmt.Fprintf(os.Stderr, "[awiki-cli] update check failed: %v\n", err)
+		}
+		return nil
+	}
+
+	if decision.Blocked {
+		summary := fmt.Sprintf(
+			"awiki-cli %s is no longer supported (minimum supported version is %s).",
+			decision.CurrentVersion,
+			decision.MinSupportedVersion,
+		)
+		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` or `npm install -g @agentconnect/awiki-cli@latest`."
+		return output.NewExitError("version_unsupported", 3, summary, hint)
+	}
+
+	if decision.HasNewerVersion && !decision.StrictDisabled && !decision.DevBuild {
+		a.updateWarning = fmt.Sprintf(
+			"A newer awiki-cli version (%s) is available; you are running %s. Run `awiki-cli upgrade` for details.",
+			decision.LatestVersion,
+			decision.CurrentVersion,
+		)
+	}
+	return nil
+}
+
+func isUpdateExemptCommand(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	path := strings.TrimSpace(cmd.CommandPath())
+	if path == "" {
+		return false
+	}
+
+	// Allow basic local inspection / help commands even when the binary is old.
+	exempt := []string{
+		"awiki-cli help",
+		"awiki-cli version",
+		"awiki-cli upgrade",
+		"awiki-cli init",
+		"awiki-cli docs",
+		"awiki-cli schema",
+		"awiki-cli config show",
+		"awiki-cli doctor",
+		"awiki-cli completion",
+		"awiki-cli completion bash",
+		"awiki-cli completion zsh",
+		"awiki-cli completion fish",
+		"awiki-cli completion powershell",
+	}
+	for _, allowed := range exempt {
+		if strings.EqualFold(path, allowed) {
+			return true
+		}
+	}
+
+	// Cobra may construct aliases / nested paths; treat any "help ..." as exempt.
+	if strings.HasPrefix(strings.ToLower(path), "awiki-cli help ") {
+		return true
+	}
+
+	return false
 }

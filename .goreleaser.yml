@@ -1,0 +1,44 @@
+project_name: awiki-cli
+
+builds:
+  - id: awiki-cli
+    main: ./cmd/awiki-cli
+    binary: awiki-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/agentconnect/awiki-cli/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/agentconnect/awiki-cli/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/agentconnect/awiki-cli/internal/buildinfo.BuildDate={{ .Date }}
+      - -X github.com/agentconnect/awiki-cli/internal/buildinfo.CGOEnabled=0
+
+archives:
+  - id: default
+    builds:
+      - awiki-cli
+    name_template: "awiki-cli-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "awiki-cli-{{ .Version }}-checksums.txt"
+
+release:
+  github:
+    owner: AgentConnect
+    name: awiki-cli
+  draft: false
+  prerelease: auto
+
+changelog:
+  use: git

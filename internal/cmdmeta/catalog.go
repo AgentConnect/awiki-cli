@@ -108,6 +108,7 @@ func defaultSpecs() []CommandSpec {
 		{Name: "schema", Use: "schema [command]", Short: "Show the static command contract", Phase: "phase1", Implemented: true, Handler: "schema", Outputs: []string{"json", "pretty", "table"}},
 		{Name: "doctor", Use: "doctor", Short: "Run baseline environment and storage diagnostics", Phase: "phase1", Implemented: true, Handler: "doctor", Outputs: []string{"json", "pretty", "table"}},
 		{Name: "version", Use: "version", Short: "Show build information", Phase: "phase1", Implemented: true, Handler: "version", Outputs: []string{"json", "pretty", "table"}},
+		{Name: "upgrade", Use: "upgrade", Short: "Check for newer awiki-cli versions and show upgrade hints", Phase: "phase2", Implemented: true, Handler: "upgrade", Outputs: []string{"json", "pretty", "table"}},
 		{Name: "init", Use: "init", Short: "Initialize the awiki-cli workdir and config.json", Phase: "phase1", Implemented: true, Handler: "init", SideEffect: true, Outputs: []string{"json", "pretty", "table"}},
 		{Name: "completion", Use: "completion", Short: "Generate shell completion scripts", Phase: "phase1", Implemented: true},
 		{Name: "completion.bash", Use: "bash", Short: "Generate Bash completion", Phase: "phase1", Implemented: true, Handler: "completion.bash"},

@@ -160,7 +160,7 @@ $AWIKI_HOME/
 - `runtime.mode`：运行模式，`"http"` 或 `"websocket"`。
 - `output.format`：输出格式，如 `"json"` / `"table"` 等。
 - `output.no_color`：是否禁用彩色输出。
-- `update.disable_strict_version`：是否关闭严格版本校验（目前仅作为配置入口）。
+- `update.disable_strict_version`：是否关闭严格版本校验；一般保持 `false` 即可，仅用于调试或紧急逃生（也可通过 `AWIKI_CLI_DISABLE_STRICT_VERSION` 环境变量临时关闭）。
 - `update.metadata_cache_ttl_seconds`：版本元数据缓存 TTL（0 表示使用内部默认值）。
 
 首次运行如果没有 `config.json`，awiki-cli 使用内置默认值；当通过后续命令需要持久化配置时，会自动创建该文件并写入当前生效值。
@@ -176,6 +176,8 @@ $AWIKI_HOME/
 | `AWIKI_RUNTIME_MODE` | 临时覆盖运行模式 (`runtime.mode`) | `http` |
 | `AWIKI_FORMAT` | 临时覆盖输出格式 (`output.format`) | `json` |
 | `AWIKI_NO_COLOR` | 临时覆盖是否禁用颜色 (`output.no_color`) | `false` |
+
+另外，与版本强制升级相关还预留了两个高级开关（通常只在调试或 CI 场景下使用）：`AWIKI_CLI_DISABLE_STRICT_VERSION` 和 `AWIKI_CLI_UPDATE_CACHE_TTL`，分别用于临时关闭严格版本校验、调整版本元数据缓存 TTL（秒）。正常用户无需设置它们。
 
 > 注意：不再提供 `AWIKI_CONFIG_DIR` / `AWIKI_DATA_DIR` / `AWIKI_STATE_DIR` / `AWIKI_CACHE_DIR`，也不再提供 `AWIKI_USER_SERVICE_URL` 等 URL 级环境变量，更不再兼容任何 `AVIKI_*` / `E2E_*` 变量。服务端域名等长期配置统一通过 `config.json` 管理。
 
