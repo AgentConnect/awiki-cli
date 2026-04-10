@@ -46,6 +46,10 @@ func (a *App) identityExit(err error, fallbackHint string) error {
 	if err == nil {
 		return nil
 	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
 	var serviceErr *identity.ServiceError
 	if errors.As(err, &serviceErr) {
 		switch {

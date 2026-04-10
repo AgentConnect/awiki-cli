@@ -26,6 +26,10 @@ func (a *App) runtimeExit(err error, hint string) error {
 	if err == nil {
 		return nil
 	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
 	switch {
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before starting realtime runtime.")
@@ -78,7 +82,7 @@ func (a *App) runRuntimeSetup(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime setup planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+		return a.runtimeExit(err, "Check write permissions for config.json.")
 	}
 	db, err := store.Open(resolved.Paths)
 	if err != nil {
@@ -128,7 +132,7 @@ func (a *App) runRuntimeModeSet(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime mode change planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+		return a.runtimeExit(err, "Check write permissions for config.json.")
 	}
 	data := map[string]any{
 		"action": "runtime_mode_set",

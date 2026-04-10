@@ -48,17 +48,11 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 	if auth == nil {
 		return nil, fmt.Errorf("auth session is required for websocket mode")
 	}
-	targetHTTPURL := strings.TrimSpace(resolved.MessageServiceURL)
-	if targetHTTPURL == "" {
-		return nil, fmt.Errorf("message service url is required for websocket mode")
+	targetHTTPURL := appconfig.JoinBaseURL(resolved.ServiceBaseURL, message.MessageWSEndpoint)
+	if strings.TrimSpace(targetHTTPURL) == "" {
+		return nil, fmt.Errorf("service base url is required for websocket mode")
 	}
-	targetWSURL := strings.TrimSpace(resolved.MessageServiceWSURL)
-	if targetWSURL == "" {
-		targetWSURL = strings.Replace(targetHTTPURL, "https://", "wss://", 1)
-		targetWSURL = strings.Replace(targetWSURL, "http://", "ws://", 1)
-	}
-	targetHTTPURL = appendEndpointIfMissing(targetHTTPURL, message.MessageWSEndpoint)
-	targetWSURL = appendEndpointIfMissing(targetWSURL, message.MessageWSEndpoint)
+	targetWSURL := appconfig.DeriveWebSocketURL(resolved.ServiceBaseURL, message.MessageWSEndpoint)
 	return &WSClient{
 		requestURL:    targetHTTPURL,
 		websocketURL:  targetWSURL,
@@ -142,14 +136,6 @@ func formatDialError(err error, response *http.Response) error {
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(raw)))
-}
-
-func appendEndpointIfMissing(base string, endpoint string) string {
-	trimmed := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(trimmed, endpoint) {
-		return trimmed
-	}
-	return trimmed + endpoint
 }
 
 func (c *WSClient) Close() error {

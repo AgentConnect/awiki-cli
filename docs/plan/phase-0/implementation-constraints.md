@@ -194,7 +194,7 @@ v2 原生路径固定为单根目录工作区模型：
 
 ```text
 ~/.awiki-cli/
-~/.awiki-cli/config.yaml
+~/.awiki-cli/config.json
 ~/.awiki-cli/identities/
 ~/.awiki-cli/data/awiki-cli.db
 ~/.awiki-cli/cache/
@@ -209,39 +209,27 @@ v2 原生路径固定为单根目录工作区模型：
 - `~/.awiki-cli/logs/` 用于 listener 与 runtime 的持久化日志
 - `~/.awiki-cli/upgrade/` 用于升级元数据、upgrade journal、lock 与备份
 
-### 5.2 环境变量前缀冻结
+### 5.2 配置入口冻结
 
 审计后冻结如下：
 
-- **canonical 前缀：`AWIKI_*`**
-- **draft typo alias：`AVIKI_*`**
-- **legacy fallback：`E2E_*`**
+- **唯一环境变量入口：`AWIKI_CLI_WORKSPACE_HOME_DIR`**
+- **用户主配置文件：`config.json`**
+- **目录类 override 环境变量：全部废弃**
+- **业务配置环境变量：全部废弃**
 
 Phase 1 读取优先级固定为：
 
 ```text
-flag > config file > AWIKI_* > AVIKI_* > E2E_* > default
+flag > config.json > default
 ```
 
-其中默认推荐入口是 `AWIKI_WORKSPACE_HOME`；`AWIKI_HOME` 作为根目录别名兼容 release/0325 的初始化入口；`AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留。
+冻结规则：
 
-至少要支持：
-
-```text
-AWIKI_WORKSPACE_HOME    # primary entry
-AWIKI_HOME              # root alias for init/workspace bootstrapping
-AWIKI_CONFIG_DIR        # compatibility override
-AWIKI_DATA_DIR          # compatibility override
-AWIKI_STATE_DIR         # compatibility override
-AWIKI_CACHE_DIR         # compatibility override
-AWIKI_IDENTITY
-AWIKI_FORMAT
-AWIKI_NO_COLOR
-AWIKI_USER_SERVICE_URL
-AWIKI_MESSAGE_SERVICE_URL
-AWIKI_DID_DOMAIN
-AWIKI_WORKSPACE
-```
+- `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录
+- `config / data / runtime / cache` 必须从工作区根目录派生，不允许分别配置
+- 若检测到旧环境变量或旧 `config.yaml`，CLI 必须直接报错并给出迁移提示
+- 旧变量（`AWIKI_*`、`AVIKI_*`、`E2E_*`）不再兼容读取
 
 ### 5.3 v1 路径兼容策略
 
@@ -348,7 +336,7 @@ Phase 1 冻结以下 thread id 规则：
 
 Phase 0 已冻结但原始文档尚未完全同步的点如下：
 
-1. `docs/architecture/awiki-command-v2.md` 中的 `AVIKI_*` 需要后续同步为 `AWIKI_*`
+1. `docs/architecture/awiki-command-v2.md` 中的配置入口描述需要持续保持与 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.json` 一致
 2. `docs/architecture/awiki-command-v2.md` 中的 `msg group ...` 需要后续同步为 `group ...` canonical surface 或明确标注为 alias
 3. `docs/architecture/awiki-v2-architecture.md` 附录中的顶级 `api` 需要后续同步为“保留项”或删除
 4. `../awiki-agent-id-message/references/local-store-schema.md` 需要补 `e2ee_outbox`

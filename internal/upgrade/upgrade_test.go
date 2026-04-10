@@ -36,7 +36,7 @@ func TestUpgradeIfNeededStampsCurrentWorkspaceMetadata(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(resolved.Paths.ConfigFile), 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	if err := os.WriteFile(resolved.Paths.ConfigFile, []byte("runtime:\n  mode: http\n"), 0o600); err != nil {
+	if err := os.WriteFile(resolved.Paths.ConfigFile, []byte("{\"runtime\":{\"mode\":\"http\"}}\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
@@ -95,8 +95,8 @@ func TestUpgradeIfNeededImportsLegacyWorkspace(t *testing.T) {
 	if fileConfig.Runtime.Mode != runtimecfg.ModeWebSocket {
 		t.Fatalf("runtime mode = %q, want %q", fileConfig.Runtime.Mode, runtimecfg.ModeWebSocket)
 	}
-	if fileConfig.Services.UserServiceURL != "https://legacy.awiki.test" {
-		t.Fatalf("user service url = %q", fileConfig.Services.UserServiceURL)
+	if fileConfig.Services.ServiceBaseURL != "https://legacy.awiki.test" {
+		t.Fatalf("service base url = %q", fileConfig.Services.ServiceBaseURL)
 	}
 
 	manager := identity.NewManager(resolved.Paths)
@@ -131,12 +131,12 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 	return &appconfig.Resolved{
 		Paths: appconfig.Paths{
 			WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
-			ConfigDir:            filepath.Join(root, "config"),
+			ConfigDir:            filepath.Join(root, ".awiki-cli"),
 			DataDir:              filepath.Join(root, "data"),
 			StateDir:             filepath.Join(root, "state"),
 			CacheDir:             filepath.Join(root, "cache"),
-			ConfigFile:           filepath.Join(root, "config", "config.yaml"),
-			IdentityDir:          filepath.Join(root, "config", "identities"),
+			ConfigFile:           filepath.Join(root, ".awiki-cli", "config.json"),
+			IdentityDir:          filepath.Join(root, ".awiki-cli", "identities"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 			LegacyCredentialsDir: filepath.Join(root, "legacy-credentials"),
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),

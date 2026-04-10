@@ -29,6 +29,10 @@ func (a *App) contentExit(err error, hint string) error {
 	if err == nil {
 		return nil
 	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
 	var serviceErr *content.ServiceError
 	if errors.As(err, &serviceErr) {
 		switch {

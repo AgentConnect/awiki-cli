@@ -23,7 +23,7 @@ func CreateBackup(ctx context.Context, uc *Context, backupID string) (string, er
 		return "", fmt.Errorf("create backup dir: %w", err)
 	}
 	if fileExists(uc.Paths.ConfigFile) {
-		if err := copyFile(uc.Paths.ConfigFile, filepath.Join(backupDir, "config.yaml.bak"), 0o600); err != nil {
+		if err := copyFile(uc.Paths.ConfigFile, filepath.Join(backupDir, "config.json.bak"), 0o600); err != nil {
 			return "", err
 		}
 	}

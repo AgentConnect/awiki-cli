@@ -1,63 +1,23 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"gopkg.in/yaml.v3"
 )
 
 func EnsureConfigSchemaVersion(path string) error {
-	raw, err := os.ReadFile(path)
+	fileConfig, exists, err := ReadFileConfig(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read config yaml: %w", err)
+		return fmt.Errorf("read config json: %w", err)
 	}
-	var document yaml.Node
-	if err := yaml.Unmarshal(raw, &document); err != nil {
-		return fmt.Errorf("parse config yaml: %w", err)
+	if !exists {
+		return nil
 	}
-	if document.Kind == 0 {
-		document.Kind = yaml.DocumentNode
-	}
-	if len(document.Content) == 0 {
-		document.Content = []*yaml.Node{{
-			Kind:    yaml.MappingNode,
-			Content: []*yaml.Node{},
-		}}
-	}
-	root := document.Content[0]
-	if root.Kind != yaml.MappingNode {
-		return fmt.Errorf("config root must be a mapping node")
-	}
-	versionValue := fmt.Sprintf("%d", ConfigSchemaVersion)
-	updated := false
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value != "schema_version" {
-			continue
-		}
-		root.Content[i+1].Kind = yaml.ScalarNode
-		root.Content[i+1].Tag = "!!int"
-		root.Content[i+1].Value = versionValue
-		updated = true
-		break
-	}
-	if !updated {
-		root.Content = append([]*yaml.Node{
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "schema_version"},
-			{Kind: yaml.ScalarNode, Tag: "!!int", Value: versionValue},
-		}, root.Content...)
-	}
-
-	encoded, err := yaml.Marshal(&document)
-	if err != nil {
-		return fmt.Errorf("marshal config yaml: %w", err)
-	}
-	if err := writeAtomicFile(path, encoded, 0o600); err != nil {
-		return fmt.Errorf("write config yaml: %w", err)
+	fileConfig.SchemaVersion = ConfigSchemaVersion
+	if err := WriteFileConfig(path, fileConfig); err != nil {
+		return fmt.Errorf("write config json: %w", err)
 	}
 	return nil
 }
@@ -80,12 +40,13 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 
 func WriteFileConfig(path string, fileConfig FileConfig) error {
 	fileConfig.SchemaVersion = ConfigSchemaVersion
-	raw, err := yaml.Marshal(fileConfig)
+	raw, err := json.MarshalIndent(fileConfig, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshal config yaml: %w", err)
+		return fmt.Errorf("marshal config json: %w", err)
 	}
+	raw = append(raw, '\n')
 	if err := writeAtomicFile(path, raw, 0o600); err != nil {
-		return fmt.Errorf("write config yaml: %w", err)
+		return fmt.Errorf("write config json: %w", err)
 	}
 	return nil
 }

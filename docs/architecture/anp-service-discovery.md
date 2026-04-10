@@ -25,7 +25,7 @@
 {
   "id": "<agent_did>#message",
   "type": "ANPMessageService",
-  "serviceEndpoint": "https://example.com/message/rpc",
+  "serviceEndpoint": "https://example.com/anp-im/rpc",
   "serviceDid": "did:wba:example.com",
   "profiles": [
     "anp.core.binding.v1",
@@ -46,32 +46,36 @@
 
 ## 3. 本地配置项
 
-`config.yaml` 的 `services` 下新增两个显式字段：
+`config.json` 的 `services` 下包含两个显式字段：
 
-```yaml
-services:
-  did_domain: "awiki.ai"
-  anp_service_endpoint: "https://awiki.ai/message/rpc"
-  anp_service_did: "did:wba:awiki.ai"
+```json
+{
+  "services": {
+    "service_base_url": "https://awiki.ai",
+    "did_domain": "awiki.ai",
+    "anp_service_endpoint": "https://awiki.ai/anp-im/rpc",
+    "anp_service_did": "did:wba:awiki.ai"
+  }
+}
 ```
 
 职责拆分：
 
 - `did_domain`：决定本地生成的 DID 域
+- `service_base_url`：域内 awiki 服务基础地址
 - `anp_service_endpoint`：写入 DID 文档的公开 RPC 地址
 - `anp_service_did`：写入 DID 文档的 service DID
-- `message_service_url`：CLI 调用消息服务时使用
-- `message_service_ws_url`：runtime listener 使用
 
 默认值：
 
-- `anp_service_endpoint = https://<did_domain>/message/rpc`
+- `anp_service_endpoint = https://<did_domain>/anp-im/rpc`
 - `anp_service_did = did:wba:<did_domain>`
 
-环境变量：
+配置来源：
 
-- `AWIKI_ANP_SERVICE_ENDPOINT`
-- `AWIKI_ANP_SERVICE_DID`
+- 业务配置统一来自 `config.json`
+- 未配置时使用默认推导值
+- 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，不再支持通过环境变量注入这些字段
 
 ## 4. 校验规则
 
@@ -93,7 +97,7 @@ services:
 
 - `internal/config/config.go`
   - 新增 `anp_service_endpoint` / `anp_service_did`
-  - 新增对应环境变量和默认推导
+  - 统一从 `config.json` 读取并在缺省时自动推导默认值
 - `internal/identity/did.go`
   - 生成 DID 文档时自动写入 `ANPMessageService`
 - `internal/identity/anp_service.go`

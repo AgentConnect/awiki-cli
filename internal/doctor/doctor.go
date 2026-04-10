@@ -159,24 +159,10 @@ func configFileCheck(resolved *config.Resolved) Check {
 
 func envCheck(resolved *config.Resolved) Check {
 	status := "info"
-	summary := "No environment overrides detected"
-	aliasHits := 0
-	legacyHits := 0
-	for _, hit := range resolved.EnvHits {
-		if hit.Tier == "draft_alias_env" {
-			aliasHits++
-		}
-		if hit.Tier == "legacy_env" {
-			legacyHits++
-		}
-	}
+	summary := "No workspace environment override detected"
 	if len(resolved.EnvHits) > 0 {
 		status = "ok"
-		summary = "Environment overrides detected"
-	}
-	if aliasHits > 0 || legacyHits > 0 {
-		status = "warn"
-		summary = "Compatibility environment variables are in use"
+		summary = "Workspace environment override detected"
 	}
 	return Check{
 		Name:    "environment",

@@ -30,6 +30,10 @@ func (a *App) storeExit(err error, hint string) error {
 	if err == nil {
 		return nil
 	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
 	switch {
 	case errors.Is(err, store.ErrLegacyDatabaseNotFound), errors.Is(err, sql.ErrNoRows):
 		return output.NewExitError("not_found", 5, err.Error(), hint)

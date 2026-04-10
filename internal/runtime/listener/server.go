@@ -885,10 +885,15 @@ func (s *Supervisor) connectSession(identityName string) (*identity.StoredIdenti
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
 	if strings.TrimSpace(record.JWTToken) != "" {
-		authSession.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
-		if strings.TrimSpace(s.resolved.MessageServiceURL) != "" {
-			authSession.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
-		}
+		authSession.SetBearer(s.resolved.ServiceBaseURL, record.JWTToken)
+		authSession.SetBearer(
+			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
+			record.JWTToken,
+		)
+		authSession.SetBearer(
+			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, message.MessageWSEndpoint),
+			record.JWTToken,
+		)
 	}
 	client, err := NewWSClient(s.resolved, authSession)
 	if err != nil {

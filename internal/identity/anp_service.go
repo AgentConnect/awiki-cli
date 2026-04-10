@@ -9,7 +9,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 )
 
-const defaultANPServicePath = "/message/rpc"
+const defaultANPServicePath = "/anp-im/rpc"
 
 var (
 	agentMessageServiceProfiles = []string{

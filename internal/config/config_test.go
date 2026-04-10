@@ -3,21 +3,21 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
-	configDir := t.TempDir()
+	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(configDir, "config.yaml"),
-		[]byte("output:\n  no_color: false\n"),
+		filepath.Join(workspaceHome, "config.json"),
+		[]byte("{\"output\":{\"no_color\":false}}"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
-	t.Setenv("AWIKI_CONFIG_DIR", configDir)
-	t.Setenv("AWIKI_NO_COLOR", "1")
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
 
 	resolved, err := Resolve(Overrides{})
 	if err != nil {
@@ -36,23 +36,23 @@ func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 }
 
 func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
-	configDir := t.TempDir()
+	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(configDir, "config.yaml"),
-		[]byte("services:\n  did_domain: awiki.test\n"),
+		filepath.Join(workspaceHome, "config.json"),
+		[]byte("{\"services\":{\"did_domain\":\"awiki.test\"}}"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
-	t.Setenv("AWIKI_CONFIG_DIR", configDir)
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
 
 	resolved, err := Resolve(Overrides{})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ANPServiceEndpoint != "https://awiki.test/message/rpc" {
-		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://awiki.test/message/rpc")
+	if resolved.ANPServiceEndpoint != "https://awiki.test/anp-im/rpc" {
+		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://awiki.test/anp-im/rpc")
 	}
 	if resolved.ANPServiceDID != "did:wba:awiki.test" {
 		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:awiki.test")
@@ -65,9 +65,33 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 	}
 }
 
+func TestResolveHonorsServiceBaseURLFromConfigFile(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.json"),
+		[]byte("{\"services\":{\"service_base_url\":\"https://awiki.test/\"}}"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want https://awiki.test", resolved.ServiceBaseURL)
+	}
+	if source := resolved.Sources["service_base_url"]; source.Source != "config_file" {
+		t.Fatalf("resolved.Sources[service_base_url].Source = %q, want config_file", source.Source)
+	}
+}
+
 func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("AWIKI_WORKSPACE_HOME", root)
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", root)
 
 	resolved, err := Resolve(Overrides{})
 	if err != nil {
@@ -81,6 +105,9 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	}
 	if resolved.Paths.ConfigDir != root {
 		t.Fatalf("config dir = %q, want %q", resolved.Paths.ConfigDir, root)
+	}
+	if resolved.Paths.ConfigFile != filepath.Join(root, "config.json") {
+		t.Fatalf("config file = %q", resolved.Paths.ConfigFile)
 	}
 	if resolved.Paths.IdentityDir != filepath.Join(root, "identities") {
 		t.Fatalf("identity dir = %q", resolved.Paths.IdentityDir)
@@ -100,24 +127,67 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.RuntimeSocketPath != filepath.Join(root, "runtime", "message-daemon.sock") {
 		t.Fatalf("runtime socket path = %q", resolved.RuntimeSocketPath)
 	}
+	if resolved.RuntimeMode != "websocket" {
+		t.Fatalf("runtime mode = %q, want websocket", resolved.RuntimeMode)
+	}
 }
 
-func TestResolveSupportsAWIKIHomeAlias(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("AWIKI_HOME", root)
+func TestResolveRejectsDeprecatedWorkspaceEnv(t *testing.T) {
+	t.Setenv("AWIKI_WORKSPACE_HOME", t.TempDir())
 
-	resolved, err := Resolve(Overrides{})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
+	_, err := Resolve(Overrides{})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want deprecated env error")
 	}
-	if resolved.Paths.WorkspaceHomeDir != root {
-		t.Fatalf("workspace home dir = %q, want %q", resolved.Paths.WorkspaceHomeDir, root)
+	if !strings.Contains(err.Error(), "AWIKI_WORKSPACE_HOME") {
+		t.Fatalf("Resolve() error = %q, want deprecated env name", err.Error())
 	}
-	source := resolved.Sources["workspace_home_dir"]
-	if source.Source != "canonical_env" {
-		t.Fatalf("resolved.Sources[workspace_home_dir].Source = %q, want %q", source.Source, "canonical_env")
+}
+
+func TestResolveRejectsDeprecatedBusinessEnv(t *testing.T) {
+	t.Setenv("AWIKI_USER_SERVICE_URL", "https://awiki.test")
+
+	_, err := Resolve(Overrides{})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want deprecated env error")
 	}
-	if source.Key != "AWIKI_HOME" {
-		t.Fatalf("resolved.Sources[workspace_home_dir].Key = %q, want %q", source.Key, "AWIKI_HOME")
+	if !strings.Contains(err.Error(), "AWIKI_USER_SERVICE_URL") {
+		t.Fatalf("Resolve() error = %q, want deprecated env name", err.Error())
+	}
+}
+
+func TestResolveRejectsLegacyConfigYAML(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceHome, "config.yaml"), []byte("runtime:\n  mode: http\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	_, err := Resolve(Overrides{})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want legacy config error")
+	}
+	if !strings.Contains(err.Error(), "config.yaml") {
+		t.Fatalf("Resolve() error = %q, want legacy config path", err.Error())
+	}
+}
+
+func TestResolveRejectsDeprecatedServiceURLFieldsInConfigJSON(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.json"),
+		[]byte("{\"services\":{\"user_service_url\":\"https://awiki.test\"}}"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	_, err := Resolve(Overrides{})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want deprecated config field error")
+	}
+	if !strings.Contains(err.Error(), "services.user_service_url") {
+		t.Fatalf("Resolve() error = %q, want deprecated config field name", err.Error())
 	}
 }

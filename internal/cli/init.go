@@ -13,17 +13,12 @@ import (
 // runInit initializes the awiki-cli workspace and an optional minimal config.
 //
 // It uses the same workspace root resolution as the rest of the CLI:
-// AWIKI_WORKSPACE_HOME is preferred, AWIKI_HOME is accepted as a root alias,
-// and the default fallback remains ~/.awiki-cli.
+// AWIKI_CLI_WORKSPACE_HOME_DIR is the only supported override and the default
+// fallback remains ~/.awiki-cli.
 func (a *App) runInit(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError(
-			"internal_error",
-			1,
-			err.Error(),
-			"Run `awiki-cli doctor` to inspect configuration and environment.",
-		)
+		return a.configCommandExit(err)
 	}
 
 	format := normalizedFormat(resolved.OutputFormat)
@@ -68,8 +63,8 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		return output.NewExitError(
 			"invalid_argument",
 			2,
-			"config.yaml exists but failed to parse; fix or remove it before running init.",
-			"Run `awiki-cli config show` to inspect the parse error, then correct the YAML syntax.",
+			"config.json exists but failed to parse; fix or remove it before running init.",
+			"Run `awiki-cli config show` to inspect the parse error, then correct the JSON syntax.",
 		)
 	}
 
@@ -94,9 +89,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		cfg.Output.Format = resolved.OutputFormat
 		noColor := resolved.NoColor
 		cfg.Output.NoColor = &noColor
-		cfg.Services.UserServiceURL = resolved.UserServiceURL
-		cfg.Services.MessageServiceURL = resolved.MessageServiceURL
-		cfg.Services.MessageServiceWSURL = resolved.MessageServiceWSURL
+		cfg.Services.ServiceBaseURL = resolved.ServiceBaseURL
 		cfg.Services.DIDDomain = resolved.DIDDomain
 		cfg.Services.ANPServiceEndpoint = resolved.ANPServiceEndpoint
 		cfg.Services.ANPServiceDID = resolved.ANPServiceDID
@@ -107,7 +100,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 				"internal_error",
 				1,
 				err.Error(),
-				"Check write permissions for config.yaml under the awiki-cli workspace.",
+				"Check write permissions for config.json under the awiki-cli workspace.",
 			)
 		}
 		resolved.ConfigExists = true

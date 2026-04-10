@@ -91,19 +91,14 @@ Schema 版本为 v11，包含以下本地表：
 awiki-cli init
 ```
 
-如需显式切换工作区根目录，优先使用 `AWIKI_WORKSPACE_HOME`；`AWIKI_HOME` 也会被接受为根目录别名：
+如需显式切换工作区根目录，只支持：
 
 ```bash
-export AWIKI_WORKSPACE_HOME=~/my-awiki
+export AWIKI_CLI_WORKSPACE_HOME_DIR=~/my-awiki
 # 数据库将位于 ~/my-awiki/data/awiki-cli.db
 ```
 
-`AWIKI_DATA_DIR` 仍然支持，但作为**兼容 override**，仅建议在调试或局部路径隔离时使用：
-
-```bash
-export AWIKI_DATA_DIR=~/my-awiki-data
-# 数据库将位于 ~/my-awiki-data/awiki-cli.db
-```
+`config / data / runtime / cache / logs / identities` 都会固定派生在该工作区下，不再支持单独的目录级环境变量覆盖。
 
 ---
 
@@ -115,20 +110,20 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
 | 用途 | 默认路径 | 环境变量覆盖 |
 |------|----------|-------------|
-| 工作区目录 | `~/.awiki-cli/` | `AWIKI_WORKSPACE_HOME`（推荐） / `AWIKI_HOME`（根目录别名） |
-| 配置目录 | `~/.awiki-cli/` | `AWIKI_CONFIG_DIR`（兼容 override） |
-| 数据目录 | `~/.awiki-cli/data/` | `AWIKI_DATA_DIR`（兼容 override） |
-| runtime 目录 | `~/.awiki-cli/runtime/` | `AWIKI_STATE_DIR`（兼容 override） |
-| 缓存目录 | `~/.awiki-cli/cache/` | `AWIKI_CACHE_DIR`（兼容 override） |
-| 日志目录 | `~/.awiki-cli/logs/` | 无（始终跟随工作区根目录） |
+| 工作区目录 | `~/.awiki-cli/` | `AWIKI_CLI_WORKSPACE_HOME_DIR` |
+| 配置目录 | `~/.awiki-cli/` | 无 |
+| 数据目录 | `~/.awiki-cli/data/` | 无 |
+| runtime 目录 | `~/.awiki-cli/runtime/` | 无 |
+| 缓存目录 | `~/.awiki-cli/cache/` | 无 |
+| 日志目录 | `~/.awiki-cli/logs/` | 无 |
 
-> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\\.awiki-cli\\`），也是**默认唯一推荐入口**。  
-> `AWIKI_WORKSPACE_HOME` 是首选根目录入口；`AWIKI_HOME` 会被接受为同义根目录别名，用于兼容 release/0325 合并后的初始化入口。  
-> `AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 继续保留，但仅作为兼容 override 使用。
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
+> 若检测到旧的 `AWIKI_* / AVIKI_* / E2E_*` 配置环境变量，或检测到旧的 `config.yaml`，CLI 会直接报错并要求迁移。
 >
 > 工作区内容包括：
 >
-> - `config.yaml`
+> - `config.json`
 > - `identities/`
 > - `data/awiki-cli.db`
 > - `cache/`
@@ -138,86 +133,83 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - upgrade lock / journal
 > - 备份快照
 
-### 3.2 config.yaml
+### 3.2 config.json
 
-配置文件位于 `~/.awiki-cli/config.yaml`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考：
+配置文件位于 `~/.awiki-cli/config.json`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考仓库根目录的 `config.template.json`，或直接使用下面的模板：
 
-```yaml
-schema_version: 1
-
-# 身份配置
-identity:
-  active: "default"          # 当前活跃身份名称
-
-# 运行模式
-runtime:
-  mode: "http"               # http（默认）或 websocket
-  socket_path: ""            # WebSocket bridge 的 Unix socket 路径（留空使用默认）
-
-# 输出配置
-output:
-  format: "json"             # json（默认）/ table / ndjson
-  no_color: false            # 是否禁用颜色
-
-# 后端服务地址
-services:
-  user_service_url: "https://awiki.ai"       # user-service 地址
-  message_service_url: "https://awiki.ai"    # message-service 地址
-  message_service_ws_url: ""                 # WebSocket 地址（留空自动推导）
-  did_domain: "awiki.ai"                     # DID 域名
-  anp_service_endpoint: "https://awiki.ai/message/rpc"  # 写入 DID 文档的公开 ANP RPC 入口
-  anp_service_did: "did:wba:awiki.ai"        # 写入 DID 文档的 federated service DID
-  ca_bundle: ""                              # 自定义 CA 证书路径
+```json
+{
+  "schema_version": 1,
+  "identity": {
+    "active": "default"
+  },
+  "runtime": {
+    "mode": "websocket",
+    "socket_path": ""
+  },
+  "output": {
+    "format": "json",
+    "no_color": false
+  },
+  "services": {
+    "service_base_url": "https://awiki.ai",
+    "did_domain": "awiki.ai",
+    "anp_service_endpoint": "https://awiki.ai/anp-im/rpc",
+    "anp_service_did": "did:wba:awiki.ai",
+    "ca_bundle": ""
+  }
+}
 ```
 
-> 该文件可选。未创建时所有配置使用默认值，指向生产环境 `https://awiki.ai`。
+默认值说明：
+
+- `runtime.mode` 默认是 `websocket`
+- `runtime.socket_path` 默认是 `<workspace>/runtime/message-daemon.sock`
+- `output.format` 默认是 `json`
+- `services.service_base_url` 默认是 `https://awiki.ai`
+- `services.did_domain` 默认是 `awiki.ai`
+- `services.anp_service_endpoint` 默认推导为 `https://<did_domain>/anp-im/rpc`
+- `services.anp_service_did` 默认推导为 `did:wba:<did_domain>`
+
+配置优先级固定为：
+
+```text
+flag > config.json > default
+```
+
+> 该文件可选。未创建时所有配置使用默认值。  
+> `anp_service_endpoint` 和 `anp_service_did` 专门用于生成本地 DID 文档中的 `ANPMessageService`。它们和 `service_base_url` 的职责不同：
 >
-> `anp_service_endpoint` 和 `anp_service_did` 专门用于 **生成本地 DID 文档中的 `ANPMessageService`**。它们和 `message_service_url` / `message_service_ws_url` 的职责不同：
->
-> - `message_service_url`：CLI 实际发请求时使用
-> - `message_service_ws_url`：runtime listener 使用
+> - `service_base_url`：域内 user-service / content / group / message 的统一基础地址
+> - 域内 message RPC：`<service_base_url>/im/rpc`
+> - 域内 message WebSocket：`<service_base_url>/im/ws`
 > - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址
 > - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID
->
-> 当前 `awiki-cli` 生成的 `ANPMessageService` 只声明：
->
-> - `profiles = ["anp.core.binding.v1", "anp.direct.base.v1", "anp.attachment.v1"]`
-> - `securityProfiles = ["transport-protected"]`
->
-> 暂不在 DID 文档里声明 `anp.direct.e2ee.v1` / `direct-e2ee`。
 
 ### 3.3 本地开发配置
 
-连接本地后端服务时，创建如下 `config.yaml`：
+连接本地后端服务时，创建如下 `config.json`：
 
-```yaml
-schema_version: 1
-
-identity:
-  active: "default"
-
-runtime:
-  mode: "http"
-
-services:
-  user_service_url: "https://awiki.test"
-  message_service_url: "https://awiki.test"
-  message_service_ws_url: "wss://awiki.test/message/ws"
-  did_domain: "awiki.test"
-  anp_service_endpoint: "https://awiki.test/message/rpc"
-  anp_service_did: "did:wba:awiki.test"
-  ca_bundle: ""
+```json
+{
+  "schema_version": 1,
+  "identity": {
+    "active": "default"
+  },
+  "runtime": {
+    "mode": "websocket"
+  },
+  "services": {
+    "service_base_url": "https://awiki.test",
+    "did_domain": "awiki.test",
+    "anp_service_endpoint": "https://awiki.test/anp-im/rpc",
+    "anp_service_did": "did:wba:awiki.test",
+    "ca_bundle": ""
+  }
+}
 ```
 
-或通过环境变量覆盖（优先级：命令行 flag > config.yaml > 环境变量 > 默认值）：
-
-```bash
-export AWIKI_USER_SERVICE_URL=https://awiki.test
-export AWIKI_MESSAGE_SERVICE_URL=https://awiki.test
-export AWIKI_DID_DOMAIN=awiki.test
-export AWIKI_ANP_SERVICE_ENDPOINT=https://awiki.test/message/rpc
-export AWIKI_ANP_SERVICE_DID=did:wba:awiki.test
-```
+服务地址、运行模式、输出格式、身份默认值都应通过 `config.json` 管理；除了 `AWIKI_CLI_WORKSPACE_HOME_DIR` 以外，不再支持环境变量覆盖这些业务配置。
 
 ### 3.4 DID 文档中的 ANP Service 约束
 
@@ -231,7 +223,7 @@ export AWIKI_ANP_SERVICE_DID=did:wba:awiki.test
 
 推荐做法：
 
-- `anp_service_endpoint` 使用公开 HTTPS RPC 地址，例如 `https://awiki.ai/message/rpc`
+- `anp_service_endpoint` 使用公开 HTTPS RPC 地址，例如 `https://awiki.ai/anp-im/rpc`
 - `anp_service_did` 使用裸域名 DID，例如 `did:wba:awiki.ai`
 
 ### 3.5 身份文件布局
@@ -258,28 +250,11 @@ identities/
 
 ### 3.6 环境变量完整列表
 
-| 环境变量 | 别名 | 用途 | 默认值 |
-|----------|------|------|--------|
-| `AWIKI_WORKSPACE_HOME` | `AVIKI_WORKSPACE_HOME` | 工作区根目录（推荐） | `~/.awiki-cli` |
-| `AWIKI_HOME` | 无 | 工作区根目录别名（兼容 `init` 根目录入口） | `~/.awiki-cli` |
-| `AWIKI_CONFIG_DIR` | `AVIKI_CONFIG_DIR` | 配置目录（兼容 override） | `~/.awiki-cli` |
-| `AWIKI_DATA_DIR` | `AVIKI_DATA_DIR` | 数据目录（兼容 override） | `~/.awiki-cli/data` |
-| `AWIKI_STATE_DIR` | `AVIKI_STATE_DIR` | runtime 目录（兼容 override） | `~/.awiki-cli/runtime` |
-| `AWIKI_CACHE_DIR` | `AVIKI_CACHE_DIR` | 缓存目录（兼容 override） | `~/.awiki-cli/cache` |
-| `AWIKI_IDENTITY` | `AVIKI_IDENTITY` | 活跃身份 | config.yaml 中的 active |
-| `AWIKI_RUNTIME_MODE` | `AVIKI_RUNTIME_MODE` | 运行模式 | `http` |
-| `AWIKI_RUNTIME_SOCKET` | `AVIKI_RUNTIME_SOCKET` | 本地 socket 路径 | `<state_dir>/message-daemon.sock` |
-| `AWIKI_FORMAT` | `AVIKI_FORMAT` | 输出格式 | `json` |
-| `AWIKI_NO_COLOR` | `AVIKI_NO_COLOR` | 禁用颜色 | `false` |
-| `AWIKI_USER_SERVICE_URL` | `AVIKI_USER_SERVICE_URL` | user-service 地址 | `https://awiki.ai` |
-| `AWIKI_MESSAGE_SERVICE_URL` | `AVIKI_MESSAGE_SERVICE_URL` | message-service 地址 | `https://awiki.ai` |
-| `AWIKI_MESSAGE_WS_URL` | `AVIKI_MESSAGE_WS_URL` | WebSocket 地址 | 空 |
-| `AWIKI_DID_DOMAIN` | `AVIKI_DID_DOMAIN` | DID 域名 | `awiki.ai` |
-| `AWIKI_ANP_SERVICE_ENDPOINT` | `AVIKI_ANP_SERVICE_ENDPOINT` | DID 文档里的公开 ANP RPC 地址 | `https://<did_domain>/message/rpc` |
-| `AWIKI_ANP_SERVICE_DID` | `AVIKI_ANP_SERVICE_DID` | DID 文档里的 bare-domain service DID | `did:wba:<did_domain>` |
-| `AWIKI_CA_BUNDLE` | `AVIKI_CA_BUNDLE` | CA 证书路径 | 空 |
+| 环境变量 | 用途 | 默认值 |
+|----------|------|--------|
+| `AWIKI_CLI_WORKSPACE_HOME_DIR` | 工作区根目录 | `~/.awiki-cli` |
 
-> 兼容旧版环境变量：`E2E_USER_SERVICE_URL`、`E2E_MOLT_MESSAGE_URL`、`E2E_MOLT_MESSAGE_WS_URL`、`E2E_DID_DOMAIN`、`E2E_CA_BUNDLE`。
+> 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，其他 awiki-cli 配置环境变量已停止支持。若检测到旧变量（例如 `AWIKI_WORKSPACE_HOME`、`AWIKI_USER_SERVICE_URL`、`AVIKI_*`、`E2E_*`），CLI 会直接报错并要求把业务配置迁移到 `config.json`。
 
 ---
 
@@ -435,10 +410,10 @@ rm ~/.awiki-cli/data/awiki-cli.db
 
 ### Q: 连接本地后端服务失败
 
-检查 `config.yaml` 或环境变量是否正确指向本地服务地址：
+检查 `config.json` 是否正确指向本地服务地址：
 
 ```bash
-./awiki-cli config show | jq '.data.user_service_url, .data.message_service_url'
+./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'
 ```
 
 ### Q: v1 身份迁移

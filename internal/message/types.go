@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	MessageRPCEndpoint = "/rpc"
-	MessageWSEndpoint  = "/ws"
+	MessageRPCEndpoint = "/im/rpc"
+	MessageWSEndpoint  = "/im/ws"
 )
 
 var (

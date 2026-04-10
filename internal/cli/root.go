@@ -257,7 +257,7 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 	service, format, err := a.identityService()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	resolved := service.Config()
 	result, err := service.Status()
@@ -284,7 +284,7 @@ func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 func (a *App) runDocs(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	if len(args) == 0 {
@@ -305,7 +305,7 @@ func (a *App) runDocs(cmd *cobra.Command, args []string) error {
 func (a *App) runSchema(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	if len(args) == 0 {
@@ -330,7 +330,7 @@ func (a *App) runSchema(cmd *cobra.Command, args []string) error {
 func (a *App) runDoctor(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	report := doccheck.Run(resolved)
@@ -340,7 +340,7 @@ func (a *App) runDoctor(cmd *cobra.Command, args []string) error {
 func (a *App) runVersion(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, buildinfo.Current(), "Build information", nil, identityMetaFromResolved(resolved))
@@ -349,7 +349,7 @@ func (a *App) runVersion(cmd *cobra.Command, args []string) error {
 func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	manager := identity.NewManager(resolved.Paths)

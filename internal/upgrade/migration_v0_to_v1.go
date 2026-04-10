@@ -19,7 +19,6 @@ type workspaceV0ToV1Migration struct{}
 type legacySettingsFile struct {
 	UserServiceURL   string `json:"user_service_url"`
 	MoltMessageURL   string `json:"molt_message_url"`
-	MoltMessageWSURL string `json:"molt_message_ws_url"`
 	DidDomain        string `json:"did_domain"`
 	MessageTransport struct {
 		ReceiveMode string `json:"receive_mode"`
@@ -63,9 +62,7 @@ func (workspaceV0ToV1Migration) Apply(ctx context.Context, uc *Context) error {
 		fileConfig := appconfig.FileConfig{}
 		fileConfig.SchemaVersion = appconfig.ConfigSchemaVersion
 		fileConfig.Runtime.Mode = legacyConfig.RuntimeMode
-		fileConfig.Services.UserServiceURL = legacyConfig.UserServiceURL
-		fileConfig.Services.MessageServiceURL = legacyConfig.MessageServiceURL
-		fileConfig.Services.MessageServiceWSURL = legacyConfig.MessageServiceWSURL
+		fileConfig.Services.ServiceBaseURL = legacyConfig.ServiceBaseURL
 		fileConfig.Services.DIDDomain = legacyConfig.DidDomain
 		if err := appconfig.WriteFileConfig(uc.Paths.ConfigFile, fileConfig); err != nil {
 			return err
@@ -155,11 +152,9 @@ func (workspaceV0ToV1Migration) Validate(ctx context.Context, uc *Context) error
 }
 
 type normalizedLegacySettings struct {
-	UserServiceURL      string
-	MessageServiceURL   string
-	MessageServiceWSURL string
-	DidDomain           string
-	RuntimeMode         string
+	ServiceBaseURL string
+	DidDomain      string
+	RuntimeMode    string
 }
 
 func loadLegacySettings(path string) (*normalizedLegacySettings, error) {
@@ -175,12 +170,14 @@ func loadLegacySettings(path string) (*normalizedLegacySettings, error) {
 	if strings.EqualFold(strings.TrimSpace(legacy.MessageTransport.ReceiveMode), "websocket") {
 		mode = runtimecfg.ModeWebSocket
 	}
+	serviceBaseURL := strings.TrimSpace(legacy.UserServiceURL)
+	if serviceBaseURL == "" {
+		serviceBaseURL = strings.TrimSpace(legacy.MoltMessageURL)
+	}
 	return &normalizedLegacySettings{
-		UserServiceURL:      legacy.UserServiceURL,
-		MessageServiceURL:   legacy.MoltMessageURL,
-		MessageServiceWSURL: legacy.MoltMessageWSURL,
-		DidDomain:           legacy.DidDomain,
-		RuntimeMode:         mode,
+		ServiceBaseURL: serviceBaseURL,
+		DidDomain:      legacy.DidDomain,
+		RuntimeMode:    mode,
 	}, nil
 }
 

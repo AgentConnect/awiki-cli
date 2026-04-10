@@ -27,11 +27,11 @@ type Resolved struct {
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
 	if resolved == nil {
-		return Resolved{Mode: ModeHTTP}
+		return Resolved{Mode: ModeWebSocket}
 	}
 	mode := strings.ToLower(strings.TrimSpace(resolved.RuntimeMode))
-	if mode != ModeWebSocket {
-		mode = ModeHTTP
+	if mode != ModeHTTP {
+		mode = ModeWebSocket
 	}
 	socketPath := strings.TrimSpace(resolved.RuntimeSocketPath)
 	if socketPath == "" {

@@ -164,7 +164,7 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 
 	var connectionCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
+		if r.URL.Path != "/im/ws" {
 			http.NotFound(w, r)
 			return
 		}
@@ -288,12 +288,10 @@ func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resol
 			StateDir:             filepath.Join(root, "state"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 		},
-		UserServiceURL:      messageServiceURL,
-		MessageServiceURL:   messageServiceURL,
-		MessageServiceWSURL: messageServiceURL,
-		DIDDomain:           "awiki.ai",
-		RuntimeMode:         "websocket",
-		ActiveIdentity:      "alice",
+		ServiceBaseURL: messageServiceURL,
+		DIDDomain:      "awiki.ai",
+		RuntimeMode:    "websocket",
+		ActiveIdentity: "alice",
 	}
 }
 

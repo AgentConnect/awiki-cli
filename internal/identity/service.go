@@ -716,14 +716,16 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 		record.JWTToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
-	session.SetBearer(s.config.UserServiceURL, record.JWTToken)
-	if strings.TrimSpace(s.config.MessageServiceURL) != "" {
-		session.SetBearer(s.config.MessageServiceURL, record.JWTToken)
-	}
+	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
+	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if _, err := session.EnsureJWT(ctx, s.remote.client, strings.TrimRight(s.config.UserServiceURL, "/")+didAuthRPCEndpoint); err != nil {
+		if _, err := session.EnsureJWT(
+			ctx,
+			s.remote.client,
+			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+		); err != nil {
 			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
 		}
 		record.JWTToken = session.CurrentJWT()

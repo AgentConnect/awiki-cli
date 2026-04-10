@@ -71,30 +71,30 @@
 
 - 在总体架构附录中把 `api` 标注为 reserve / non-phase-1
 
-### AF-003：环境变量前缀 `AVIKI_*` vs `AWIKI_*` vs `E2E_*`
+### AF-003：配置入口过多，工作区与业务配置来源分裂
 
 **证据**：
 
-- `docs/architecture/awiki-command-v2.md` 使用 `AVIKI_*`
-- `../awiki-agent-id-message/` 现有实现、README、测试广泛使用 `AWIKI_*`
-- 旧兼容环境中仍存在 `E2E_*`
+- 历史文档同时出现 `AWIKI_*`、`AVIKI_*`、`E2E_*`
+- 工作区路径和业务配置都可以通过环境变量注入
+- 主配置文件历史上使用 `config.yaml`
 
 **裁决**：
 
-- canonical 前缀冻结为 **`AWIKI_*`**
-- `AWIKI_WORKSPACE_HOME` 是首选工作区根目录入口，`AWIKI_HOME` 作为兼容根目录别名保留
-- `AVIKI_*` 视为 draft typo alias，Phase 1 可以兼容读取
-- `E2E_*` 保留 legacy fallback
+- 唯一保留的环境变量是 **`AWIKI_CLI_WORKSPACE_HOME_DIR`**
+- 所有业务配置统一写入 **`config.json`**
+- 目录级 override 环境变量全部废弃
+- 旧变量与旧 `config.yaml` 全部停止兼容，检测到即报错
 
 **原因**：
 
-- `AWIKI_*` 与产品命名一致
-- 与现有生态和测试资产一致
-- `AVIKI_*` 明显是草案拼写漂移，不适合成为长期公共契约
+- 避免多入口导致的配置漂移
+- 让工作区定位和业务配置边界清晰
+- 降低排障成本，形成单一事实来源
 
 **后续动作**：
 
-- 同步命令文档与主计划文档的相关章节
+- 同步命令文档、安装文档和实现计划中的配置约束描述
 
 ### AF-004：用户层术语 `identity` 与存储层术语 `credential` 不一致
 
@@ -150,7 +150,7 @@
 **裁决**：
 
 - v2 原生写入 `~/.awiki-cli/` 工作区
-- `AWIKI_WORKSPACE_HOME` 是首选工作区根目录入口，`AWIKI_HOME` 仅作为兼容根目录别名
+- `AWIKI_CLI_WORKSPACE_HOME_DIR` 是唯一工作区根目录环境变量入口
 - `doctor` / `runtime setup` / `migrate from-v1` 负责检测旧路径
 - 默认只提示导入，不原地修改旧数据
 

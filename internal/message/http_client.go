@@ -73,7 +73,7 @@ func NewHTTPTransport(resolved *appconfig.Resolved, auth *authContext, httpClien
 		resolved,
 		auth,
 		httpClient,
-		strings.TrimRight(resolved.MessageServiceURL, "/")+MessageRPCEndpoint,
+		appconfig.JoinBaseURL(resolved.ServiceBaseURL, MessageRPCEndpoint),
 	)
 }
 

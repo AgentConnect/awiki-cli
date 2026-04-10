@@ -195,8 +195,8 @@ awiki-cli completion <bash|zsh|fish|powershell>
 
 `init` 作为显式初始化命令，用于：
 
-* 帮用户创建工作目录（默认是 `~/.awiki-cli`，优先支持 `AWIKI_WORKSPACE_HOME`，并兼容 `AWIKI_HOME` 根目录别名）及其子目录；
-* 在首次需要时生成一份最小的 `config.yaml` 骨架；
+* 帮用户创建工作目录（默认是 `~/.awiki-cli`，仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区根目录覆盖）及其子目录；
+* 在首次需要时生成一份最小的 `config.json` 骨架；
 
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 
@@ -654,7 +654,7 @@ type CommandSpec struct {
 
 ```text
 ~/.awiki-cli/
-~/.awiki-cli/config.yaml
+~/.awiki-cli/config.json
 ~/.awiki-cli/identities/
 ~/.awiki-cli/data/awiki-cli.db
 ~/.awiki-cli/cache/
@@ -667,31 +667,27 @@ type CommandSpec struct {
 - `~/.awiki-cli/runtime/` 用于 runtime socket / listener 状态
 - `~/.awiki-cli/upgrade/` 用于 workspace upgrade 元数据、lock、journal、备份
 
-环境变量：
+唯一支持的工作区环境变量：
 
 ```text
-AWIKI_WORKSPACE_HOME
-AWIKI_CONFIG_DIR       # compatibility override
-AWIKI_DATA_DIR         # compatibility override
-AWIKI_STATE_DIR        # compatibility override
-AWIKI_CACHE_DIR        # compatibility override
-AVIKI_WORKSPACE_HOME
-AVIKI_CONFIG_DIR
-AVIKI_DATA_DIR
-AVIKI_STATE_DIR
-AVIKI_CACHE_DIR
-AVIKI_IDENTITY
-AVIKI_FORMAT
-AVIKI_NO_COLOR
-AVIKI_USER_SERVICE_URL
-AVIKI_MESSAGE_SERVICE_URL
-AVIKI_DID_DOMAIN
+AWIKI_CLI_WORKSPACE_HOME_DIR
 ```
 
-说明：
+## 9.2 配置入口收口
 
-- `AWIKI_WORKSPACE_HOME` 是主入口，默认应优先使用它整体切换或隔离工作区
-- `AWIKI_CONFIG_DIR / AWIKI_DATA_DIR / AWIKI_STATE_DIR / AWIKI_CACHE_DIR` 仅作为兼容 override 保留
+awiki-cli 当前的配置入口收口为：
+
+- 仅允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` 决定工作区根目录
+- 用户主配置文件固定为 `config.json`
+- `config / data / runtime / cache` 全部从工作区根目录派生
+- 其他 awiki-cli 配置环境变量全部停止支持
+- 若检测到旧环境变量或旧 `config.yaml`，CLI 直接报错并要求迁移
+
+读取优先级固定为：
+
+```text
+flag > config.json > default
+```
 
 ## 9.3 安全规则
 

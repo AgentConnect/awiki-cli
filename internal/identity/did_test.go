@@ -43,8 +43,8 @@ func TestGenerateIdentity(t *testing.T) {
 	if got := stringValue(service["type"], ""); got != "ANPMessageService" {
 		t.Fatalf("service type = %q, want %q", got, "ANPMessageService")
 	}
-	if got := stringValue(service["serviceEndpoint"], ""); got != "https://awiki.ai/message/rpc" {
-		t.Fatalf("service endpoint = %q, want %q", got, "https://awiki.ai/message/rpc")
+	if got := stringValue(service["serviceEndpoint"], ""); got != "https://awiki.ai/anp-im/rpc" {
+		t.Fatalf("service endpoint = %q, want %q", got, "https://awiki.ai/anp-im/rpc")
 	}
 	if got := stringValue(service["serviceDid"], ""); got != "did:wba:awiki.ai" {
 		t.Fatalf("service DID = %q, want %q", got, "did:wba:awiki.ai")
@@ -117,7 +117,7 @@ func TestGenerateIdentityRejectsLoopbackANPServiceEndpoint(t *testing.T) {
 		Hostname:           "awiki.ai",
 		PathPrefix:         []string{"user"},
 		ProofDomain:        "awiki.ai",
-		ANPServiceEndpoint: "http://127.0.0.1:9898/message/rpc",
+		ANPServiceEndpoint: "http://127.0.0.1:9898/anp-im/rpc",
 	})
 	if err == nil {
 		t.Fatal("GenerateIdentity() error = nil, want loopback endpoint validation error")

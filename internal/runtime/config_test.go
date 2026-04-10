@@ -44,3 +44,12 @@ func TestResolveKeepsShortSocketPath(t *testing.T) {
 		t.Fatalf("resolved.SocketPath = %q, want /tmp/custom-awiki.sock", resolved.SocketPath)
 	}
 }
+
+func TestResolveDefaultsToWebSocketMode(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(nil)
+	if resolved.Mode != ModeWebSocket {
+		t.Fatalf("resolved.Mode = %q, want %q", resolved.Mode, ModeWebSocket)
+	}
+}

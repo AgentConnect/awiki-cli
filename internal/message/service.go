@@ -410,8 +410,15 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 		return nil, nil, err
 	}
 	if auth != nil && auth.session != nil && strings.TrimSpace(record.JWTToken) != "" {
-		auth.session.SetBearer(s.resolved.UserServiceURL, record.JWTToken)
-		auth.session.SetBearer(s.resolved.MessageServiceURL, record.JWTToken)
+		auth.session.SetBearer(s.resolved.ServiceBaseURL, record.JWTToken)
+		auth.session.SetBearer(
+			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
+			record.JWTToken,
+		)
+		auth.session.SetBearer(
+			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, MessageRPCEndpoint),
+			record.JWTToken,
+		)
 		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, record.JWTToken)
 	}
 	client := http.DefaultClient

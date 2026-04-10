@@ -122,10 +122,9 @@ func newTestService(t *testing.T, userServiceURL string, jwtToken string) *Servi
 			StateDir:             filepath.Join(root, "state"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 		},
-		UserServiceURL:    userServiceURL,
-		MessageServiceURL: userServiceURL,
-		DIDDomain:         "awiki.ai",
-		ActiveIdentity:    "alice",
+		ServiceBaseURL: userServiceURL,
+		DIDDomain:      "awiki.ai",
+		ActiveIdentity: "alice",
 	}
 	manager := identity.NewManager(resolved.Paths)
 	createTestIdentity(t, manager, identity.SaveInput{

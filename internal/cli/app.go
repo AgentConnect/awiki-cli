@@ -105,6 +105,10 @@ func (a *App) resolveConfig() (*appconfig.Resolved, error) {
 		FormatChanged:   a.globals.FormatChanged,
 	})
 	if err != nil {
+		var policyErr *appconfig.PolicyError
+		if errors.As(err, &policyErr) {
+			return nil, output.NewExitError("invalid_argument", 2, policyErr.Error(), policyErr.Hint)
+		}
 		return nil, err
 	}
 	if strings.TrimSpace(resolved.ActiveIdentity) == "" {
@@ -122,6 +126,17 @@ func (a *App) resolveConfig() (*appconfig.Resolved, error) {
 		}
 	}
 	return resolved, nil
+}
+
+func (a *App) configCommandExit(err error) error {
+	if err == nil {
+		return nil
+	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
+	return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
 }
 
 func (a *App) resolveConfigForWorkspace() (*appconfig.Resolved, error) {
