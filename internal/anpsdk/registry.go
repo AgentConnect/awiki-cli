@@ -9,27 +9,32 @@ import (
 
 const (
 	ModulePath    = "github.com/agent-network-protocol/anp/golang"
-	ModuleVersion = "v0.7.2"
+	ModuleVersion = "v0.8.0"
 )
 
 type (
-	KeyType                  = anp.KeyType
-	PrivateKeyMaterial       = anp.PrivateKeyMaterial
-	PublicKeyMaterial        = anp.PublicKeyMaterial
-	GeneratedKeyPairPEM      = anp.GeneratedKeyPairPEM
-	DidDocumentBundle        = anpauth.DidDocumentBundle
-	DidDocumentOptions       = anpauth.DidDocumentOptions
-	AnpMessageServiceOptions = anpauth.AnpMessageServiceOptions
-	DIDWbaAuthHeader         = anpauth.DIDWbaAuthHeader
-	DidWbaVerifierConfig     = anpauth.DidWbaVerifierConfig
-	AuthMode                 = anpauth.AuthMode
-	HttpSignatureOptions     = anpauth.HttpSignatureOptions
-	MessageServiceE2EEClient = directe2ee.MessageServiceDirectE2eeClient
-	PrekeyBundle             = directe2ee.PrekeyBundle
-	DirectSessionState       = directe2ee.DirectSessionState
-	IMProof                  = anpproof.IMProof
-	IMGenerationOptions      = anpproof.IMGenerationOptions
-	ParsedIMSignatureInput   = anpproof.ParsedIMSignatureInput
+	KeyType                               = anp.KeyType
+	PrivateKeyMaterial                    = anp.PrivateKeyMaterial
+	PublicKeyMaterial                     = anp.PublicKeyMaterial
+	GeneratedKeyPairPEM                   = anp.GeneratedKeyPairPEM
+	DidDocumentBundle                     = anpauth.DidDocumentBundle
+	DidDocumentOptions                    = anpauth.DidDocumentOptions
+	AnpMessageServiceOptions              = anpauth.AnpMessageServiceOptions
+	DIDWbaAuthHeader                      = anpauth.DIDWbaAuthHeader
+	DidWbaVerifierConfig                  = anpauth.DidWbaVerifierConfig
+	AuthMode                              = anpauth.AuthMode
+	HttpSignatureOptions                  = anpauth.HttpSignatureOptions
+	MessageServiceE2EEClient              = directe2ee.MessageServiceDirectE2eeClient
+	PrekeyBundle                          = directe2ee.PrekeyBundle
+	DirectSessionState                    = directe2ee.DirectSessionState
+	IMProof                               = anpproof.IMProof
+	IMGenerationOptions                   = anpproof.IMGenerationOptions
+	ParsedIMSignatureInput                = anpproof.ParsedIMSignatureInput
+	TargetKind                            = anpproof.TargetKind
+	SignedRequestObject                   = anpproof.SignedRequestObject
+	RFC9421OriginProof                    = anpproof.RFC9421OriginProof
+	RFC9421OriginProofGenerationOptions   = anpproof.RFC9421OriginProofGenerationOptions
+	RFC9421OriginProofVerificationOptions = anpproof.RFC9421OriginProofVerificationOptions
 )
 
 var (
@@ -62,4 +67,13 @@ var (
 	EncodeIMSignature                  = anpproof.EncodeIMSignature
 	GenerateIMProof                    = anpproof.GenerateIMProof
 	VerifyIMProofWithDocument          = anpproof.VerifyIMProofWithDocument
+	BuildSignedRequestObject           = anpproof.BuildSignedRequestObject
+	CanonicalizeSignedRequestObject    = anpproof.CanonicalizeSignedRequestObject
+	BuildLogicalTargetURI              = anpproof.BuildLogicalTargetURI
+	BuildRFC9421OriginSignatureBase    = anpproof.BuildRFC9421OriginSignatureBase
+	GenerateRFC9421OriginProof         = anpproof.GenerateRFC9421OriginProof
+	VerifyRFC9421OriginProof           = anpproof.VerifyRFC9421OriginProof
+	TargetKindAgent                    = anpproof.TargetKindAgent
+	TargetKindGroup                    = anpproof.TargetKindGroup
+	TargetKindService                  = anpproof.TargetKindService
 )

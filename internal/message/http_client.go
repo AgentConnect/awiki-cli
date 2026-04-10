@@ -111,7 +111,7 @@ func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*d
 	if err != nil {
 		return nil, err
 	}
-	senderProof, err := buildSenderProof(t.auth, payload, request.Target)
+	originProof, err := buildOriginProof(t.auth, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*d
 		"meta": payload.Meta,
 		"auth": map[string]any{
 			"scheme":       OriginProofScheme,
-			"sender_proof": senderProof,
+			"origin_proof": originProof,
 		},
 		"body": payload.Body,
 	}

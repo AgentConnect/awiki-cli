@@ -1,10 +1,7 @@
 package message
 
 import (
-	"encoding/json"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
@@ -68,100 +65,4 @@ func verificationMethodID(didDocument map[string]any) string {
 		}
 	}
 	return ""
-}
-
-func cloneMap(value map[string]any) map[string]any {
-	cloned := make(map[string]any, len(value))
-	for key, item := range value {
-		cloned[key] = item
-	}
-	return cloned
-}
-
-func canonicalJSON(value any) ([]byte, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var normalized any
-	if err := json.Unmarshal(raw, &normalized); err != nil {
-		return nil, err
-	}
-	buffer := &strings.Builder{}
-	if err := writeCanonicalJSON(buffer, normalized); err != nil {
-		return nil, err
-	}
-	return []byte(buffer.String()), nil
-}
-
-func writeCanonicalJSON(buffer *strings.Builder, value any) error {
-	switch typed := value.(type) {
-	case nil:
-		buffer.WriteString("null")
-	case string:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return err
-		}
-		buffer.Write(raw)
-	case bool:
-		if typed {
-			buffer.WriteString("true")
-		} else {
-			buffer.WriteString("false")
-		}
-	case []any:
-		buffer.WriteByte('[')
-		for index, item := range typed {
-			if index > 0 {
-				buffer.WriteByte(',')
-			}
-			if err := writeCanonicalJSON(buffer, item); err != nil {
-				return err
-			}
-		}
-		buffer.WriteByte(']')
-	case []string:
-		buffer.WriteByte('[')
-		for index, item := range typed {
-			if index > 0 {
-				buffer.WriteByte(',')
-			}
-			if err := writeCanonicalJSON(buffer, item); err != nil {
-				return err
-			}
-		}
-		buffer.WriteByte(']')
-	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		buffer.WriteByte('{')
-		for index, key := range keys {
-			if index > 0 {
-				buffer.WriteByte(',')
-			}
-			if err := writeCanonicalJSON(buffer, key); err != nil {
-				return err
-			}
-			buffer.WriteByte(':')
-			if err := writeCanonicalJSON(buffer, typed[key]); err != nil {
-				return err
-			}
-		}
-		buffer.WriteByte('}')
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return err
-		}
-		var normalized any
-		if err := json.Unmarshal(raw, &normalized); err != nil {
-			return err
-		}
-		return writeCanonicalJSON(buffer, normalized)
-	}
-	return nil
 }

@@ -35,6 +35,12 @@ func TestBuildDirectSendRPCParamsUsesOriginProofScheme(t *testing.T) {
 	if got := stringFromAny(auth["scheme"]); got != OriginProofScheme {
 		t.Fatalf("auth.scheme = %q, want %q", got, OriginProofScheme)
 	}
+	if _, ok := auth["origin_proof"]; !ok {
+		t.Fatalf("auth.origin_proof missing: %#v", auth)
+	}
+	if _, ok := auth["sender_proof"]; ok {
+		t.Fatalf("auth.sender_proof should be absent: %#v", auth)
+	}
 	meta, ok := params["meta"].(map[string]any)
 	if !ok {
 		t.Fatalf("params[meta] = %#v, want map", params["meta"])
@@ -99,6 +105,9 @@ func TestBuildAttachmentCreateSlotRPCParamsUsesAttachmentProfile(t *testing.T) {
 	}
 	if got := stringFromAny(intendedTarget["kind"]); got != "agent" {
 		t.Fatalf("body.intended_target.kind = %q, want %q", got, "agent")
+	}
+	if _, ok := params["auth"]; ok {
+		t.Fatalf("attachment control params should not include auth: %#v", params["auth"])
 	}
 }
 
@@ -182,5 +191,8 @@ func TestBuildAttachmentDownloadTicketRPCParamsIncludesSenderDID(t *testing.T) {
 	}
 	if got := stringFromAny(body["sender_did"]); got != "did:wba:awiki.ai:user:alice:e1" {
 		t.Fatalf("body.sender_did = %q, want sender DID", got)
+	}
+	if _, ok := params["auth"]; ok {
+		t.Fatalf("download ticket params should not include auth: %#v", params["auth"])
 	}
 }

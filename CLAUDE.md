@@ -41,12 +41,12 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.7.2`
+  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.0`
 
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.7.2`，要求 pure Go。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，依赖 `cobra`、`gojq`、`yaml.v3`、`secp256k1/v4`、`modernc.org/sqlite`，并直接使用远端模块依赖 `github.com/agent-network-protocol/anp/golang@v0.8.0`，要求 pure Go。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -82,7 +82,7 @@
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: direct/group 消息与 group lifecycle actor proof 的业务签名基线。  
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.0 的 RFC 9421 origin proof 薄封装。  
 **internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
 **internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  
@@ -92,7 +92,7 @@
 **internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store。  
 **internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。  
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。  
-**internal/message/proof_test.go**: sender_proof round-trip 测试。  
+**internal/message/proof_test.go**: origin_proof round-trip 测试。  
 **internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。  
 **internal/runtime/config.go**: runtime mode（http/websocket）与本地 websocket bridge 配置解析。  
 **internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
@@ -154,7 +154,8 @@
   - HTTP JSON-RPC adapter
   - attachment control-plane / data-plane HTTP upload, ticket, download
   - websocket runtime bridge / local daemon direct+group client
-  - direct/group actor proof 生成与本地消息落库
+  - direct/group origin_proof 生成与本地消息落库
+  - attachment control 不再发送独立业务 proof
 - Phase 8（当前首版已落地 content page）：
   - `page create/list/get/update/rename/delete`
   - `page create/update --visibility public|draft|unlisted`

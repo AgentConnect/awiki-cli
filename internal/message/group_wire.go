@@ -42,13 +42,13 @@ func BuildGroupCreateRPCParams(record *identity.StoredIdentity, manager *identit
 		"group_policy":  policy,
 	}
 	payload := signedPayload{Method: "group.create", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(auth, payload, "anp://service/"+strictPercentEncode(serviceDID)+"/group.create")
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
 }
@@ -161,13 +161,13 @@ func BuildGroupSendRPCParams(record *identity.StoredIdentity, manager *identity.
 	}
 	body := map[string]any{"text": text}
 	payload := signedPayload{Method: "group.send", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(auth, payload, "anp://group/"+strictPercentEncode(groupDID))
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
 }
@@ -267,13 +267,13 @@ func buildGroupMutationRPCParams(record *identity.StoredIdentity, manager *ident
 		"content_type": "application/json",
 	}
 	payload := signedPayload{Method: method, Meta: meta, Body: body}
-	actorProof, err := buildActorProof(auth, payload, "anp://group/"+strictPercentEncode(groupDID))
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
 }

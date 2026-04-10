@@ -76,8 +76,8 @@
 
 | 路径 | 覆盖域 | review 关注点 | 核心约束摘要 |
 |---|---|---|---|
-| `../message-service/docs/api/ANP-client-server-api-direct.md` | direct / direct-e2ee | 私聊协议 | 区分 hop authentication 与 forwardable business proof；`client` 字段只能本地使用，**不能**进业务签名、**不能**被转发；WSS 认证不能替代 `sender_proof`。 |
-| `../message-service/docs/api/ANP-client-server-api-group.md` | group / group-e2ee | 群聊协议 | 群操作 proof 与 `group_receipt` 必须分层；`client` 字段同样不能进 `actor_proof`；WSS 会话只是 hop-level 认证。 |
+| `../message-service/docs/api/ANP-client-server-api-direct.md` | direct / direct-e2ee | 私聊协议 | 区分 hop authentication 与 forwardable business proof；`client` 字段只能本地使用，**不能**进业务签名、**不能**被转发；WSS 认证不能替代 `origin_proof`。 |
+| `../message-service/docs/api/ANP-client-server-api-group.md` | group / group-e2ee | 群聊协议 | 群操作 proof 与 `group_receipt` 必须分层；`client` 字段同样不能进 `origin_proof`；WSS 会话只是 hop-level 认证。 |
 | `../message-service/docs/api/ANP-client-server-api-attachment.md` | attachment | 附件控制面 | 控制面 / 消息面 / 数据面必须分离；对象字节 **不能** 塞进 `direct.send`、`group.send` 或 WSS 帧；E2EE 场景下附件密钥放置规则必须符合文档。 |
 | `../message-service/docs/api/ANP-client-server-api-*-schema-examples.md` | schema examples | 请求/响应细节 | 当字段结构或 proof 细节不清晰时回读。 |
 

@@ -36,7 +36,7 @@ func TestMessageRecordFromDirectIncomingUsesProtocolFieldsOnly(t *testing.T) {
 			},
 			"auth": map[string]any{
 				"scheme": "anp-rfc9421-origin-proof-v1",
-				"sender_proof": map[string]any{
+				"origin_proof": map[string]any{
 					"contentDigest":  "sha-256=:digest:",
 					"signatureInput": "sig1=(\"@method\");created=1;keyid=\"did:wba:example.com:user:bob:e1_yyy#key-1\"",
 					"signature":      "sig1=:signature:",

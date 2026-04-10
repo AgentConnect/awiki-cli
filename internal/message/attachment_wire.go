@@ -25,10 +25,6 @@ func BuildAttachmentCreateSlotRPCParams(
 	if strings.TrimSpace(targetKind) == "" || strings.TrimSpace(targetDID) == "" {
 		return nil, ErrTargetRequired
 	}
-	auth, err := newAuthContext(record, manager)
-	if err != nil {
-		return nil, err
-	}
 	meta := map[string]any{
 		"anp_version":      "1.0",
 		"profile":          "anp.attachment.v1",
@@ -56,18 +52,8 @@ func BuildAttachmentCreateSlotRPCParams(
 		},
 		"object_encryption_mode": "none",
 	}
-	payload := signedPayload{Method: "attachment.create_slot", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(
-		auth,
-		payload,
-		"anp://service/"+strictPercentEncode(serviceDID)+"/attachment.create_slot",
-	)
-	if err != nil {
-		return nil, err
-	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
 		"body": body,
 	}, nil
 }
@@ -81,10 +67,6 @@ func BuildAttachmentCommitObjectRPCParams(
 ) (map[string]any, error) {
 	if prepared == nil || slot == nil {
 		return nil, ErrFilePathRequired
-	}
-	auth, err := newAuthContext(record, manager)
-	if err != nil {
-		return nil, err
 	}
 	meta := map[string]any{
 		"anp_version":      "1.0",
@@ -109,18 +91,8 @@ func BuildAttachmentCommitObjectRPCParams(
 			"value_b64u": prepared.DigestB64U,
 		},
 	}
-	payload := signedPayload{Method: "attachment.commit_object", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(
-		auth,
-		payload,
-		"anp://service/"+strictPercentEncode(serviceDID)+"/attachment.commit_object",
-	)
-	if err != nil {
-		return nil, err
-	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
 		"body": body,
 	}, nil
 }
@@ -142,10 +114,6 @@ func BuildAttachmentDownloadTicketRPCParams(
 	}
 	if strings.TrimSpace(senderDID) == "" {
 		return nil, ErrAttachmentSenderRequired
-	}
-	auth, err := newAuthContext(record, manager)
-	if err != nil {
-		return nil, err
 	}
 	meta := map[string]any{
 		"anp_version":      "1.0",
@@ -173,18 +141,8 @@ func BuildAttachmentDownloadTicketRPCParams(
 	} else {
 		body["message_target_did"] = record.DID
 	}
-	payload := signedPayload{Method: "attachment.get_download_ticket", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(
-		auth,
-		payload,
-		"anp://service/"+strictPercentEncode(serviceDID)+"/attachment.get_download_ticket",
-	)
-	if err != nil {
-		return nil, err
-	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
 		"body": body,
 	}, nil
 }
@@ -218,13 +176,13 @@ func BuildDirectAttachmentSendRPCParams(
 	}
 	body := map[string]any{"payload": manifest}
 	payload := signedPayload{Method: "direct.send", Meta: meta, Body: body}
-	senderProof, err := buildSenderProof(auth, payload, targetDID)
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "sender_proof": senderProof},
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
 }
@@ -258,13 +216,13 @@ func BuildGroupAttachmentSendRPCParams(
 	}
 	body := map[string]any{"payload": manifest}
 	payload := signedPayload{Method: "group.send", Meta: meta, Body: body}
-	actorProof, err := buildActorProof(auth, payload, "anp://group/"+strictPercentEncode(groupDID))
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
 		"meta": meta,
-		"auth": map[string]any{"scheme": OriginProofScheme, "actor_proof": actorProof},
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
 }

@@ -15,7 +15,7 @@ func BuildDirectSendRPCParams(record *identity.StoredIdentity, manager *identity
 	if err != nil {
 		return nil, err
 	}
-	senderProof, err := buildSenderProof(auth, payload, targetDID)
+	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func BuildDirectSendRPCParams(record *identity.StoredIdentity, manager *identity
 		"meta": payload.Meta,
 		"auth": map[string]any{
 			"scheme":       OriginProofScheme,
-			"sender_proof": senderProof,
+			"origin_proof": originProof,
 		},
 		"body": payload.Body,
 	}, nil

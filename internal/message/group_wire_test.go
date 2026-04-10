@@ -6,7 +6,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
-func TestBuildGroupCreateRPCParamsUsesActorProofAndServiceTarget(t *testing.T) {
+func TestBuildGroupCreateRPCParamsUsesOriginProofAndServiceTarget(t *testing.T) {
 	t.Parallel()
 
 	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
@@ -34,6 +34,12 @@ func TestBuildGroupCreateRPCParamsUsesActorProofAndServiceTarget(t *testing.T) {
 	}
 	if got := stringFromAny(auth["scheme"]); got != OriginProofScheme {
 		t.Fatalf("auth.scheme = %q, want %q", got, OriginProofScheme)
+	}
+	if _, ok := auth["origin_proof"]; !ok {
+		t.Fatalf("auth.origin_proof missing: %#v", auth)
+	}
+	if _, ok := auth["actor_proof"]; ok {
+		t.Fatalf("auth.actor_proof should be absent: %#v", auth)
 	}
 	meta, ok := params["meta"].(map[string]any)
 	if !ok {
