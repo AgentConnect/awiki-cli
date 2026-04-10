@@ -77,7 +77,7 @@ func (a *App) runRuntimeSetup(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime setup planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+		return a.runtimeExit(err, "Check write permissions for config.json under the awiki-cli work directory.")
 	}
 	db, err := store.Open(resolved.Paths)
 	if err != nil {
@@ -127,7 +127,7 @@ func (a *App) runRuntimeModeSet(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime mode change planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+		return a.runtimeExit(err, "Check write permissions for config.json under the awiki-cli work directory.")
 	}
 	data := map[string]any{
 		"action": "runtime_mode_set",
@@ -187,7 +187,7 @@ func (a *App) runRuntimeListenerStop(cmd *cobra.Command, args []string) error {
 	}
 	status, err := listenerrt.Stop(resolved)
 	if err != nil {
-		return a.runtimeExit(err, "Check the pid file and socket path under state/runtime.")
+		return a.runtimeExit(err, "Check the pid file and socket path under the awiki-cli tmp/runtime directory.")
 	}
 	data := map[string]any{"listener": status}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Listener stopped", status.Warnings, identityMetaFromResolved(resolved))

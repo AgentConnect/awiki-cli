@@ -81,19 +81,19 @@
 
 **裁决**：
 
-- canonical 前缀冻结为 **`AWIKI_*`**
-- `AVIKI_*` 视为 draft typo alias，Phase 1 可以兼容读取
-- `E2E_*` 保留 legacy fallback
+- canonical 前缀冻结为 **`AWIKI_*`**；
+- `AVIKI_*` 与 `E2E_*` 统一视为 legacy / 历史兼容前缀，不再作为 v2 CLI 的正式环境变量集合；
+- v2 实现只暴露少量 `AWIKI_*`（`AWIKI_HOME` / `AWIKI_IDENTITY` / `AWIKI_RUNTIME_MODE` / `AWIKI_FORMAT` / `AWIKI_NO_COLOR`），其余长期配置统一通过 `config.json` 管理。
 
 **原因**：
 
-- `AWIKI_*` 与产品命名一致
-- 与现有生态和测试资产一致
-- `AVIKI_*` 明显是草案拼写漂移，不适合成为长期公共契约
+- `AWIKI_*` 与产品命名一致；
+- 在保留 v1 历史行为可读性的前提下，尽量收敛 v2 的公开环境变量面，减少用户心智负担；
+- 强制把后端域名等长期配置迁移到 `config.json`，避免继续依赖大量 env 组合。
 
 **后续动作**：
 
-- 同步命令文档与主计划文档的相关章节
+- 同步命令文档与主计划文档的相关章节，并在配置/工作目录改造文档中明确新的环境变量收敛方案。
 
 ### AF-004：用户层术语 `identity` 与存储层术语 `credential` 不一致
 
@@ -139,27 +139,28 @@
 
 - 后补同步 `local-store-schema.md`
 
-### AF-006：XDG 新路径 vs `.openclaw` 旧路径冲突
+### AF-006：工作目录方案 vs `.openclaw` 旧路径冲突
 
 **证据**：
 
-- v2 文档要求 XDG 路径
-- v1 Python CLI 实际使用 `~/.openclaw/credentials/awiki-agent-id-message/` 与 `~/.openclaw/workspace/data/awiki-agent-id-message/`
+- 早期 v2 文档曾按 XDG 路径设计；
+- v1 Python CLI 实际使用 `~/.openclaw/credentials/awiki-agent-id-message/` 与 `~/.openclaw/workspace/data/awiki-agent-id-message/`；
+- Phase 0 之后的配置/工作目录改造文档已经将 v2 原生路径收敛为单一 `AWIKI_HOME` 工作目录。
 
 **裁决**：
 
-- v2 原生写入 XDG 路径
-- `doctor` / `runtime setup` / `migrate from-v1` 负责检测旧路径
-- 默认只提示导入，不原地修改旧数据
+- v2 原生写入改为单一工作目录 `AWIKI_HOME`（见 implementation-constraints 5.1）；
+- `doctor` / `runtime setup` / `migrate from-v1` 负责检测 `.openclaw` 旧路径；
+- 默认只提示导入，不原地修改旧数据。
 
 **原因**：
 
-- 清晰区分 v2 新布局与 v1 遗留目录
-- 降低误改旧环境的风险
+- 统一工作目录比分散的多根 XDG 路径更易于理解、备份和迁移；
+- 清晰区分 v2 新布局与 v1 遗留目录，降低误改旧环境的风险。
 
 **后续动作**：
 
-- 在 migration 和 doctor 中提供显式旧路径检测结果
+- 在 migration 和 doctor 中提供显式旧路径检测结果，并确保实现使用 `AWIKI_HOME` 作为唯一新写入根目录。
 
 ### AF-007：Go 兼容性策略新增要求——禁止 CGO
 

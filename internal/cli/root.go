@@ -126,6 +126,8 @@ func (a *App) commandFromSpec(spec cmdmeta.CommandSpec) *cobra.Command {
 
 func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string) error {
 	switch spec.Handler {
+	case "init":
+		return a.runInit
 	case "status":
 		return a.runStatus
 	case "docs":

@@ -2,7 +2,7 @@
 
 ## 概述
 
-awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编排对后端服务的 API 调用。支持 DID 身份管理、消息收发（私聊/群聊）、群组管理、WebSocket 实时监听等能力。
+awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编排对后端服务的 API 调用。支持 DID 身份管理、消息收发（私聊 / 群聊）、群组管理、WebSocket 实时监听等能力。
 
 **技术栈**: Go 1.22 (pure Go, no CGO) + Cobra + SQLite + ANP SDK
 
@@ -53,11 +53,12 @@ awiki-cli 使用 **pure Go SQLite** 作为本地存储，无需安装外部数�
 
 ### 2.1 自动初始化
 
-数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于 XDG 数据目录下：
+数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于 awiki-cli 工作目录下：
 
-```
-~/.local/share/awiki-cli/awiki-cli.db
-```
+- 默认工作目录（AWIKI_HOME）：
+  - macOS / Linux：`$HOME/.awiki-cli`
+  - Windows：`%LOCALAPPDATA%\AwikiCli`
+- 数据库路径：`$AWIKI_HOME/db/awiki-cli.db`
 
 Schema 版本为 v11，包含以下本地表：
 
@@ -73,102 +74,120 @@ Schema 版本为 v11，包含以下本地表：
 
 视图：`threads`（会话列表）、`inbox`（收件箱）、`outbox`（发件箱）
 
-### 2.2 SQLite 配置
+### 2.2 工作目录覆盖（AWIKI_HOME / init）
 
-自动设置以下 PRAGMA：
+awiki-cli 使用一个统一的“工作目录”存放所有本地数据、配置和日志。
 
-| PRAGMA | 值 | 说明 |
-|--------|-----|------|
-| `journal_mode` | WAL | 写前日志，支持并发读 |
-| `foreign_keys` | ON | 外键约束 |
-| `busy_timeout` | 5000ms | 锁等待超时 |
-
-### 2.3 数据库路径覆盖
-
-通过环境变量可自定义数据目录：
+日常使用推荐通过 `awiki-cli init` 来初始化工作目录：
 
 ```bash
-export AWIKI_DATA_DIR=~/my-awiki-data
-# 数据库将位于 ~/my-awiki-data/awiki-cli.db
+# 使用默认工作目录（例如 ~/.awiki-cli）
+./awiki-cli init
+
+# 使用自定义工作目录，并在默认目录下写入 home.json 指针
+./awiki-cli init --home "$HOME/my-awiki"
 ```
+
+高级场景（如 CI、系统测试或一次性试验）仍可以通过环境变量 `AWIKI_HOME` 覆盖默认位置：
+
+```bash
+export AWIKI_HOME="$HOME/my-awiki"
+# 数据库:     $AWIKI_HOME/db/awiki-cli.db
+# 配置文件:   $AWIKI_HOME/config.json
+# 身份数据:   $AWIKI_HOME/identities/
+# 运行日志:   $AWIKI_HOME/logs/
+# 缓存与临时: $AWIKI_HOME/cache/ / $AWIKI_HOME/tmp/
+```
+
+> 提示：awiki-cli 会在需要时自动创建上述目录，权限为 `0700`，数据库和敏感文件权限为 `0600`。普通用户不需要长期在 shell rc 中设置 `AWIKI_HOME`；一旦通过 `init --home` 选择工作目录后，后续调用无需再记住路径。
 
 ---
 
-## 3. 配置文件
+## 3. 配置与工作目录
 
-### 3.1 XDG 目录布局
+### 3.1 目录布局
 
-awiki-cli 遵循 XDG Base Directory 规范，默认路径如下：
+本轮改造后，awiki-cli 的本地文件全部收敛到单一工作目录（`AWIKI_HOME`）：
 
-| 用途 | 默认路径 | 环境变量覆盖 |
-|------|----------|-------------|
-| 配置文件 | `~/.config/awiki-cli/` | `AWIKI_CONFIG_DIR` |
-| 数据目录 | `~/.local/share/awiki-cli/` | `AWIKI_DATA_DIR` |
-| 状态目录 | `~/.local/state/awiki-cli/` | `AWIKI_STATE_DIR` |
-| 缓存目录 | `~/.cache/awiki-cli/` | `AWIKI_CACHE_DIR` |
-
-### 3.2 config.yaml
-
-配置文件位于 `~/.config/awiki-cli/config.yaml`，首次运行前可手动创建：
-
-```yaml
-# 身份配置
-identity:
-  active: "default"          # 当前活跃身份名称
-
-# 运行模式
-runtime:
-  mode: "http"               # http（默认）或 websocket
-  socket_path: ""            # WebSocket bridge 的 Unix socket 路径（留空使用默认）
-
-# 输出配置
-output:
-  format: "json"             # json（默认）/ table / ndjson
-  no_color: false            # 是否禁用颜色
-
-# 后端服务地址
-services:
-  user_service_url: "https://awiki.ai"       # user-service 地址
-  message_service_url: "https://awiki.ai"    # message-service 地址
-  message_service_ws_url: ""                 # WebSocket 地址（留空自动推导）
-  did_domain: "awiki.ai"                     # DID 域名
-  ca_bundle: ""                              # 自定义 CA 证书路径
+```text
+$AWIKI_HOME/
+  config.json          # 运行期主配置
+  db/awiki-cli.db      # SQLite 数据库
+  identities/          # 本地身份与密钥
+  logs/                # 运行日志
+  cache/               # 缓存数据
+  tmp/                 # 临时文件 / runtime 状态
 ```
 
-> 该文件可选。未创建时所有配置使用默认值，指向生产环境 `https://awiki.ai`。
+- macOS / Linux 默认工作目录根：`$HOME/.awiki-cli`
+- Windows 默认工作目录根：`%LOCALAPPDATA%\AwikiCli`
+- 运行时解析工作目录根的规则：
+  1. 若设置环境变量 `AWIKI_HOME`，本次运行优先使用该路径（高级/临时覆写入口）；
+  2. 否则，如果默认根目录下存在 `home.json` 指针文件，则读取其中的 `root_dir` 字段作为真实工作目录根（由 `awiki-cli init --home` 生成）；
+  3. 否则使用默认根本身。
 
-### 3.3 本地开发配置
+### 3.2 config.json 结构
 
-连接本地后端服务时，创建如下 `config.yaml`：
+配置文件为标准 JSON（不支持注释、尾逗号），路径为：`$AWIKI_HOME/config.json`。
 
-```yaml
-identity:
-  active: "default"
+示例：
 
-runtime:
-  mode: "http"
-
-services:
-  user_service_url: "https://awiki.test"
-  message_service_url: "https://awiki.test"
-  message_service_ws_url: "wss://awiki.test/message/ws"
-  did_domain: "awiki.test"
-  ca_bundle: ""
+```json
+{
+  "services": {
+    "domain": "awiki.ai"
+  },
+  "identity": {
+    "active": "default"
+  },
+  "runtime": {
+    "mode": "http"
+  },
+  "output": {
+    "format": "json",
+    "no_color": false
+  },
+  "update": {
+    "disable_strict_version": false,
+    "metadata_cache_ttl_seconds": 0
+  }
+}
 ```
 
-或通过环境变量覆盖（优先级：命令行 flag > config.yaml > 环境变量 > 默认值）：
+字段说明（与实现保持一致）：
 
-```bash
-export AWIKI_USER_SERVICE_URL=https://awiki.test
-export AWIKI_MESSAGE_SERVICE_URL=https://awiki.test
-export AWIKI_DID_DOMAIN=awiki.test
-```
+- `services.domain`：后端域名（例如 `awiki.ai` / `awiki.test`），CLI 内部据此推导各服务 URL：
+  - user-service：`https://<domain>`
+  - message-service：`https://<domain>/message-service`
+  - WebSocket：`wss://<domain>/message-service/ws`
+- `identity.active`：当前活跃身份名称（如 `default`）。
+- `runtime.mode`：运行模式，`"http"` 或 `"websocket"`。
+- `output.format`：输出格式，如 `"json"` / `"table"` 等。
+- `output.no_color`：是否禁用彩色输出。
+- `update.disable_strict_version`：是否关闭严格版本校验（目前仅作为配置入口）。
+- `update.metadata_cache_ttl_seconds`：版本元数据缓存 TTL（0 表示使用内部默认值）。
+
+首次运行如果没有 `config.json`，awiki-cli 使用内置默认值；当通过后续命令需要持久化配置时，会自动创建该文件并写入当前生效值。
+
+### 3.3 运行期环境变量覆盖
+
+运行期只保留少量 `AWIKI_*` 环境变量，用于临时覆盖配置（优先级：**命令行 flag > 环境变量 > config.json > 默认值**）：
+
+| 环境变量 | 用途 | 默认值 |
+|----------|------|--------|
+| `AWIKI_HOME` | 临时覆盖工作目录根路径（高级/CI/测试用） | 见 3.1 |
+| `AWIKI_IDENTITY` | 临时覆盖活跃身份 (`identity.active`) | 空（使用 config.json 或身份索引） |
+| `AWIKI_RUNTIME_MODE` | 临时覆盖运行模式 (`runtime.mode`) | `http` |
+| `AWIKI_FORMAT` | 临时覆盖输出格式 (`output.format`) | `json` |
+| `AWIKI_NO_COLOR` | 临时覆盖是否禁用颜色 (`output.no_color`) | `false` |
+
+> 注意：不再提供 `AWIKI_CONFIG_DIR` / `AWIKI_DATA_DIR` / `AWIKI_STATE_DIR` / `AWIKI_CACHE_DIR`，也不再提供 `AWIKI_USER_SERVICE_URL` 等 URL 级环境变量，更不再兼容任何 `AVIKI_*` / `E2E_*` 变量。服务端域名等长期配置统一通过 `config.json` 管理。
 
 ### 3.4 身份文件布局
 
-DID 身份存储在 `~/.config/awiki-cli/identities/` 下，每个身份一个子目录：
+DID 身份存储在 `$AWIKI_HOME/identities/` 下，每个身份一个子目录：
 
-```
+```text
 identities/
 ├── index.json                    # 身份索引（默认身份、凭证列表）
 └── <identity-dir>/
@@ -182,28 +201,8 @@ identities/
     └── e2ee-state.json           # E2EE 会话状态
 ```
 
-> 私钥文件权限为 `0600`，目录权限为 `0700`。
-
-### 3.5 环境变量完整列表
-
-| 环境变量 | 别名 | 用途 | 默认值 |
-|----------|------|------|--------|
-| `AWIKI_CONFIG_DIR` | `AVIKI_CONFIG_DIR` | 配置目录 | `~/.config/awiki-cli` |
-| `AWIKI_DATA_DIR` | `AVIKI_DATA_DIR` | 数据目录 | `~/.local/share/awiki-cli` |
-| `AWIKI_STATE_DIR` | `AVIKI_STATE_DIR` | 状态目录 | `~/.local/state/awiki-cli` |
-| `AWIKI_CACHE_DIR` | `AVIKI_CACHE_DIR` | 缓存目录 | `~/.cache/awiki-cli` |
-| `AWIKI_IDENTITY` | `AVIKI_IDENTITY` | 活跃身份 | config.yaml 中的 active |
-| `AWIKI_RUNTIME_MODE` | `AVIKI_RUNTIME_MODE` | 运行模式 | `http` |
-| `AWIKI_RUNTIME_SOCKET` | `AVIKI_RUNTIME_SOCKET` | 本地 socket 路径 | `<state_dir>/runtime/message-daemon.sock` |
-| `AWIKI_FORMAT` | `AVIKI_FORMAT` | 输出格式 | `json` |
-| `AWIKI_NO_COLOR` | `AVIKI_NO_COLOR` | 禁用颜色 | `false` |
-| `AWIKI_USER_SERVICE_URL` | `AVIKI_USER_SERVICE_URL` | user-service 地址 | `https://awiki.ai` |
-| `AWIKI_MESSAGE_SERVICE_URL` | `AVIKI_MESSAGE_SERVICE_URL` | message-service 地址 | `https://awiki.ai` |
-| `AWIKI_MESSAGE_WS_URL` | `AVIKI_MESSAGE_WS_URL` | WebSocket 地址 | 空 |
-| `AWIKI_DID_DOMAIN` | `AVIKI_DID_DOMAIN` | DID 域名 | `awiki.ai` |
-| `AWIKI_CA_BUNDLE` | `AVIKI_CA_BUNDLE` | CA 证书路径 | 空 |
-
-> 兼容旧版环境变量：`E2E_USER_SERVICE_URL`、`E2E_MOLT_MESSAGE_URL`、`E2E_MOLT_MESSAGE_WS_URL`、`E2E_DID_DOMAIN`、`E2E_CA_BUNDLE`。
+- 目录权限：`0700`
+- 私钥 / 凭证文件权限：`0600`
 
 ---
 
@@ -228,6 +227,10 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 ```bash
 # 版本信息
 ./awiki-cli version
+
+# 初始化工作目录（推荐在首次安装后执行一次）
+./awiki-cli init
+# ./awiki-cli init --home "$HOME/my-awiki"  # 可选：自定义工作目录
 
 # 系统诊断（检查配置、身份、数据库、运行环境）
 ./awiki-cli doctor
@@ -307,11 +310,12 @@ awiki-cli 是纯客户端，不需要本地数据库服务，但需要连接以�
 | 服务 | 用途 | 默认地址 |
 |------|------|----------|
 | user-service | 用户认证、DID 注册、Handle 管理、群组管理 | `https://awiki.ai` |
-| message-service (molt-message) | 消息收发、WebSocket 推送 | `https://awiki.ai` |
+| message-service | 消息收发、WebSocket 推送 | `https://awiki.ai` |
 
 本地开发时需先启动这两个后端服务，参考各自的安装说明：
-- [user-service 安装说明](../../user-service/docs/installation.md)
-- [molt-message 安装说明](../../molt-message/docs/installation.md)
+
+- user-service 安装说明：`../../user-service/docs/installation.md`
+- message-service 安装说明：`../../message-service/docs/installation.md`
 
 ---
 
@@ -346,14 +350,14 @@ go version
 数据库在首次使用相关命令时自动创建。如需重置：
 
 ```bash
-rm ~/.local/share/awiki-cli/awiki-cli.db
+rm -rf "$AWIKI_HOME/db/awiki-cli.db"
 ```
 
 下次运行会自动重建 schema。
 
 ### Q: 连接本地后端服务失败
 
-检查 `config.yaml` 或环境变量是否正确指向本地服务地址：
+检查 `config.json` 是否正确指向本地服务域名，或通过环境变量临时覆盖：
 
 ```bash
 ./awiki-cli config show | jq '.data.user_service_url, .data.message_service_url'
