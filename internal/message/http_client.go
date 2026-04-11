@@ -304,6 +304,11 @@ func (t *HTTPTransport) UpdateGroupPolicy(ctx context.Context, request GroupGetR
 }
 
 func (t *HTTPTransport) GetMessageServiceDID(ctx context.Context) (string, error) {
+	if t != nil && t.resolved != nil {
+		if configured := strings.TrimSpace(t.resolved.ANPServiceDID); configured != "" {
+			return configured, nil
+		}
+	}
 	result, err := t.rpcMapCall(ctx, "anp.get_capabilities", map[string]any{
 		"meta": map[string]any{
 			"anp_version":      "1.0",

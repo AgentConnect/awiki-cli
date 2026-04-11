@@ -178,7 +178,7 @@ flag > config.json > default
 ```
 
 > 该文件可选。未创建时所有配置使用默认值。  
-> `anp_service_endpoint` 和 `anp_service_did` 专门用于生成本地 DID 文档中的 `ANPMessageService`。它们和 `service_base_url` 的职责不同：
+> `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
 >
 > - `service_base_url`：域内 user-service / content / group / message 的统一基础地址
 > - 域内 message RPC：`<service_base_url>/im/rpc`
