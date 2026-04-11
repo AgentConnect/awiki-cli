@@ -2,7 +2,7 @@
 
 [中文版](./onboarding.md)
 
-This document only does one thing: help a human or AI Agent run through the first awiki-cli onboarding flow with a clear, minimal set of steps.
+This document has a single purpose: help an AI Agent plus a reasonably technical human complete the first awiki-cli onboarding with a clear, step-by-step flow.
 
 ---
 
@@ -308,4 +308,3 @@ Next suggestions:
    - This guide focuses on first-time onboarding. For more advanced usage, rely primarily on the Skill documentation visible in your environment (identity, messaging, onboarding workflow, etc.), and then fall back to repo-level documents only when needed.
 
 This `onboarding.en.md` file is intentionally limited to the minimal first-time path. For any deeper workflows or advanced behaviors, please follow the Skill documentation that your Agent or environment can access. 
-
