@@ -19,3 +19,17 @@ func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogPublishesHiddenReplaceDIDCommand(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	spec, ok := catalog.Lookup("id replace-did")
+	if !ok {
+		t.Fatal(`Lookup("id replace-did") = false, want true`)
+	}
+	if !spec.Hidden {
+		t.Fatalf("spec.Hidden = %t, want true", spec.Hidden)
+	}
+}

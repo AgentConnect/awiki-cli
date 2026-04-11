@@ -205,6 +205,149 @@ func (m *Manager) UpdateDisplayName(name string, displayName string) error {
 	return m.SaveIndex(index)
 }
 
+func (m *Manager) ReplaceIdentity(name string, input SaveInput) (*StoredIdentity, error) {
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("%w: identity name is required", ErrInvalidInput)
+	}
+	if strings.TrimSpace(input.DID) == "" || strings.TrimSpace(input.UniqueID) == "" {
+		return nil, fmt.Errorf("%w: did and unique_id are required", ErrInvalidInput)
+	}
+	if err := m.EnsureRoot(); err != nil {
+		return nil, err
+	}
+
+	index, err := m.LoadIndex()
+	if err != nil {
+		return nil, err
+	}
+	resolvedName, entry, ok := m.resolveEntryName(name, index)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrIdentityNotFound, name)
+	}
+	current, err := m.Load(resolvedName)
+	if err != nil {
+		return nil, err
+	}
+
+	createdAt := current.CreatedAt
+	if createdAt == "" {
+		createdAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if strings.TrimSpace(input.UserID) == "" {
+		input.UserID = current.UserID
+	}
+	if strings.TrimSpace(input.DisplayName) == "" {
+		input.DisplayName = current.DisplayName
+	}
+	if strings.TrimSpace(input.Handle) == "" {
+		input.Handle = current.Handle
+	}
+
+	newDirName, err := preferredDirName(input.UniqueID)
+	if err != nil {
+		return nil, err
+	}
+
+	linkedNames := make([]string, 0, 1)
+	linkedLookup := map[string]struct{}{}
+	for candidateName, candidateEntry := range index.Credentials {
+		if candidateEntry.DirName == entry.DirName || candidateEntry.DID == entry.DID {
+			linkedNames = append(linkedNames, candidateName)
+			linkedLookup[candidateName] = struct{}{}
+		}
+	}
+	if len(linkedNames) == 0 {
+		linkedNames = append(linkedNames, resolvedName)
+		linkedLookup[resolvedName] = struct{}{}
+	}
+
+	for candidateName, candidateEntry := range index.Credentials {
+		if _, ok := linkedLookup[candidateName]; ok {
+			continue
+		}
+		if candidateEntry.DID == input.DID {
+			return nil, fmt.Errorf("%w: did %s already belongs to identity %s", ErrIdentityConflict, input.DID, candidateName)
+		}
+		if candidateEntry.DirName == newDirName {
+			return nil, fmt.Errorf("%w: dir %s already used by identity %s", ErrIdentityConflict, newDirName, candidateName)
+		}
+	}
+
+	oldPaths := m.BuildPaths(entry.DirName)
+	newPaths := m.BuildPaths(newDirName)
+	if err := ensureDir(newPaths.IdentityDir); err != nil {
+		return nil, fmt.Errorf("create identity directory: %w", err)
+	}
+
+	identityPayload := map[string]any{
+		"did":        input.DID,
+		"unique_id":  input.UniqueID,
+		"created_at": createdAt,
+	}
+	if input.UserID != "" {
+		identityPayload["user_id"] = input.UserID
+	}
+	if input.DisplayName != "" {
+		identityPayload["name"] = input.DisplayName
+	}
+	if input.Handle != "" {
+		identityPayload["handle"] = input.Handle
+	}
+	if err := writeSecureJSON(newPaths.IdentityPath, identityPayload); err != nil {
+		return nil, fmt.Errorf("write identity payload: %w", err)
+	}
+	if err := writeSecureJSON(newPaths.AuthPath, map[string]any{"jwt_token": nullableString(input.JWTToken)}); err != nil {
+		return nil, fmt.Errorf("write auth payload: %w", err)
+	}
+	if input.DIDDocument != nil {
+		if err := writeSecureJSON(newPaths.DIDDocumentPath, input.DIDDocument); err != nil {
+			return nil, fmt.Errorf("write did document: %w", err)
+		}
+	}
+	if input.Key1PrivatePEM != "" {
+		if err := writeSecureText(newPaths.Key1PrivatePath, input.Key1PrivatePEM); err != nil {
+			return nil, fmt.Errorf("write key-1 private key: %w", err)
+		}
+	}
+	if input.Key1PublicPEM != "" {
+		if err := writeSecureText(newPaths.Key1PublicPath, input.Key1PublicPEM); err != nil {
+			return nil, fmt.Errorf("write key-1 public key: %w", err)
+		}
+	}
+	if input.E2EESigningPrivatePEM != "" {
+		if err := writeSecureText(newPaths.E2EESigningPrivatePath, input.E2EESigningPrivatePEM); err != nil {
+			return nil, fmt.Errorf("write e2ee signing private key: %w", err)
+		}
+	}
+	if input.E2EEAgreementPrivatePEM != "" {
+		if err := writeSecureText(newPaths.E2EEAgreementPrivatePath, input.E2EEAgreementPrivatePEM); err != nil {
+			return nil, fmt.Errorf("write e2ee agreement private key: %w", err)
+		}
+	}
+	_ = os.Remove(newPaths.E2EEStatePath)
+
+	for _, linkedName := range linkedNames {
+		linkedEntry := index.Credentials[linkedName]
+		linkedEntry.CredentialName = linkedName
+		linkedEntry.DirName = newDirName
+		linkedEntry.DID = input.DID
+		linkedEntry.UniqueID = input.UniqueID
+		linkedEntry.UserID = input.UserID
+		linkedEntry.Name = input.DisplayName
+		linkedEntry.Handle = input.Handle
+		linkedEntry.CreatedAt = createdAt
+		linkedEntry.IsDefault = index.DefaultCredentialName == linkedName
+		index.Credentials[linkedName] = linkedEntry
+	}
+	if err := m.SaveIndex(index); err != nil {
+		return nil, err
+	}
+	if oldPaths.IdentityDir != newPaths.IdentityDir {
+		_ = os.RemoveAll(oldPaths.IdentityDir)
+	}
+	return m.Load(resolvedName)
+}
+
 func (m *Manager) List() ([]IdentitySummary, error) {
 	index, err := m.LoadIndex()
 	if err != nil {

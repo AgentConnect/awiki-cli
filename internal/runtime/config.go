@@ -27,15 +27,18 @@ type Resolved struct {
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
 	if resolved == nil {
-		return Resolved{Mode: ModeHTTP}
+		return Resolved{Mode: ModeWebSocket}
 	}
 	mode := strings.ToLower(strings.TrimSpace(resolved.RuntimeMode))
-	if mode != ModeWebSocket {
-		mode = ModeHTTP
+	if mode != ModeHTTP {
+		mode = ModeWebSocket
 	}
 	socketPath := strings.TrimSpace(resolved.RuntimeSocketPath)
 	if socketPath == "" {
-		socketPath = filepath.Join(resolved.Paths.StateDir, "runtime", "message-daemon.sock")
+		socketPath = filepath.Join(resolved.Paths.StateDir, "message-daemon.sock")
+		if strings.TrimSpace(resolved.Paths.StateDir) == "" {
+			socketPath = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime", "message-daemon.sock")
+		}
 	}
 	socketPath = normalizeSocketPath(socketPath)
 	return Resolved{

@@ -6,7 +6,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
-func TestBuildGroupCreateRPCParamsUsesActorProofAndServiceTarget(t *testing.T) {
+func TestBuildGroupCreateRPCParamsUsesOriginProofAndServiceTarget(t *testing.T) {
 	t.Parallel()
 
 	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
@@ -35,6 +35,12 @@ func TestBuildGroupCreateRPCParamsUsesActorProofAndServiceTarget(t *testing.T) {
 	if got := stringFromAny(auth["scheme"]); got != OriginProofScheme {
 		t.Fatalf("auth.scheme = %q, want %q", got, OriginProofScheme)
 	}
+	if _, ok := auth["origin_proof"]; !ok {
+		t.Fatalf("auth.origin_proof missing: %#v", auth)
+	}
+	if _, ok := auth["actor_proof"]; ok {
+		t.Fatalf("auth.actor_proof should be absent: %#v", auth)
+	}
 	meta, ok := params["meta"].(map[string]any)
 	if !ok {
 		t.Fatalf("params[meta] = %#v, want map", params["meta"])
@@ -52,7 +58,12 @@ func TestBuildGroupMessagesRPCParamsUsesLocalProfile(t *testing.T) {
 	t.Parallel()
 
 	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
-	params, err := BuildGroupMessagesRPCParams(record, GroupMessagesRequest{Group: "did:wba:awiki.ai:groups:demo:e1_group", Limit: 25, Cursor: "12"})
+	params, err := BuildGroupMessagesRPCParams(record, GroupMessagesRequest{
+		Group:  "did:wba:awiki.ai:groups:demo:e1_group",
+		Limit:  25,
+		Cursor: "12",
+		Skip:   50,
+	})
 	if err != nil {
 		t.Fatalf("BuildGroupMessagesRPCParams() error = %v", err)
 	}
@@ -63,5 +74,8 @@ func TestBuildGroupMessagesRPCParamsUsesLocalProfile(t *testing.T) {
 	body, _ := params["body"].(map[string]any)
 	if got := stringFromAny(body["since_seq"]); got != "12" {
 		t.Fatalf("body.since_seq = %q, want 12", got)
+	}
+	if got := intValueFromAny(body["skip"], 0); got != 50 {
+		t.Fatalf("body.skip = %d, want 50", got)
 	}
 }

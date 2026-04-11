@@ -36,7 +36,7 @@ func TestMessageRecordFromDirectIncomingUsesProtocolFieldsOnly(t *testing.T) {
 			},
 			"auth": map[string]any{
 				"scheme": "anp-rfc9421-origin-proof-v1",
-				"sender_proof": map[string]any{
+				"origin_proof": map[string]any{
 					"contentDigest":  "sha-256=:digest:",
 					"signatureInput": "sig1=(\"@method\");created=1;keyid=\"did:wba:example.com:user:bob:e1_yyy#key-1\"",
 					"signature":      "sig1=:signature:",
@@ -164,7 +164,7 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 
 	var connectionCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
+		if r.URL.Path != "/im/ws" {
 			http.NotFound(w, r)
 			return
 		}
@@ -265,6 +265,7 @@ func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resol
 
 	root := t.TempDir()
 	manager := identity.NewManager(appconfig.Paths{
+		WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
 		IdentityDir:          filepath.Join(root, "identities"),
 		LegacyCredentialsDir: filepath.Join(root, "legacy"),
 		DataDir:              filepath.Join(root, "data"),
@@ -280,18 +281,17 @@ func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resol
 	})
 	return &appconfig.Resolved{
 		Paths: appconfig.Paths{
+			WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
 			IdentityDir:          filepath.Join(root, "identities"),
 			LegacyCredentialsDir: filepath.Join(root, "legacy"),
 			DataDir:              filepath.Join(root, "data"),
 			StateDir:             filepath.Join(root, "state"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 		},
-		UserServiceURL:      messageServiceURL,
-		MessageServiceURL:   messageServiceURL,
-		MessageServiceWSURL: messageServiceURL,
-		DIDDomain:           "awiki.ai",
-		RuntimeMode:         "websocket",
-		ActiveIdentity:      "alice",
+		ServiceBaseURL: messageServiceURL,
+		DIDDomain:      "awiki.ai",
+		RuntimeMode:    "websocket",
+		ActiveIdentity: "alice",
 	}
 }
 

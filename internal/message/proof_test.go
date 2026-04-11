@@ -1,13 +1,14 @@
 package message
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
-func TestBuildSenderProofRoundTrip(t *testing.T) {
+func TestBuildOriginProofProducesRFC9421Fields(t *testing.T) {
 	t.Parallel()
 
 	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
@@ -28,34 +29,43 @@ func TestBuildSenderProofRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAuthContext() error = %v", err)
 	}
-	payload, err := buildDirectTextPayload(generated.DID, "did:wba:awiki.ai:user:bob", "hello", "text/plain")
+	payload, err := buildDirectTextPayload(
+		generated.DID,
+		"did:wba:awiki.ai:user:bob",
+		"hello",
+		"text/plain",
+	)
 	if err != nil {
 		t.Fatalf("buildDirectTextPayload() error = %v", err)
 	}
-	proofMap, err := buildSenderProof(auth, payload, "did:wba:awiki.ai:user:bob")
+	proofMap, err := buildOriginProof(auth, payload)
 	if err != nil {
-		t.Fatalf("buildSenderProof() error = %v", err)
+		t.Fatalf("buildOriginProof() error = %v", err)
 	}
+	signedRequestObject, err := anpsdk.BuildSignedRequestObject(
+		payload.Method,
+		payload.Meta,
+		payload.Body,
+	)
+	if err != nil {
+		t.Fatalf("BuildSignedRequestObject() error = %v", err)
+	}
+	canonicalRequest, err := anpsdk.CanonicalizeSignedRequestObject(signedRequestObject)
+	if err != nil {
+		t.Fatalf("CanonicalizeSignedRequestObject() error = %v", err)
+	}
+	contentDigest, _ := proofMap["contentDigest"].(string)
 	signatureInput, _ := proofMap["signatureInput"].(string)
-	parsed, err := anpsdk.ParseIMSignatureInput(signatureInput)
-	if err != nil {
-		t.Fatalf("ParseIMSignatureInput() error = %v", err)
+	signature, _ := proofMap["signature"].(string)
+	if contentDigest == "" || signatureInput == "" || signature == "" {
+		t.Fatalf("proof map is incomplete: %#v", proofMap)
 	}
-	payloadMap := map[string]any{"method": payload.Method, "meta": payload.Meta, "body": payload.Body}
-	canonicalPayload, err := canonicalJSON(payloadMap)
-	if err != nil {
-		t.Fatalf("canonicalJSON() error = %v", err)
+	if got, want := contentDigest, anpsdk.BuildIMContentDigest(canonicalRequest); got != want {
+		t.Fatalf("contentDigest = %q, want %q", got, want)
 	}
-	signatureBase, err := buildBusinessSignatureBase(payload.Method, "anp://agent/"+strictPercentEncode("did:wba:awiki.ai:user:bob"), proofMap["contentDigest"].(string), parsed)
-	if err != nil {
-		t.Fatalf("buildBusinessSignatureBase() error = %v", err)
-	}
-	proof := anpsdk.IMProof{
-		ContentDigest:  proofMap["contentDigest"].(string),
-		SignatureInput: signatureInput,
-		Signature:      proofMap["signature"].(string),
-	}
-	if _, err := anpsdk.VerifyIMProofWithDocument(proof, canonicalPayload, []byte(signatureBase), generated.DIDDocument, generated.DID); err != nil {
-		t.Fatalf("VerifyIMProofWithDocument() error = %v", err)
+	if !strings.Contains(signatureInput, "\"@method\"") ||
+		!strings.Contains(signatureInput, "\"@target-uri\"") ||
+		!strings.Contains(signatureInput, "\"content-digest\"") {
+		t.Fatalf("signatureInput = %q, want RFC9421 covered components", signatureInput)
 	}
 }

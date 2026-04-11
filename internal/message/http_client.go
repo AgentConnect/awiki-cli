@@ -65,10 +65,24 @@ type HTTPTransport struct {
 	resolved       *appconfig.Resolved
 	auth           *authContext
 	httpClient     *http.Client
-	baseMessageURL string
+	rpcEndpointURL string
 }
 
 func NewHTTPTransport(resolved *appconfig.Resolved, auth *authContext, httpClient *http.Client) *HTTPTransport {
+	return NewHTTPTransportForRPCEndpoint(
+		resolved,
+		auth,
+		httpClient,
+		appconfig.JoinBaseURL(resolved.ServiceBaseURL, MessageRPCEndpoint),
+	)
+}
+
+func NewHTTPTransportForRPCEndpoint(
+	resolved *appconfig.Resolved,
+	auth *authContext,
+	httpClient *http.Client,
+	rpcEndpointURL string,
+) *HTTPTransport {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -76,36 +90,43 @@ func NewHTTPTransport(resolved *appconfig.Resolved, auth *authContext, httpClien
 		resolved:       resolved,
 		auth:           auth,
 		httpClient:     httpClient,
-		baseMessageURL: strings.TrimRight(resolved.MessageServiceURL, "/"),
+		rpcEndpointURL: strings.TrimSpace(rpcEndpointURL),
 	}
 }
 
+func (t *HTTPTransport) WithRPCEndpoint(rpcEndpointURL string) *HTTPTransport {
+	if t == nil {
+		return nil
+	}
+	return NewHTTPTransportForRPCEndpoint(
+		t.resolved,
+		t.auth,
+		t.httpClient,
+		rpcEndpointURL,
+	)
+}
+
 func (t *HTTPTransport) SendDirect(ctx context.Context, request SendRequest) (*directSendResult, error) {
-	payload, err := buildDirectTextPayload(t.auth.record.DID, request.Target, request.Text, contentTypeForMessageType(request.MessageType))
+	params, err := BuildDirectSendRPCParams(
+		t.auth.record,
+		nil,
+		request.Target,
+		request.Text,
+		request.MessageType,
+	)
 	if err != nil {
 		return nil, err
 	}
-	senderProof, err := buildSenderProof(t.auth, payload, request.Target)
-	if err != nil {
-		return nil, err
-	}
-	params := map[string]any{
-		"meta": payload.Meta,
-		"auth": map[string]any{
-			"scheme":       OriginProofScheme,
-			"sender_proof": senderProof,
-		},
-		"body": payload.Body,
-	}
+	meta, _ := params["meta"].(map[string]any)
 	var result directSendResult
-	if err := t.rpcCall(ctx, payload.Method, params, &result); err != nil {
+	if err := t.rpcCall(ctx, "direct.send", params, &result); err != nil {
 		return nil, err
 	}
 	if result.MessageID == "" {
-		result.MessageID = stringFromAny(payload.Meta["message_id"])
+		result.MessageID = stringFromAny(meta["message_id"])
 	}
 	if result.OperationID == "" {
-		result.OperationID = stringFromAny(payload.Meta["operation_id"])
+		result.OperationID = stringFromAny(meta["operation_id"])
 	}
 	if result.TargetDID == "" {
 		result.TargetDID = request.Target
@@ -154,6 +175,9 @@ func (t *HTTPTransport) GetHistory(ctx context.Context, request HistoryRequest) 
 	}
 	if strings.TrimSpace(request.Cursor) != "" {
 		body["since_seq"] = request.Cursor
+	}
+	if request.Skip > 0 {
+		body["skip"] = request.Skip
 	}
 	params := map[string]any{
 		"meta": map[string]any{
@@ -280,6 +304,11 @@ func (t *HTTPTransport) UpdateGroupPolicy(ctx context.Context, request GroupGetR
 }
 
 func (t *HTTPTransport) GetMessageServiceDID(ctx context.Context) (string, error) {
+	if t != nil && t.resolved != nil {
+		if configured := strings.TrimSpace(t.resolved.ANPServiceDID); configured != "" {
+			return configured, nil
+		}
+	}
 	result, err := t.rpcMapCall(ctx, "anp.get_capabilities", map[string]any{
 		"meta": map[string]any{
 			"anp_version":      "1.0",
@@ -316,7 +345,7 @@ func (t *HTTPTransport) rpcMapCall(ctx context.Context, method string, params ma
 }
 
 func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[string]any, out any) error {
-	requestURL := t.baseMessageURL + MessageRPCEndpoint
+	requestURL := t.rpcEndpointURL
 	err := t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
 	if err == nil {
 		t.auth.record.JWTToken = t.auth.session.CurrentJWT()

@@ -74,7 +74,7 @@ func NewRemoteClient(resolved *appconfig.Resolved) (*RemoteClient, error) {
 		return nil, err
 	}
 	return &RemoteClient{
-		baseURL: strings.TrimRight(resolved.UserServiceURL, "/"),
+		baseURL: appconfig.NormalizeBaseURL(resolved.ServiceBaseURL),
 		client:  httpClient,
 	}, nil
 }

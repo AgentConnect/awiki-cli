@@ -147,9 +147,11 @@ func (s *Service) Create(displayName string, identityName string) (*CommandResul
 	}
 	alias := chooseDefaultIdentityName(identityName, existing, displayName)
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{"user"},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{"user"},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -273,9 +275,11 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{handle},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{handle},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -509,9 +513,11 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		return nil, err
 	}
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:    s.config.DIDDomain,
-		PathPrefix:  []string{handle},
-		ProofDomain: s.config.DIDDomain,
+		Hostname:           s.config.DIDDomain,
+		PathPrefix:         []string{handle},
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -550,6 +556,94 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 			"result":   result,
 		},
 		Summary: fmt.Sprintf("Handle %s recovered successfully", handle),
+	}, nil
+}
+
+func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*CommandResult, error) {
+	record, err := s.loadIdentityForMutation(params.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+
+	didDomain, pathPrefix, err := HandlePathPrefixFromDID(record.DID)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := s.authSession(record)
+	if err != nil {
+		return nil, err
+	}
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:           didDomain,
+		PathPrefix:         pathPrefix,
+		ProofDomain:        didDomain,
+		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, DefaultANPServiceEndpoint(didDomain)),
+		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, DefaultANPServiceDID(didDomain)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	requestParams := map[string]any{
+		"new_did_document": generated.DIDDocument,
+	}
+	if params.IsPublic != nil {
+		requestParams["is_public"] = *params.IsPublic
+	}
+	if params.IsAgent != nil {
+		requestParams["is_agent"] = *params.IsAgent
+	}
+	if params.Role != nil {
+		role := strings.TrimSpace(*params.Role)
+		if role == "" {
+			requestParams["role"] = nil
+		} else {
+			requestParams["role"] = role
+		}
+	}
+	if params.EndpointURL != nil {
+		endpointURL := strings.TrimSpace(*params.EndpointURL)
+		if endpointURL == "" {
+			requestParams["endpoint_url"] = nil
+		} else {
+			requestParams["endpoint_url"] = endpointURL
+		}
+	}
+
+	var result map[string]any
+	if err := s.remote.AuthenticatedRPCCall(ctx, didAuthRPCEndpoint, "replace_did", requestParams, auth, &result); err != nil {
+		return nil, err
+	}
+
+	newDID := stringValue(result["did"], generated.DID)
+	newToken := stringValue(result["access_token"], auth.CurrentJWT())
+	replaced, err := s.manager.ReplaceIdentity(record.IdentityName, SaveInput{
+		IdentityName:            record.IdentityName,
+		DID:                     newDID,
+		UniqueID:                didSuffix(newDID),
+		UserID:                  stringValue(result["user_id"], record.UserID),
+		DisplayName:             record.DisplayName,
+		Handle:                  stringValue(result["handle"], record.Handle),
+		JWTToken:                newToken,
+		DIDDocument:             generated.DIDDocument,
+		Key1PrivatePEM:          generated.Key1PrivatePEM,
+		Key1PublicPEM:           generated.Key1PublicPEM,
+		E2EESigningPrivatePEM:   generated.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: generated.E2EEAgreementPrivatePEM,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &CommandResult{
+		Data: map[string]any{
+			"action":   "replace_did",
+			"identity": identitySummaryFromRecord(replaced),
+			"old_did":  record.DID,
+			"did":      replaced.DID,
+			"result":   result,
+		},
+		Summary: fmt.Sprintf("Identity %s DID replaced successfully", record.IdentityName),
 	}, nil
 }
 
@@ -676,6 +770,13 @@ func (s *Service) ImportV1(name string, all bool) (*CommandResult, error) {
 	}, nil
 }
 
+func (s *Service) loadIdentityForMutation(identityName string) (*StoredIdentity, error) {
+	if strings.TrimSpace(identityName) == "" {
+		return s.requireActiveIdentity()
+	}
+	return s.manager.Load(identityName)
+}
+
 func (s *Service) requireActiveIdentity() (*StoredIdentity, error) {
 	if strings.TrimSpace(s.config.ActiveIdentity) == "" {
 		current, err := s.manager.Current()
@@ -710,19 +811,29 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 		record.JWTToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
-	session.SetBearer(s.config.UserServiceURL, record.JWTToken)
-	if strings.TrimSpace(s.config.MessageServiceURL) != "" {
-		session.SetBearer(s.config.MessageServiceURL, record.JWTToken)
-	}
+	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
+	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if _, err := session.EnsureJWT(ctx, s.remote.client, strings.TrimRight(s.config.UserServiceURL, "/")+didAuthRPCEndpoint); err != nil {
+		if _, err := session.EnsureJWT(
+			ctx,
+			s.remote.client,
+			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+		); err != nil {
 			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
 		}
 		record.JWTToken = session.CurrentJWT()
 	}
 	return session, nil
+}
+
+func defaultValueForReplacement(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed != "" {
+		return trimmed
+	}
+	return fallback
 }
 
 func normalizePhone(phone string) (string, error) {

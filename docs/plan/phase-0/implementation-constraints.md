@@ -37,6 +37,7 @@ awiki-cli docs
 awiki-cli schema
 awiki-cli doctor
 awiki-cli version
+awiki-cli init
 awiki-cli completion
 awiki-cli config
 awiki-cli id
@@ -187,71 +188,48 @@ Phase 1 冻结以下退出码：
 
 ## 5. 路径、环境变量与迁移冻结
 
-### 5.1 v2 原生工作目录
+### 5.1 v2 原生路径
 
-v2 原生路径固定为单一工作目录根（概念上记为 `AWIKI_HOME`）：
-
-```text
-$AWIKI_HOME/
-  config.json          # 运行期主配置
-  db/awiki-cli.db      # SQLite 数据库
-  identities/          # 本地身份与密钥
-  logs/                # 运行日志
-  cache/               # 缓存数据
-  tmp/                 # 临时文件 / runtime 状态
-```
-
-默认情况下：
-
-- macOS / Linux：`$HOME/.awiki-cli`
-- Windows：`%LOCALAPPDATA%\AwikiCli`
-
-实际解析工作目录根时，行为必须符合以下顺序：
-
-1. 若设置环境变量 `AWIKI_HOME`，本次运行优先使用该路径（高级/CI/测试用，不建议普通用户长期依赖）；  
-2. 否则使用默认根本身。
-
-实现约束：
-
-- 所有运行期副作用产物（配置、数据库、凭证、日志、缓存、临时文件）必须落在 `AWIKI_HOME` 之下；
-- 不再使用 XDG `~/.config` / `~/.local/share` / `~/.local/state` / `~/.cache` 四个独立根目录作为 v2 官方路径；
-- 旧 XDG 路径只作为 v1 兼容导入的来源（见 5.3），不再作为 v2 默认写入位置。
-
-### 5.2 环境变量冻结
-
-环境变量前缀仍为 `AWIKI_*`，但公开集合大幅收敛，Frozen 约束为：
-
-- 不再使用 `AVIKI_*` typo alias；
-- 不再使用 `E2E_*` 作为运行期 fallback；
-- 仅保留以下环境变量作为用户可见入口：
+v2 原生路径固定为单根目录工作区模型：
 
 ```text
-AWIKI_HOME
-AWIKI_IDENTITY
-AWIKI_RUNTIME_MODE
-AWIKI_FORMAT
-AWIKI_NO_COLOR
+~/.awiki-cli/
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/cache/
+~/.awiki-cli/runtime/
+~/.awiki-cli/logs/
+~/.awiki-cli/upgrade/
 ```
 
-优先级固定为：
+说明：
+
+- `~/.awiki-cli/runtime/` 用于 runtime / listener 运行时状态
+- `~/.awiki-cli/logs/` 用于 listener 与 runtime 的持久化日志
+- `~/.awiki-cli/upgrade/` 用于升级元数据、upgrade journal、lock 与备份
+
+### 5.2 配置入口冻结
+
+审计后冻结如下：
+
+- **唯一环境变量入口：`AWIKI_CLI_WORKSPACE_HOME_DIR`**
+- **用户主配置文件：`config.yaml`**
+- **目录类 override 环境变量：全部废弃**
+- **业务配置环境变量：全部废弃**
+
+Phase 1 读取优先级固定为：
 
 ```text
-flag > env (AWIKI_*) > config.json > default
+flag > config.yaml > default
 ```
 
-含义：
+冻结规则：
 
-- `AWIKI_HOME`：临时覆盖工作目录根路径（高级/CI/测试用）；  
-- `AWIKI_IDENTITY`：临时覆盖 `identity.active`；
-- `AWIKI_RUNTIME_MODE`：临时覆盖 `runtime.mode`；
-- `AWIKI_FORMAT`：临时覆盖 `output.format`；
-- `AWIKI_NO_COLOR`：临时覆盖 `output.no_color`。
-
-实现约束：
-
-- 不再提供 `AWIKI_CONFIG_DIR` / `AWIKI_DATA_DIR` / `AWIKI_STATE_DIR` / `AWIKI_CACHE_DIR` 等路径级 env；
-- 不再提供 `AWIKI_USER_SERVICE_URL` / `AWIKI_MESSAGE_*` / `AWIKI_DID_DOMAIN` / `AWIKI_CA_BUNDLE` 等 URL/域名级 env；
-- 任何新增长期配置项一律通过 `config.json` 管理，不再新增新的 `AWIKI_*` 环境变量。
+- `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录
+- `config / data / runtime / cache` 必须从工作区根目录派生，不允许分别配置
+- 若检测到旧环境变量或旧 `config.json`，CLI 必须直接报错并给出迁移提示
+- 旧变量（`AWIKI_*`、`AVIKI_*`、`E2E_*`）不再兼容读取
 
 ### 5.3 v1 路径兼容策略
 
@@ -264,9 +242,11 @@ flag > env (AWIKI_*) > config.json > default
 
 冻结规则：
 
-- `doctor`、`runtime setup`、`migrate from-v1` 需要检测旧路径；
-- 默认行为是提示导入，不直接修改旧目录；
-- 正式迁移入口固定为：`awiki-cli migrate from-v1`。
+- `doctor`、`runtime setup`、`migrate from-v1` 需要检测旧路径
+- 默认行为是提示导入，不直接修改旧目录
+- 正式迁移入口固定为：`awiki-cli migrate from-v1`
+
+---
 
 ## 6. 本地存储基线冻结
 
@@ -356,7 +336,7 @@ Phase 1 冻结以下 thread id 规则：
 
 Phase 0 已冻结但原始文档尚未完全同步的点如下：
 
-1. `docs/architecture/awiki-command-v2.md` 中的 `AVIKI_*` 需要后续同步为 `AWIKI_*`
+1. `docs/architecture/awiki-command-v2.md` 中的配置入口描述需要持续保持与 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.yaml` 一致
 2. `docs/architecture/awiki-command-v2.md` 中的 `msg group ...` 需要后续同步为 `group ...` canonical surface 或明确标注为 alias
 3. `docs/architecture/awiki-v2-architecture.md` 附录中的顶级 `api` 需要后续同步为“保留项”或删除
 4. `../awiki-agent-id-message/references/local-store-schema.md` 需要补 `e2ee_outbox`

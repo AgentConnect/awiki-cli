@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +13,11 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/cmdmeta"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	doccheck "github.com/agentconnect/awiki-cli/internal/doctor"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/agentconnect/awiki-cli/internal/update"
+	"github.com/agentconnect/awiki-cli/internal/upgrade"
 	"github.com/spf13/cobra"
 )
 
@@ -129,6 +132,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 	switch spec.Handler {
 	case "init":
 		return a.runInit
+	case "upgrade":
+		return a.runUpgrade
 	case "status":
 		return a.runStatus
 	case "docs":
@@ -139,8 +144,6 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runDoctor
 	case "version":
 		return a.runVersion
-	case "upgrade":
-		return a.runUpgrade
 	case "config.show":
 		return a.runConfigShow
 	case "id.status":
@@ -155,6 +158,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDResolve
 	case "id.recover":
 		return a.runIDRecover
+	case "id.replace-did":
+		return a.runIDReplaceDID
 	case "id.list":
 		return a.runIDList
 	case "id.current":
@@ -169,6 +174,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDImportV1
 	case "msg.send":
 		return a.runMsgSend
+	case "msg.attachment.download":
+		return a.runMsgAttachmentDownload
 	case "msg.inbox":
 		return a.runMsgInbox
 	case "msg.history":
@@ -255,7 +262,7 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 	service, format, err := a.identityService()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	resolved := service.Config()
 	result, err := service.Status()
@@ -282,7 +289,7 @@ func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 func (a *App) runDocs(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	if len(args) == 0 {
@@ -303,7 +310,7 @@ func (a *App) runDocs(cmd *cobra.Command, args []string) error {
 func (a *App) runSchema(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	if len(args) == 0 {
@@ -328,7 +335,7 @@ func (a *App) runSchema(cmd *cobra.Command, args []string) error {
 func (a *App) runDoctor(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	report := doccheck.Run(resolved)
@@ -338,20 +345,22 @@ func (a *App) runDoctor(cmd *cobra.Command, args []string) error {
 func (a *App) runVersion(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
 	format := normalizedFormat(resolved.OutputFormat)
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, buildinfo.Current(), "Build information", nil, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
-	service, format, err := a.identityService()
+	resolved, err := a.resolveConfig()
 	if err != nil {
-		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+		return a.configCommandExit(err)
 	}
-	resolved := service.Config()
-	current, _ := service.Manager().Current()
-	legacy, _ := service.Manager().ScanLegacy()
+	format := normalizedFormat(resolved.OutputFormat)
+	manager := identity.NewManager(resolved.Paths)
+	current, _ := manager.Current()
+	legacy, _ := manager.ScanLegacy()
+	upgradeState, _ := upgrade.Inspect(context.Background(), resolved, buildinfo.Version)
 	data := appconfig.Snapshot(resolved)
 	database := map[string]any{
 		"database_file": resolved.Paths.DatabaseFile,
@@ -377,6 +386,7 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 		"legacy_scan":      legacy,
 	}
 	data["database"] = database
+	data["workspace_upgrade"] = upgradeState
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Resolved configuration", nil, identityMetaFromResolved(resolved))
 }
 
