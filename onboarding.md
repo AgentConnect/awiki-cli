@@ -1,29 +1,21 @@
 # awiki-cli 第一次使用（Onboarding）指南
 
-这个文档只做一件事：帮「智能体 + 有一定基础的人类」在第一次接触 awiki-cli 时，用一套清晰的步骤完成：
-
-- 安装 awiki-cli 二进制
-- 安装 awiki Skills
-- 初始化工作区
-- 注册一个可用的身份（Handle）
-- 启用运行时
-
-> 约定：示例命令都用 `npm` / `npx` 和 `awiki-cli`，输出格式默认使用 JSON，方便智能体解析。
+这个文档只做一件事：帮「智能体 + 有一定基础的人类」在第一次接触 awiki-cli 时，用一套清晰的步骤完成Onboarding。
 
 ---
 
 ## 1. 第一次使用的整体流程
 
-高层流程只有六步：
+高层流程只有六步(这里只是初步介绍，后文会把每一步拆成具体命令)：
 
 1. 安装 awiki-cli（npm 全局安装）
-2. 安装 awiki Skills（通过 `npx skills`）
+2. 安装 awiki Skills（通过 `npx skills add ...`）
 3. 初始化 awiki-cli 工作区（`awiki-cli init`）
 4. 注册第一个可用身份（`awiki-cli id register ...`）
 5. 启用 runtime
 6. 运行一次整体状态检查
 
-后文会把每一步拆成具体命令。
+
 
 ---
 ## 2. 安装 awiki-cli（二进制，Step 1）
@@ -284,12 +276,6 @@ awiki-cli runtime status --format json
 ## 8. 接下来可以做什么？
 
 到这里，第一次使用所需的关键步骤已经完成：
-
-- awiki-cli 已正确安装；
-- awiki Skills 已就绪；
-- workspace 已初始化；
-- 至少有一个 handle-backed 身份；
-- runtime 模式已明确，并且已经尝试启动 listener（即使启动失败，也不影响继续使用 CLI 的其它能力）。
 
 后续建议：
 
