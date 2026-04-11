@@ -253,6 +253,12 @@ func refreshResolvedConfig(current *appconfig.Resolved) (*appconfig.Resolved, er
 	} else if strings.TrimSpace(refreshed.ANPServiceDID) == "" {
 		refreshed.ANPServiceDID = identity.DefaultANPServiceDID(refreshed.DIDDomain)
 	}
+	// Keep mail_service_url in sync with config, defaulting to service_base_url when unset.
+	if mailURL := strings.TrimSpace(fileConfig.Services.MailServiceURL); mailURL != "" {
+		refreshed.MailServiceURL = appconfig.NormalizeBaseURL(mailURL)
+	} else if strings.TrimSpace(refreshed.MailServiceURL) == "" {
+		refreshed.MailServiceURL = refreshed.ServiceBaseURL
+	}
 	if caBundle := strings.TrimSpace(fileConfig.Services.CABundle); caBundle != "" {
 		refreshed.CABundle = caBundle
 	}

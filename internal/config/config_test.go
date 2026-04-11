@@ -317,3 +317,71 @@ func TestResolveRejectsUnsupportedHostNotifySink(t *testing.T) {
 		t.Fatalf("Resolve() error = %q, want runtime.host_notify.sink", err.Error())
 	}
 }
+
+func TestResolveMailServiceURLFromConfigFile(t *testing.T) {
+	workspaceHome := t.TempDir()
+	configPath := filepath.Join(workspaceHome, "config.yaml")
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://api.awiki.test/\n" +
+			"  mail_service_url: https://mail.awiki.test/\n",
+	)
+	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://api.awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://api.awiki.test")
+	}
+	if resolved.MailServiceURL != "https://mail.awiki.test" {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://mail.awiki.test")
+	}
+	source := resolved.Sources["mail_service_url"]
+	if source.Source != "config_file" {
+		t.Fatalf("resolved.Sources[mail_service_url].Source = %q, want %q", source.Source, "config_file")
+	}
+	if source.Value != "https://mail.awiki.test" {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://mail.awiki.test")
+	}
+}
+
+func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
+	workspaceHome := t.TempDir()
+	configPath := filepath.Join(workspaceHome, "config.yaml")
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://awiki.test/\n",
+	)
+	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://awiki.test")
+	}
+	if resolved.MailServiceURL != "https://awiki.test" {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://awiki.test")
+	}
+	source := resolved.Sources["mail_service_url"]
+	if source.Source != "derived_default" {
+		t.Fatalf("resolved.Sources[mail_service_url].Source = %q, want %q", source.Source, "derived_default")
+	}
+	if source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[mail_service_url].Key = %q, want %q", source.Key, "service_base_url")
+	}
+	if source.Value != "https://awiki.test" {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://awiki.test")
+	}
+}
