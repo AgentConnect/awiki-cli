@@ -46,7 +46,7 @@
 
 ## 3. 本地配置项
 
-`config.json` 的 `services` 下包含两个显式字段：
+`config.yaml` 的 `services` 下包含两个显式字段：
 
 ```json
 {
@@ -73,7 +73,7 @@
 
 配置来源：
 
-- 业务配置统一来自 `config.json`
+- 业务配置统一来自 `config.yaml`
 - 未配置时使用默认推导值
 - 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，不再支持通过环境变量注入这些字段
 
@@ -97,7 +97,7 @@
 
 - `internal/config/config.go`
   - 新增 `anp_service_endpoint` / `anp_service_did`
-  - 统一从 `config.json` 读取并在缺省时自动推导默认值
+  - 统一从 `config.yaml` 读取并在缺省时自动推导默认值
 - `internal/identity/did.go`
   - 生成 DID 文档时自动写入 `ANPMessageService`
 - `internal/identity/anp_service.go`

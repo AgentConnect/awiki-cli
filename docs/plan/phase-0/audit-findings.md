@@ -82,9 +82,9 @@
 **裁决**：
 
 - 唯一保留的环境变量是 **`AWIKI_CLI_WORKSPACE_HOME_DIR`**
-- 所有业务配置统一写入 **`config.json`**
+- 所有业务配置统一写入 **`config.yaml`**
 - 目录级 override 环境变量全部废弃
-- 旧变量与旧 `config.yaml` 全部停止兼容，检测到即报错
+- 旧变量与旧 `config.json` 全部停止兼容，检测到即报错
 
 **原因**：
 

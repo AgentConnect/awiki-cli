@@ -1,23 +1,24 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
 func EnsureConfigSchemaVersion(path string) error {
 	fileConfig, exists, err := ReadFileConfig(path)
 	if err != nil {
-		return fmt.Errorf("read config json: %w", err)
+		return fmt.Errorf("read config yaml: %w", err)
 	}
 	if !exists {
 		return nil
 	}
 	fileConfig.SchemaVersion = ConfigSchemaVersion
 	if err := WriteFileConfig(path, fileConfig); err != nil {
-		return fmt.Errorf("write config json: %w", err)
+		return fmt.Errorf("write config yaml: %w", err)
 	}
 	return nil
 }
@@ -40,13 +41,12 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 
 func WriteFileConfig(path string, fileConfig FileConfig) error {
 	fileConfig.SchemaVersion = ConfigSchemaVersion
-	raw, err := json.MarshalIndent(fileConfig, "", "  ")
+	raw, err := yaml.Marshal(fileConfig)
 	if err != nil {
-		return fmt.Errorf("marshal config json: %w", err)
+		return fmt.Errorf("marshal config yaml: %w", err)
 	}
-	raw = append(raw, '\n')
 	if err := writeAtomicFile(path, raw, 0o600); err != nil {
-		return fmt.Errorf("write config json: %w", err)
+		return fmt.Errorf("write config yaml: %w", err)
 	}
 	return nil
 }

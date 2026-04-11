@@ -22,6 +22,7 @@ var nowUTC = func() time.Time {
 
 type Paths struct {
 	ConfigFile           string `json:"config_file"`
+	LegacyConfigFile     string `json:"legacy_config_file"`
 	IdentityDir          string `json:"identity_dir"`
 	DatabaseFile         string `json:"database_file"`
 	LegacyCredentialsDir string `json:"legacy_credentials_dir"`
@@ -58,6 +59,7 @@ type Detection struct {
 	HasWorkspace               bool   `json:"has_workspace"`
 	HasLegacy                  bool   `json:"has_legacy"`
 	ConfigExists               bool   `json:"config_exists"`
+	LegacyConfigExists         bool   `json:"legacy_config_exists"`
 	ConfigSchemaVersion        int    `json:"config_schema_version"`
 	ConfigError                string `json:"config_error,omitempty"`
 	IdentityIndexExists        bool   `json:"identity_index_exists"`
@@ -125,6 +127,7 @@ func ResolvePaths(resolved *appconfig.Resolved) Paths {
 	}
 	return Paths{
 		ConfigFile:           resolved.Paths.ConfigFile,
+		LegacyConfigFile:     appconfig.LegacyConfigPath(resolved.Paths),
 		IdentityDir:          resolved.Paths.IdentityDir,
 		DatabaseFile:         resolved.Paths.DatabaseFile,
 		LegacyCredentialsDir: resolved.Paths.LegacyCredentialsDir,

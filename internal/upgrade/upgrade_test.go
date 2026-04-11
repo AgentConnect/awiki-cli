@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -62,6 +63,54 @@ func TestUpgradeIfNeededStampsCurrentWorkspaceMetadata(t *testing.T) {
 	}
 	if fileConfig.SchemaVersion != appconfig.ConfigSchemaVersion {
 		t.Fatalf("config schema version = %d, want %d", fileConfig.SchemaVersion, appconfig.ConfigSchemaVersion)
+	}
+}
+
+func TestUpgradeIfNeededMigratesLegacyConfigJSON(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	legacyConfigPath := appconfig.LegacyConfigPath(resolved.Paths)
+	if err := os.MkdirAll(filepath.Dir(legacyConfigPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	legacyConfig := `{"schema_version":1,"services":{"service_base_url":"https://legacy.awiki.test","did_domain":"legacy.awiki.test"},"runtime":{"mode":"http"}}`
+	if err := os.WriteFile(legacyConfigPath, []byte(legacyConfig+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	if err := UpgradeIfNeeded(context.Background(), resolved, "1.2.3"); err != nil {
+		t.Fatalf("UpgradeIfNeeded() error = %v", err)
+	}
+	if _, err := os.Stat(legacyConfigPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy config should be removed after migration, stat err = %v", err)
+	}
+	fileConfig, exists, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if !exists {
+		t.Fatalf("expected canonical config file to exist after migration")
+	}
+	if fileConfig.Services.ServiceBaseURL != "https://legacy.awiki.test" {
+		t.Fatalf("service base url = %q", fileConfig.Services.ServiceBaseURL)
+	}
+	if fileConfig.Services.DIDDomain != "legacy.awiki.test" {
+		t.Fatalf("did domain = %q", fileConfig.Services.DIDDomain)
+	}
+}
+
+func TestLoadLegacySettingsRejectsSplitServiceURLs(t *testing.T) {
+	t.Parallel()
+
+	legacyDataDir := t.TempDir()
+	writeLegacySettingsSplit(t, legacyDataDir, "https://auth.awiki.test", "https://msg.awiki.test", "awiki.test")
+	_, err := loadLegacySettings(filepath.Join(legacyDataDir, "config", "settings.json"))
+	if err == nil {
+		t.Fatal("loadLegacySettings() error = nil, want split-endpoint error")
+	}
+	if got := err.Error(); !strings.Contains(got, "different user_service_url") {
+		t.Fatalf("loadLegacySettings() error = %q, want split endpoint message", got)
 	}
 }
 
@@ -175,7 +224,7 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 			DataDir:              filepath.Join(root, "data"),
 			StateDir:             filepath.Join(root, "state"),
 			CacheDir:             filepath.Join(root, "cache"),
-			ConfigFile:           filepath.Join(root, ".awiki-cli", "config.json"),
+			ConfigFile:           filepath.Join(root, ".awiki-cli", "config.yaml"),
 			IdentityDir:          filepath.Join(root, ".awiki-cli", "identities"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 			LegacyCredentialsDir: filepath.Join(root, "legacy-credentials"),
@@ -239,6 +288,29 @@ func writeLegacyIdentity(t *testing.T, legacyRoot string) *identity.GeneratedIde
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	return generated
+}
+
+func writeLegacySettingsSplit(t *testing.T, legacyDataDir string, userServiceURL string, moltMessageURL string, didDomain string) {
+	t.Helper()
+	settingsPath := filepath.Join(legacyDataDir, "config", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	payload := map[string]any{
+		"user_service_url": userServiceURL,
+		"molt_message_url": moltMessageURL,
+		"did_domain":       didDomain,
+		"message_transport": map[string]any{
+			"receive_mode": "websocket",
+		},
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent() error = %v", err)
+	}
+	if err := os.WriteFile(settingsPath, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 }
 
 func writeLegacySettings(t *testing.T, legacyDataDir string, serviceBaseURL string, didDomain string) {

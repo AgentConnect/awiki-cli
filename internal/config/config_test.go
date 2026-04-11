@@ -10,8 +10,8 @@ import (
 func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(workspaceHome, "config.json"),
-		[]byte("{\"output\":{\"no_color\":false}}"),
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("output:\n  no_color: false\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -38,8 +38,8 @@ func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(workspaceHome, "config.json"),
-		[]byte("{\"services\":{\"did_domain\":\"awiki.test\"}}"),
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("services:\n  did_domain: awiki.test\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -68,8 +68,8 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 func TestResolveHonorsServiceBaseURLFromConfigFile(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(workspaceHome, "config.json"),
-		[]byte("{\"services\":{\"service_base_url\":\"https://awiki.test/\"}}"),
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("services:\n  service_base_url: https://awiki.test/\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -106,7 +106,7 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.Paths.ConfigDir != root {
 		t.Fatalf("config dir = %q, want %q", resolved.Paths.ConfigDir, root)
 	}
-	if resolved.Paths.ConfigFile != filepath.Join(root, "config.json") {
+	if resolved.Paths.ConfigFile != filepath.Join(root, "config.yaml") {
 		t.Fatalf("config file = %q", resolved.Paths.ConfigFile)
 	}
 	if resolved.Paths.IdentityDir != filepath.Join(root, "identities") {
@@ -132,51 +132,54 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	}
 }
 
-func TestResolveRejectsDeprecatedWorkspaceEnv(t *testing.T) {
+func TestResolveIgnoresDeprecatedWorkspaceEnv(t *testing.T) {
 	t.Setenv("AWIKI_WORKSPACE_HOME", t.TempDir())
 
-	_, err := Resolve(Overrides{})
-	if err == nil {
-		t.Fatal("Resolve() error = nil, want deprecated env error")
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "AWIKI_WORKSPACE_HOME") {
-		t.Fatalf("Resolve() error = %q, want deprecated env name", err.Error())
+	if resolved.Paths.WorkspaceHomeDir == "" {
+		t.Fatal("workspace home dir should still resolve when deprecated env is present")
 	}
 }
 
-func TestResolveRejectsDeprecatedBusinessEnv(t *testing.T) {
+func TestResolveIgnoresDeprecatedBusinessEnv(t *testing.T) {
 	t.Setenv("AWIKI_USER_SERVICE_URL", "https://awiki.test")
 
-	_, err := Resolve(Overrides{})
-	if err == nil {
-		t.Fatal("Resolve() error = nil, want deprecated env error")
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "AWIKI_USER_SERVICE_URL") {
-		t.Fatalf("Resolve() error = %q, want deprecated env name", err.Error())
+	if resolved.ServiceBaseURL != "https://awiki.ai" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want default value", resolved.ServiceBaseURL)
 	}
 }
 
-func TestResolveRejectsLegacyConfigYAML(t *testing.T) {
+func TestResolveAllowsLegacyConfigJSONForUpgrade(t *testing.T) {
 	workspaceHome := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspaceHome, "config.yaml"), []byte("runtime:\n  mode: http\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspaceHome, "config.json"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
 
-	_, err := Resolve(Overrides{})
-	if err == nil {
-		t.Fatal("Resolve() error = nil, want legacy config error")
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "config.yaml") {
-		t.Fatalf("Resolve() error = %q, want legacy config path", err.Error())
+	if resolved.ConfigExists {
+		t.Fatal("resolved.ConfigExists = true, want false until upgrade migrates legacy config")
+	}
+	if resolved.Paths.ConfigFile != filepath.Join(workspaceHome, "config.yaml") {
+		t.Fatalf("config file = %q", resolved.Paths.ConfigFile)
 	}
 }
 
-func TestResolveRejectsDeprecatedServiceURLFieldsInConfigJSON(t *testing.T) {
+func TestResolveRejectsDeprecatedServiceURLFieldsInConfigYAML(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
-		filepath.Join(workspaceHome, "config.json"),
-		[]byte("{\"services\":{\"user_service_url\":\"https://awiki.test\"}}"),
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("services:\n  user_service_url: https://awiki.test\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)

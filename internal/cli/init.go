@@ -63,8 +63,8 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		return output.NewExitError(
 			"invalid_argument",
 			2,
-			"config.json exists but failed to parse; fix or remove it before running init.",
-			"Run `awiki-cli config show` to inspect the parse error, then correct the JSON syntax.",
+			"config.yaml exists but failed to parse; fix or remove it before running init.",
+			"Run `awiki-cli config show` to inspect the parse error, then correct the YAML syntax.",
 		)
 	}
 
@@ -100,7 +100,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 				"internal_error",
 				1,
 				err.Error(),
-				"Check write permissions for config.json under the awiki-cli workspace.",
+				"Check write permissions for config.yaml under the awiki-cli workspace.",
 			)
 		}
 		resolved.ConfigExists = true

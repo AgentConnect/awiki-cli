@@ -207,7 +207,7 @@
 
 ```text
 ~/.awiki/
-  config/config.json
+  config/config.yaml
   identities/index.json
   identities/alice/
     identity.json

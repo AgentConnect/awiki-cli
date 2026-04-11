@@ -194,7 +194,7 @@ v2 原生路径固定为单根目录工作区模型：
 
 ```text
 ~/.awiki-cli/
-~/.awiki-cli/config.json
+~/.awiki-cli/config.yaml
 ~/.awiki-cli/identities/
 ~/.awiki-cli/data/awiki-cli.db
 ~/.awiki-cli/cache/
@@ -214,21 +214,21 @@ v2 原生路径固定为单根目录工作区模型：
 审计后冻结如下：
 
 - **唯一环境变量入口：`AWIKI_CLI_WORKSPACE_HOME_DIR`**
-- **用户主配置文件：`config.json`**
+- **用户主配置文件：`config.yaml`**
 - **目录类 override 环境变量：全部废弃**
 - **业务配置环境变量：全部废弃**
 
 Phase 1 读取优先级固定为：
 
 ```text
-flag > config.json > default
+flag > config.yaml > default
 ```
 
 冻结规则：
 
 - `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录
 - `config / data / runtime / cache` 必须从工作区根目录派生，不允许分别配置
-- 若检测到旧环境变量或旧 `config.yaml`，CLI 必须直接报错并给出迁移提示
+- 若检测到旧环境变量或旧 `config.json`，CLI 必须直接报错并给出迁移提示
 - 旧变量（`AWIKI_*`、`AVIKI_*`、`E2E_*`）不再兼容读取
 
 ### 5.3 v1 路径兼容策略
@@ -336,7 +336,7 @@ Phase 1 冻结以下 thread id 规则：
 
 Phase 0 已冻结但原始文档尚未完全同步的点如下：
 
-1. `docs/architecture/awiki-command-v2.md` 中的配置入口描述需要持续保持与 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.json` 一致
+1. `docs/architecture/awiki-command-v2.md` 中的配置入口描述需要持续保持与 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.yaml` 一致
 2. `docs/architecture/awiki-command-v2.md` 中的 `msg group ...` 需要后续同步为 `group ...` canonical surface 或明确标注为 alias
 3. `docs/architecture/awiki-v2-architecture.md` 附录中的顶级 `api` 需要后续同步为“保留项”或删除
 4. `../awiki-agent-id-message/references/local-store-schema.md` 需要补 `e2ee_outbox`

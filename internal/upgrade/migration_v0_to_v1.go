@@ -55,6 +55,18 @@ func (workspaceV0ToV1Migration) Apply(ctx context.Context, uc *Context) error {
 		if err := appconfig.EnsureConfigSchemaVersion(uc.Paths.ConfigFile); err != nil {
 			return err
 		}
+	} else if detection.LegacyConfigExists {
+		legacyFileConfig, _, err := appconfig.ReadFileConfig(uc.Paths.LegacyConfigFile)
+		if err != nil {
+			return err
+		}
+		legacyFileConfig.SchemaVersion = appconfig.ConfigSchemaVersion
+		if err := appconfig.WriteFileConfig(uc.Paths.ConfigFile, legacyFileConfig); err != nil {
+			return err
+		}
+		if err := os.Remove(uc.Paths.LegacyConfigFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove legacy config: %w", err)
+		}
 	} else if !detection.HasWorkspace && detection.LegacySettingsExists {
 		legacyConfig, err := loadLegacySettings(uc.Paths.LegacySettingsPath)
 		if err != nil {
@@ -182,9 +194,18 @@ func loadLegacySettings(path string) (*normalizedLegacySettings, error) {
 	if strings.EqualFold(strings.TrimSpace(legacy.MessageTransport.ReceiveMode), "websocket") {
 		mode = runtimecfg.ModeWebSocket
 	}
-	serviceBaseURL := strings.TrimSpace(legacy.UserServiceURL)
+	userServiceURL := appconfig.NormalizeBaseURL(strings.TrimSpace(legacy.UserServiceURL))
+	moltMessageURL := appconfig.NormalizeBaseURL(strings.TrimSpace(legacy.MoltMessageURL))
+	if userServiceURL != "" && moltMessageURL != "" && userServiceURL != moltMessageURL {
+		return nil, fmt.Errorf(
+			"legacy settings use different user_service_url (%s) and molt_message_url (%s); automatic migration to one service_base_url is not supported",
+			userServiceURL,
+			moltMessageURL,
+		)
+	}
+	serviceBaseURL := userServiceURL
 	if serviceBaseURL == "" {
-		serviceBaseURL = strings.TrimSpace(legacy.MoltMessageURL)
+		serviceBaseURL = moltMessageURL
 	}
 	return &normalizedLegacySettings{
 		ServiceBaseURL: serviceBaseURL,

@@ -46,12 +46,12 @@
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**config.template.json**: 标准用户主配置模板，展示当前 canonical `config.json` 字段与默认值。  
+**config.template.yaml**: 标准用户主配置模板，展示当前 canonical `config.yaml` 字段与默认值。  
 **go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.3`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。  
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
-**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.json`；服务配置已收口为 `service_base_url` + `did_domain` + `anp_service_endpoint`，其余历史环境变量与 `config.yaml` 会直接报错。  
+**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
@@ -59,7 +59,7 @@
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。  
-**internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.json`。  
+**internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及隐藏的内部 `replace-did`。  
 **internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  

@@ -113,9 +113,9 @@ awiki-cli v2 的实施目标是：
 实现规划采用以下冻结规则：
 
 - **仅保留 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量入口**
-- **所有业务配置统一收口到 `config.json`**
+- **所有业务配置统一收口到 `config.yaml`**
 - **旧变量（`AWIKI_*` / `AVIKI_*` / `E2E_*`）全部停止兼容读取**
-- **检测到旧变量或旧 `config.yaml` 时，CLI 直接报错并要求迁移**
+- **检测到旧变量或旧 `config.json` 时，CLI 直接报错并要求迁移**
 - doctor 需要显式提示当前工作区来源与主配置文件路径
 
 ### 2.6 参考基线冻结
@@ -129,7 +129,7 @@ awiki-cli v2 的实施目标是：
 这些问题不阻塞规划，但必须在 Phase 0 记录为审计任务：
 
 1. `local-store-schema.md` 当前未列出 `e2ee_outbox`，但 `local_store.py` 中该表是权威存在的。
-2. 历史环境变量入口已废弃，后续实现只允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.json`。
+2. 历史环境变量入口已废弃，后续实现只允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.yaml`。
 3. E2EE 协议文档存在历史冲突，v2 必须先冻结具体协议再编码实现。
 
 ---
@@ -222,7 +222,7 @@ v2 的 identity 存储设计，参考以下实现：
 v2 采用单根目录工作区模型，identity 内部文件布局继续参考 v1 的 indexed multi-credential layout：
 
 ```text
-~/.awiki-cli/config.json
+~/.awiki-cli/config.yaml
 ~/.awiki-cli/identities/index.json
 ~/.awiki-cli/identities/<identity-dir>/identity.json
 ~/.awiki-cli/identities/<identity-dir>/auth.json
@@ -450,7 +450,7 @@ v2 本地 SQLite 设计参考以下来源：
    - cache
 2. 落地配置入口收口：
    - `AWIKI_CLI_WORKSPACE_HOME_DIR`
-   - `config.json`
+   - `config.yaml`
    - 旧环境变量检测与报错
 3. 实现 identity index store。
 4. 实现 identity create/list/use/current。

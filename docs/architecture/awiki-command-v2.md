@@ -196,7 +196,7 @@ awiki-cli completion <bash|zsh|fish|powershell>
 `init` 作为显式初始化命令，用于：
 
 * 帮用户创建工作目录（默认是 `~/.awiki-cli`，仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区根目录覆盖）及其子目录；
-* 在首次需要时生成一份最小的 `config.json` 骨架；
+* 在首次需要时生成一份最小的 `config.yaml` 骨架；
 
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 
@@ -654,7 +654,7 @@ type CommandSpec struct {
 
 ```text
 ~/.awiki-cli/
-~/.awiki-cli/config.json
+~/.awiki-cli/config.yaml
 ~/.awiki-cli/identities/
 ~/.awiki-cli/data/awiki-cli.db
 ~/.awiki-cli/cache/
@@ -678,15 +678,15 @@ AWIKI_CLI_WORKSPACE_HOME_DIR
 awiki-cli 当前的配置入口收口为：
 
 - 仅允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` 决定工作区根目录
-- 用户主配置文件固定为 `config.json`
+- 用户主配置文件固定为 `config.yaml`
 - `config / data / runtime / cache` 全部从工作区根目录派生
 - 其他 awiki-cli 配置环境变量全部停止支持
-- 若检测到旧环境变量或旧 `config.yaml`，CLI 直接报错并要求迁移
+- 若检测到旧环境变量或旧 `config.json`，CLI 直接报错并要求迁移
 
 读取优先级固定为：
 
 ```text
-flag > config.json > default
+flag > config.yaml > default
 ```
 
 ## 9.3 安全规则

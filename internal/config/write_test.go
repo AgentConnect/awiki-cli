@@ -9,7 +9,7 @@ func TestUpdateRuntimeSettingsWritesConfigSchemaVersion(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	paths := Paths{ConfigFile: filepath.Join(root, "config.json")}
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
 	if err := UpdateRuntimeSettings(paths, "websocket", filepath.Join(root, "runtime.sock")); err != nil {
 		t.Fatalf("UpdateRuntimeSettings() error = %v", err)
 	}

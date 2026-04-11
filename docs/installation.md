@@ -119,11 +119,11 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
 > 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
-> 若检测到旧的 `AWIKI_* / AVIKI_* / E2E_*` 配置环境变量，或检测到旧的 `config.yaml`，CLI 会直接报错并要求迁移。
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 之外的旧 `AWIKI_* / AVIKI_* / E2E_*` 业务环境变量不再驱动 awiki-cli；若工作区仍保留上一版的 `config.json`，CLI 会在首次访问工作区时自动迁移到 `config.yaml`。
 >
 > 工作区内容包括：
 >
-> - `config.json`
+> - `config.yaml`
 > - `identities/`
 > - `data/awiki-cli.db`
 > - `cache/`
@@ -133,32 +133,26 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - upgrade lock / journal
 > - 备份快照
 
-### 3.2 config.json
+### 3.2 config.yaml
 
-配置文件位于 `~/.awiki-cli/config.json`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考仓库根目录的 `config.template.json`，或直接使用下面的模板：
+配置文件位于 `~/.awiki-cli/config.yaml`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考仓库根目录的 `config.template.yaml`，或直接使用下面的模板：
 
-```json
-{
-  "schema_version": 1,
-  "identity": {
-    "active": "default"
-  },
-  "runtime": {
-    "mode": "websocket",
-    "socket_path": ""
-  },
-  "output": {
-    "format": "json",
-    "no_color": false
-  },
-  "services": {
-    "service_base_url": "https://awiki.ai",
-    "did_domain": "awiki.ai",
-    "anp_service_endpoint": "https://awiki.ai/anp-im/rpc",
-    "anp_service_did": "did:wba:awiki.ai",
-    "ca_bundle": ""
-  }
-}
+```yaml
+schema_version: 1
+identity:
+  active: default
+runtime:
+  mode: websocket
+  socket_path: ""
+output:
+  format: json
+  no_color: false
+services:
+  service_base_url: https://awiki.ai
+  did_domain: awiki.ai
+  anp_service_endpoint: https://awiki.ai/anp-im/rpc
+  anp_service_did: did:wba:awiki.ai
+  ca_bundle: ""
 ```
 
 默认值说明：
@@ -174,7 +168,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 配置优先级固定为：
 
 ```text
-flag > config.json > default
+flag > config.yaml > default
 ```
 
 > 该文件可选。未创建时所有配置使用默认值。  
@@ -188,28 +182,23 @@ flag > config.json > default
 
 ### 3.3 本地开发配置
 
-连接本地后端服务时，创建如下 `config.json`：
+连接本地后端服务时，创建如下 `config.yaml`：
 
-```json
-{
-  "schema_version": 1,
-  "identity": {
-    "active": "default"
-  },
-  "runtime": {
-    "mode": "websocket"
-  },
-  "services": {
-    "service_base_url": "https://awiki.test",
-    "did_domain": "awiki.test",
-    "anp_service_endpoint": "https://awiki.test/anp-im/rpc",
-    "anp_service_did": "did:wba:awiki.test",
-    "ca_bundle": ""
-  }
-}
+```yaml
+schema_version: 1
+identity:
+  active: default
+runtime:
+  mode: websocket
+services:
+  service_base_url: https://awiki.test
+  did_domain: awiki.test
+  anp_service_endpoint: https://awiki.test/anp-im/rpc
+  anp_service_did: did:wba:awiki.test
+  ca_bundle: ""
 ```
 
-服务地址、运行模式、输出格式、身份默认值都应通过 `config.json` 管理；除了 `AWIKI_CLI_WORKSPACE_HOME_DIR` 以外，不再支持环境变量覆盖这些业务配置。
+服务地址、运行模式、输出格式、身份默认值都应通过 `config.yaml` 管理；除了 `AWIKI_CLI_WORKSPACE_HOME_DIR` 以外，不再支持环境变量覆盖这些业务配置。
 
 ### 3.4 DID 文档中的 ANP Service 约束
 
@@ -254,7 +243,7 @@ identities/
 |----------|------|--------|
 | `AWIKI_CLI_WORKSPACE_HOME_DIR` | 工作区根目录 | `~/.awiki-cli` |
 
-> 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，其他 awiki-cli 配置环境变量已停止支持。若检测到旧变量（例如 `AWIKI_WORKSPACE_HOME`、`AWIKI_USER_SERVICE_URL`、`AVIKI_*`、`E2E_*`），CLI 会直接报错并要求把业务配置迁移到 `config.json`。
+> 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，其他 awiki-cli 配置环境变量已停止支持；它们不会再覆盖 `config.yaml` 中的业务配置。
 
 ---
 
@@ -410,7 +399,7 @@ rm ~/.awiki-cli/data/awiki-cli.db
 
 ### Q: 连接本地后端服务失败
 
-检查 `config.json` 是否正确指向本地服务地址：
+检查 `config.yaml` 是否正确指向本地服务地址：
 
 ```bash
 ./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'

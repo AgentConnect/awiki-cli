@@ -1,19 +1,20 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
 	appName               = "awiki-cli"
-	configFileName        = "config.json"
-	legacyConfigFileName  = "config.yaml"
+	configFileName        = "config.yaml"
+	legacyConfigFileName  = "config.json"
 	legacySkillName       = "awiki-agent-id-message"
 	defaultServiceBaseURL = "https://awiki.ai"
 	defaultDIDDomain      = "awiki.ai"
@@ -91,25 +92,25 @@ type Paths struct {
 }
 
 type FileConfig struct {
-	SchemaVersion int `json:"schema_version,omitempty"`
+	SchemaVersion int `json:"schema_version,omitempty" yaml:"schema_version,omitempty"`
 	Identity      struct {
-		Active string `json:"active"`
-	} `json:"identity"`
+		Active string `json:"active" yaml:"active"`
+	} `json:"identity" yaml:"identity"`
 	Runtime struct {
-		Mode       string `json:"mode"`
-		SocketPath string `json:"socket_path"`
-	} `json:"runtime"`
+		Mode       string `json:"mode" yaml:"mode"`
+		SocketPath string `json:"socket_path" yaml:"socket_path"`
+	} `json:"runtime" yaml:"runtime"`
 	Output struct {
-		Format  string `json:"format"`
-		NoColor *bool  `json:"no_color"`
-	} `json:"output"`
+		Format  string `json:"format" yaml:"format"`
+		NoColor *bool  `json:"no_color" yaml:"no_color"`
+	} `json:"output" yaml:"output"`
 	Services struct {
-		ServiceBaseURL     string `json:"service_base_url"`
-		DIDDomain          string `json:"did_domain"`
-		ANPServiceEndpoint string `json:"anp_service_endpoint"`
-		ANPServiceDID      string `json:"anp_service_did"`
-		CABundle           string `json:"ca_bundle"`
-	} `json:"services"`
+		ServiceBaseURL     string `json:"service_base_url" yaml:"service_base_url"`
+		DIDDomain          string `json:"did_domain" yaml:"did_domain"`
+		ANPServiceEndpoint string `json:"anp_service_endpoint" yaml:"anp_service_endpoint"`
+		ANPServiceDID      string `json:"anp_service_did" yaml:"anp_service_did"`
+		CABundle           string `json:"ca_bundle" yaml:"ca_bundle"`
+	} `json:"services" yaml:"services"`
 }
 
 type EnvHit struct {
@@ -330,7 +331,7 @@ func ReadFileConfig(path string) (FileConfig, bool, error) {
 		}
 		return config, false, err
 	}
-	if err := json.Unmarshal(raw, &config); err != nil {
+	if err := yaml.Unmarshal(raw, &config); err != nil {
 		return config, true, err
 	}
 	return config, true, nil
@@ -397,6 +398,10 @@ func defaultANPServiceDID(didDomain string) string {
 	return "did:wba:" + trimmedDomain
 }
 
+func LegacyConfigPath(paths Paths) string {
+	return filepath.Join(paths.ConfigDir, legacyConfigFileName)
+}
+
 func buildPaths(home string, workspaceHomeDir string) Paths {
 	configDir := workspaceHomeDir
 	dataDir := filepath.Join(workspaceHomeDir, "data")
@@ -421,27 +426,15 @@ func buildPaths(home string, workspaceHomeDir string) Paths {
 }
 
 func validateUnsupportedConfiguration(paths Paths) error {
-	issues := make([]string, 0, 3)
-	if deprecated := collectDeprecatedEnvKeys(); len(deprecated) > 0 {
-		issues = append(issues, fmt.Sprintf(
-			"deprecated environment variables are no longer supported: %s",
-			strings.Join(deprecated, ", "),
-		))
-	}
+	issues := make([]string, 0, 2)
 
-	legacyConfigPath := filepath.Join(paths.ConfigDir, legacyConfigFileName)
-	configJSONExists := fileExists(paths.ConfigFile)
+	legacyConfigPath := LegacyConfigPath(paths)
+	configExists := fileExists(paths.ConfigFile)
 	legacyConfigExists := fileExists(legacyConfigPath)
-	switch {
-	case configJSONExists && legacyConfigExists:
+	if configExists && legacyConfigExists {
 		issues = append(issues, fmt.Sprintf(
-			"found both %s and deprecated %s in the workspace",
+			"found both %s and unsupported legacy %s in the workspace",
 			paths.ConfigFile,
-			legacyConfigPath,
-		))
-	case legacyConfigExists:
-		issues = append(issues, fmt.Sprintf(
-			"deprecated config file %s is no longer supported",
 			legacyConfigPath,
 		))
 	}
@@ -449,7 +442,7 @@ func validateUnsupportedConfiguration(paths Paths) error {
 		issues = append(issues, err.Error())
 	} else if len(deprecatedFields) > 0 {
 		issues = append(issues, fmt.Sprintf(
-			"deprecated config.json fields are no longer supported: %s",
+			"deprecated config.yaml fields are no longer supported: %s",
 			strings.Join(deprecatedFields, ", "),
 		))
 	}
@@ -501,10 +494,10 @@ func collectDeprecatedConfigFields(path string) ([]string, error) {
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read config json for policy validation: %w", err)
+		return nil, fmt.Errorf("read config yaml for policy validation: %w", err)
 	}
 	var parsed map[string]any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	if err := yaml.Unmarshal(raw, &parsed); err != nil {
 		return nil, nil
 	}
 	services, ok := parsed["services"].(map[string]any)

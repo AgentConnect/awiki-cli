@@ -48,6 +48,7 @@ func Detect(ctx context.Context, resolved *appconfig.Resolved, meta *Meta) Detec
 			detection.ConfigSchemaVersion = fileConfig.SchemaVersion
 		}
 	}
+	detection.LegacyConfigExists = fileExists(paths.LegacyConfigFile)
 
 	identityIndexPath := filepath.Join(paths.IdentityDir, identity.IndexFileName)
 	detection.IdentityIndexExists = fileExists(identityIndexPath)
@@ -95,7 +96,7 @@ func Detect(ctx context.Context, resolved *appconfig.Resolved, meta *Meta) Detec
 		detection.LegacySettingsExists = true
 	}
 
-	detection.HasWorkspace = detection.ConfigExists || detection.IdentityIndexExists || detection.DatabaseExists
+	detection.HasWorkspace = detection.ConfigExists || detection.LegacyConfigExists || detection.IdentityIndexExists || detection.DatabaseExists
 	detection.HasLegacy = detection.LegacyIdentityExists || detection.LegacyDatabaseExists || detection.LegacySettingsExists
 	detection.Empty = meta == nil && !detection.HasWorkspace && !detection.HasLegacy
 

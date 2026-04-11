@@ -49,7 +49,7 @@ awiki-cli 不再把本地状态升级拆散到 config、identity、SQLite 三套
 
 awiki-cli 的 live workspace 固定使用单根目录模型：
 
-- config: `~/.awiki-cli/config.json`
+- config: `~/.awiki-cli/config.yaml`
 - identities: `~/.awiki-cli/identities/`
 - sqlite: `~/.awiki-cli/data/awiki-cli.db`
 - cache: `~/.awiki-cli/cache/`
@@ -122,7 +122,7 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 
 ### 4.3 工件局部版本
 
-- `config.json` 顶层新增 `schema_version`
+- `config.yaml` 顶层新增 `schema_version`
 - identity store 继续使用 `index.json.schema_version`
 - SQLite 继续使用 `PRAGMA user_version`
 
@@ -159,7 +159,7 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 1. 加载 `meta.json`
 2. 加载 `upgrade_journal.json`
 3. 检测 awiki-cli live workspace：
-   - `config.json`
+   - `config.yaml`
    - `identities/index.json`
    - `awiki-cli.db`
 4. 检测 Python v1 legacy source：
@@ -193,7 +193,7 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 
 备份范围：
 
-- `config.json`
+- `config.yaml`
 - `identities/`
 - `awiki-cli.db`
 - `meta.json`
@@ -241,15 +241,16 @@ type Migration interface {
 
 首版 `workspace 0 -> 1` 的职责：
 
-1. 给现有 `config.json` 补写 `schema_version: 1`
-2. 若当前没有 awiki-cli config，但存在 legacy `settings.json`，则从中导入：
+1. 若当前已存在 canonical `config.yaml`，则补写/规范化 `schema_version: 1`
+2. 若当前工作区仍保留旧版 awiki-cli 的 `config.json`，则在首次升级时迁移到 canonical `config.yaml`
+3. 若当前没有 awiki-cli config，但存在 legacy `settings.json`，则从中导入：
    - `services.service_base_url`
    - `services.did_domain`
    - `runtime.mode`（由 legacy `message_transport.receive_mode` 推导）
-3. 若当前没有 awiki-cli live workspace，但存在 legacy identities，则导入到 awiki-cli 单根目录 identity store
-4. 若当前没有 awiki-cli live workspace，但存在 legacy sqlite，则导入到 `awiki-cli.db`
-5. 若本次从 Python v1 导入的 identity 中存在 handle 形态的 `k1_...` DID，则自动调用 `POST /did-auth/rpc` 的内部方法 `replace_did`，把其替换为新的 `e1_...` DID，并同步重绑本地 SQLite `owner_did`
-6. 校验 config schema 与 SQLite schema 正确后，写入 `meta.json`
+4. 若当前没有 awiki-cli live workspace，但存在 legacy identities，则导入到 awiki-cli 单根目录 identity store
+5. 若当前没有 awiki-cli live workspace，但存在 legacy sqlite，则导入到 `awiki-cli.db`
+6. 若本次从 Python v1 导入的 identity 中存在 handle 形态的 `k1_...` DID，则自动调用 `POST /did-auth/rpc` 的内部方法 `replace_did`，把其替换为新的 `e1_...` DID，并同步重绑本地 SQLite `owner_did`
+7. 校验 config schema 与 SQLite schema 正确后，写入 `meta.json`
 
 明确不做：
 
