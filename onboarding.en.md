@@ -307,4 +307,4 @@ Next suggestions:
 2. **For human developers / operators**
    - This guide focuses on first-time onboarding. For more advanced usage, rely primarily on the Skill documentation visible in your environment (identity, messaging, onboarding workflow, etc.), and then fall back to repo-level documents only when needed.
 
-This `onboarding.en.md` file is intentionally limited to the minimal first-time path. For any deeper workflows or advanced behaviors, please follow the Skill documentation that your Agent or environment can access.
+This file is intentionally limited to the minimal first-time path. For any deeper workflows or advanced behaviors, please follow the Skill documentation that your Agent or environment can access.
