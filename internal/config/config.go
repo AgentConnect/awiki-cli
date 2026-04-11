@@ -149,6 +149,7 @@ type FileConfig struct {
 		ANPServiceEndpoint string `json:"anp_service_endpoint" yaml:"anp_service_endpoint"`
 		ANPServiceDID      string `json:"anp_service_did" yaml:"anp_service_did"`
 		CABundle           string `json:"ca_bundle" yaml:"ca_bundle"`
+		MailServiceURL     string `json:"mail_service_url,omitempty" yaml:"mail_service_url,omitempty"`
 	} `json:"services" yaml:"services"`
 	Update struct {
 		DisableStrictVersion    bool `json:"disable_strict_version" yaml:"disable_strict_version"`
@@ -192,6 +193,7 @@ type Resolved struct {
 	DIDDomain                     string                 `json:"did_domain"`
 	ANPServiceEndpoint            string                 `json:"anp_service_endpoint"`
 	ANPServiceDID                 string                 `json:"anp_service_did"`
+	MailServiceURL                string                 `json:"mail_service_url"`
 	CABundle                      string                 `json:"ca_bundle,omitempty"`
 	UpdateDisableStrictVersion    bool                   `json:"update_disable_strict_version"`
 	UpdateMetadataCacheTTLSeconds int                    `json:"update_metadata_cache_ttl_seconds"`
@@ -437,6 +439,23 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 			Value:  resolved.ANPServiceDID,
 		}
 	}
+
+	// Mail service URL derives from explicit config if present, otherwise from service_base_url.
+	mailServiceURL := strings.TrimSpace(fileConfig.Services.MailServiceURL)
+	mailServiceSource := ValueSource{
+		Source: "derived_default",
+		Key:    "service_base_url",
+		Value:  resolved.ServiceBaseURL,
+	}
+	if mailServiceURL != "" {
+		mailServiceURL = NormalizeBaseURL(mailServiceURL)
+		mailServiceSource = ValueSource{Source: "config_file", Value: mailServiceURL}
+	} else {
+		mailServiceURL = resolved.ServiceBaseURL
+	}
+	resolved.MailServiceURL = mailServiceURL
+	resolved.Sources["mail_service_url"] = mailServiceSource
+
 	resolved.CABundle, resolved.Sources["ca_bundle"] = chooseValue(
 		"",
 		false,
@@ -490,6 +509,7 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"did_domain":                        resolved.DIDDomain,
 		"anp_service_endpoint":              resolved.ANPServiceEndpoint,
 		"anp_service_did":                   resolved.ANPServiceDID,
+		"mail_service_url":                  resolved.MailServiceURL,
 		"ca_bundle":                         resolved.CABundle,
 		"update_disable_strict_version":     resolved.UpdateDisableStrictVersion,
 		"update_metadata_cache_ttl_seconds": resolved.UpdateMetadataCacheTTLSeconds,

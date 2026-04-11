@@ -27,3 +27,4 @@ services:
   anp_service_endpoint: https://awiki.ai/anp-im/rpc
   anp_service_did: did:wba:awiki.ai
   ca_bundle: ""
+  mail_service_url: https://mail.awiki.ai
