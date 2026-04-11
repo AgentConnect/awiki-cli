@@ -26,6 +26,10 @@ func (a *App) runtimeExit(err error, hint string) error {
 	if err == nil {
 		return nil
 	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
+	}
 	switch {
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before starting realtime runtime.")
@@ -37,7 +41,7 @@ func (a *App) runtimeExit(err error, hint string) error {
 }
 
 func (a *App) runRuntimeStatus(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -55,7 +59,7 @@ func (a *App) runRuntimeStatus(cmd *cobra.Command, args []string) error {
 
 func (a *App) runRuntimeSetup(cmd *cobra.Command, args []string) error {
 	mode, _ := cmd.Flags().GetString("mode")
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -68,16 +72,17 @@ func (a *App) runRuntimeSetup(cmd *cobra.Command, args []string) error {
 	format := normalizedFormat(runtimeFormat(resolved))
 	if a.globals.DryRun {
 		data := map[string]any{"plan": map[string]any{
-			"action":        "runtime_setup",
-			"mode":          mode,
-			"state_dir":     resolved.Paths.StateDir,
-			"database_file": resolved.Paths.DatabaseFile,
-			"writes":        []string{resolved.Paths.ConfigFile, resolved.Paths.DatabaseFile},
+			"action":         "runtime_setup",
+			"mode":           mode,
+			"workspace_home": resolved.Paths.WorkspaceHomeDir,
+			"runtime_dir":    resolved.Paths.StateDir,
+			"database_file":  resolved.Paths.DatabaseFile,
+			"writes":         []string{resolved.Paths.ConfigFile, resolved.Paths.DatabaseFile},
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime setup planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.json under the awiki-cli work directory.")
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
 	}
 	db, err := store.Open(resolved.Paths)
 	if err != nil {
@@ -96,7 +101,7 @@ func (a *App) runRuntimeSetup(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runRuntimeModeGet(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -113,7 +118,7 @@ func (a *App) runRuntimeModeSet(cmd *cobra.Command, args []string) error {
 	if mode != runtimecfg.ModeHTTP && mode != runtimecfg.ModeWebSocket {
 		return output.NewExitError("invalid_argument", 2, "unsupported runtime mode", "Use runtime mode set http or runtime mode set websocket.")
 	}
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -127,7 +132,7 @@ func (a *App) runRuntimeModeSet(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: runtime mode change planned", nil, identityMetaFromResolved(resolved))
 	}
 	if err := appconfig.UpdateRuntimeSettings(resolved.Paths, mode, resolved.RuntimeSocketPath); err != nil {
-		return a.runtimeExit(err, "Check write permissions for config.json under the awiki-cli work directory.")
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
 	}
 	data := map[string]any{
 		"action": "runtime_mode_set",
@@ -137,7 +142,7 @@ func (a *App) runRuntimeModeSet(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runRuntimeListenerStatus(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -151,7 +156,7 @@ func (a *App) runRuntimeListenerStatus(cmd *cobra.Command, args []string) error 
 }
 
 func (a *App) runRuntimeListenerStart(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -173,7 +178,7 @@ func (a *App) runRuntimeListenerStart(cmd *cobra.Command, args []string) error {
 }
 
 func (a *App) runRuntimeListenerStop(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -187,14 +192,14 @@ func (a *App) runRuntimeListenerStop(cmd *cobra.Command, args []string) error {
 	}
 	status, err := listenerrt.Stop(resolved)
 	if err != nil {
-		return a.runtimeExit(err, "Check the pid file and socket path under the awiki-cli tmp/runtime directory.")
+		return a.runtimeExit(err, "Check the pid file and socket path under ~/.awiki-cli/runtime.")
 	}
 	data := map[string]any{"listener": status}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Listener stopped", status.Warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeListenerRestart(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
@@ -224,7 +229,7 @@ func (a *App) runRuntimeListenerUninstall(cmd *cobra.Command, args []string) err
 }
 
 func (a *App) runRuntimeListenerRun(cmd *cobra.Command, args []string) error {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return err
 	}

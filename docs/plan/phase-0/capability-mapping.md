@@ -101,7 +101,7 @@
 
 | 阶段 | 先实现的域 | 主要参考 |
 |---|---|---|
-| Phase 1 | CLI 壳、`status/docs/schema/doctor/version/completion/config` | `../cli/` + v2 架构文档 |
+| Phase 1 | CLI 壳、`status/docs/schema/doctor/version/init/completion/config` | `../cli/` + v2 架构文档 |
 | Phase 2 | `id` + identity store + credential import | `setup_identity.py` / `register_handle.py` / `bind_contact.py` / `credential_layout.py` |
 | Phase 3 | SQLite schema + migration | `local_store.py` / `database_migration.py` / `local-store-schema.md` |
 | Phase 4 | `msg` + `group` plain path | `send_message.py` / `check_inbox.py` / `manage_group.py` + message/group API docs |

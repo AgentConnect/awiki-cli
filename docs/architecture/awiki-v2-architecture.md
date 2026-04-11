@@ -11,6 +11,10 @@
 
 本文档用于定义 awiki v2 的目标架构、核心设计原则、分层模型、技术选型、分发方案与迁移路径。
 
+与本地 config / identity store / SQLite / legacy 导入有关的升级编排设计，见：
+
+- `docs/architecture/local-state-upgrade.md`
+
 本文档重点回答以下问题：
 
 1. awiki v2 要解决什么问题，边界在哪里  
@@ -736,7 +740,7 @@ CLI 与 skill 体系必须保证：
 必须以下列规则为准：
 - DID 文档内嵌 W3C / Data Integrity proof 的 `proofPurpose` 默认值由 SDK 决定；当前注册、更新、恢复等文档断言场景统一使用 `assertionMethod`
 - group receipt proof 的 `proofPurpose` 默认值由 SDK 决定；上层不得改单条 receipt 的默认语义
-- IM proof 的默认 covered components、`contentDigest`、`signatureInput` 生成规则由 SDK 决定；业务层只能提供 signature base 所需业务参数，不能私自改默认组件集
+- RFC 9421 origin proof 的默认 covered components、`contentDigest`、`signatureInput`、logical target URI 生成规则由 SDK 决定；业务层只能提供业务参数，不能私自改默认组件集
 
 允许上层做的只有：
 - 传入业务数据，例如 DID path、handle、group DID、message body、logical target URI

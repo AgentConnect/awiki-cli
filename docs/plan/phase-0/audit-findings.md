@@ -71,29 +71,30 @@
 
 - 在总体架构附录中把 `api` 标注为 reserve / non-phase-1
 
-### AF-003：环境变量前缀 `AVIKI_*` vs `AWIKI_*` vs `E2E_*`
+### AF-003：配置入口过多，工作区与业务配置来源分裂
 
 **证据**：
 
-- `docs/architecture/awiki-command-v2.md` 使用 `AVIKI_*`
-- `../awiki-agent-id-message/` 现有实现、README、测试广泛使用 `AWIKI_*`
-- 旧兼容环境中仍存在 `E2E_*`
+- 历史文档同时出现 `AWIKI_*`、`AVIKI_*`、`E2E_*`
+- 工作区路径和业务配置都可以通过环境变量注入
+- 主配置文件历史上使用 `config.yaml`
 
 **裁决**：
 
-- canonical 前缀冻结为 **`AWIKI_*`**；
-- `AVIKI_*` 与 `E2E_*` 统一视为 legacy / 历史兼容前缀，不再作为 v2 CLI 的正式环境变量集合；
-- v2 实现只暴露少量 `AWIKI_*`（`AWIKI_HOME` / `AWIKI_IDENTITY` / `AWIKI_RUNTIME_MODE` / `AWIKI_FORMAT` / `AWIKI_NO_COLOR`），其余长期配置统一通过 `config.json` 管理。
+- 唯一保留的环境变量是 **`AWIKI_CLI_WORKSPACE_HOME_DIR`**
+- 所有业务配置统一写入 **`config.yaml`**
+- 目录级 override 环境变量全部废弃
+- 旧变量与旧 `config.json` 全部停止兼容，检测到即报错
 
 **原因**：
 
-- `AWIKI_*` 与产品命名一致；
-- 在保留 v1 历史行为可读性的前提下，尽量收敛 v2 的公开环境变量面，减少用户心智负担；
-- 强制把后端域名等长期配置迁移到 `config.json`，避免继续依赖大量 env 组合。
+- 避免多入口导致的配置漂移
+- 让工作区定位和业务配置边界清晰
+- 降低排障成本，形成单一事实来源
 
 **后续动作**：
 
-- 同步命令文档与主计划文档的相关章节，并在配置/工作目录改造文档中明确新的环境变量收敛方案。
+- 同步命令文档、安装文档和实现计划中的配置约束描述
 
 ### AF-004：用户层术语 `identity` 与存储层术语 `credential` 不一致
 
@@ -139,28 +140,28 @@
 
 - 后补同步 `local-store-schema.md`
 
-### AF-006：工作目录方案 vs `.openclaw` 旧路径冲突
+### AF-006：单根目录工作区 vs `.openclaw` 旧路径冲突
 
 **证据**：
 
-- 早期 v2 文档曾按 XDG 路径设计；
-- v1 Python CLI 实际使用 `~/.openclaw/credentials/awiki-agent-id-message/` 与 `~/.openclaw/workspace/data/awiki-agent-id-message/`；
-- Phase 0 之后的配置/工作目录改造文档已经将 v2 原生路径收敛为单一 `AWIKI_HOME` 工作目录。
+- v2 文档要求单根目录工作区路径
+- v1 Python CLI 实际使用 `~/.openclaw/credentials/awiki-agent-id-message/` 与 `~/.openclaw/workspace/data/awiki-agent-id-message/`
 
 **裁决**：
 
-- v2 原生写入改为单一工作目录 `AWIKI_HOME`（见 implementation-constraints 5.1），根目录解析规则为：`AWIKI_HOME` 环境变量优先，其次使用默认根（`$HOME/.awiki-cli` / `%LOCALAPPDATA%\AwikiCli`），不再通过 `home.json` 指针跳转；  
-- `doctor` / `runtime setup` / `migrate from-v1` 负责检测 `.openclaw` 旧路径；
-- 默认只提示导入，不原地修改旧数据。
+- v2 原生写入 `~/.awiki-cli/` 工作区
+- `AWIKI_CLI_WORKSPACE_HOME_DIR` 是唯一工作区根目录环境变量入口
+- `doctor` / `runtime setup` / `migrate from-v1` 负责检测旧路径
+- 默认只提示导入，不原地修改旧数据
 
 **原因**：
 
-- 统一工作目录比分散的多根 XDG 路径更易于理解、备份和迁移；
-- 清晰区分 v2 新布局与 v1 遗留目录，降低误改旧环境的风险。
+- 清晰区分 v2 新布局与 v1 遗留目录
+- 降低误改旧环境的风险
 
 **后续动作**：
 
-- 在 migration 和 doctor 中提供显式旧路径检测结果，并确保实现使用 `AWIKI_HOME` 作为唯一新写入根目录。
+- 在 migration 和 doctor 中提供显式旧路径检测结果
 
 ### AF-007：Go 兼容性策略新增要求——禁止 CGO
 

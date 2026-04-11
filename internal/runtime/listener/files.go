@@ -14,7 +14,10 @@ import (
 
 func paths(resolved *appconfig.Resolved) (pidFile string, logFile string, statusFile string, socketPath string, err error) {
 	bridge := runtime.Resolve(resolved)
-	stateRoot := filepath.Join(resolved.Paths.StateDir, "runtime")
+	stateRoot := strings.TrimSpace(resolved.Paths.StateDir)
+	if stateRoot == "" {
+		stateRoot = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime")
+	}
 	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
 		return "", "", "", "", fmt.Errorf("create runtime state dir: %w", err)
 	}

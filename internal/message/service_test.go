@@ -68,9 +68,8 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 			StateDir:             filepath.Join(root, "state"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 		},
-		UserServiceURL:    "https://awiki.test",
-		MessageServiceURL: "https://awiki.test",
-		DIDDomain:         "awiki.ai",
+		ServiceBaseURL: "https://awiki.test",
+		DIDDomain:      "awiki.ai",
 	}
 }
 

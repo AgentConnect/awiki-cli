@@ -93,7 +93,7 @@ awiki-cli docs [TOPIC]
 awiki-cli schema [COMMAND]
 awiki-cli doctor
 awiki-cli version
-awiki-cli init [--home PATH]
+awiki-cli init
 awiki-cli completion <bash|zsh|fish|powershell>
 
 awiki-cli id status
@@ -108,10 +108,13 @@ awiki-cli id use alice
 awiki-cli id profile get [--self | --handle alice | --did did:wba:...]
 awiki-cli id profile set [--display-name "Alice"] [--bio "..."] [--tags "ai,did,agent"] [--markdown "# About Me"] [--markdown-file ./profile.md]
 
-awiki-cli msg send (--to TARGET | --group GROUP_DID) [--text "Hello"] [--text-file ./message.txt] [--type text|event] [--secure off|on] [--identity alice]
+awiki-cli msg send (--to TARGET | --group GROUP_DID) [--text "Hello"] [--text-file ./message.txt] [--file ./hello.txt] [--mime-type text/plain] [--type text|event] [--secure off|on] [--identity alice]
+awiki-cli msg attachment download (--with TARGET | --group GROUP_DID) --message-id MSG_ID [--attachment-id ATTACHMENT_ID] --output ./downloads/file.bin [--identity alice]
 awiki-cli msg inbox [--scope all|direct|group] [--with TARGET] [--group GROUP_DID] [--unread] [--limit 20] [--mark-read] [--identity alice]
 awiki-cli msg history --with TARGET [--limit 50] [--cursor CURSOR] [--identity alice]
 awiki-cli msg mark-read MSG_ID...
+
+`msg attachment download` 会按 `message_id` 分页扫描 direct history 或 group messages，直到命中目标附件消息，而不是只检查最新一页结果。
 
 awiki-cli group create --name "Agent War Room" [--description "..."] [--discoverability private|listed|public] [--admission-mode admin-add|open-join] [--slug agent-war-room] [--goal "..."] [--rules "..."] [--message-prompt "..."] [--doc-url "https://..."] [--attachments-allowed] [--max-members 500] [--member-max-messages 10] [--member-max-total-chars 2000] [--identity alice]
 awiki-cli group get --group GROUP_DID [--identity alice]
@@ -184,7 +187,7 @@ awiki-cli debug logs [--follow]
 
 ```bash
 awiki-cli docs [TOPIC]
-awiki-cli init [--home PATH]
+awiki-cli init
 awiki-cli completion <bash|zsh|fish|powershell>
 ```
 
@@ -192,8 +195,8 @@ awiki-cli completion <bash|zsh|fish|powershell>
 
 `init` 作为显式初始化命令，用于：
 
-* 帮用户创建工作目录（默认是 `~/.awiki-cli`，或由 `AWIKI_HOME` 指定）及其子目录；
-* 在首次需要时生成一份最小的 `config.json` 骨架；
+* 帮用户创建工作目录（默认是 `~/.awiki-cli`，仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区根目录覆盖）及其子目录；
+* 在首次需要时生成一份最小的 `config.yaml` 骨架；
 
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 
@@ -647,30 +650,43 @@ type CommandSpec struct {
 
 ## 9.1 新的目录规范
 
-我建议 Go CLI 进入 XDG 风格：
+我建议 Go CLI 进入单根目录工作区模型：
 
 ```text
-~/.config/awiki-cli/config.yaml
-~/.config/awiki-cli/identities/index.json
-~/.config/awiki-cli/identities/<name>/
-~/.local/share/awiki-cli/awiki-cli.db
-~/.local/state/awiki-cli/
-~/.cache/awiki-cli/
+~/.awiki-cli/
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/cache/
+~/.awiki-cli/runtime/
+~/.awiki-cli/upgrade/
 ```
 
-环境变量：
+其中：
+
+- `~/.awiki-cli/runtime/` 用于 runtime socket / listener 状态
+- `~/.awiki-cli/upgrade/` 用于 workspace upgrade 元数据、lock、journal、备份
+
+唯一支持的工作区环境变量：
 
 ```text
-AVIKI_CONFIG_DIR
-AVIKI_DATA_DIR
-AVIKI_STATE_DIR
-AVIKI_CACHE_DIR
-AVIKI_IDENTITY
-AVIKI_FORMAT
-AVIKI_NO_COLOR
-AVIKI_USER_SERVICE_URL
-AVIKI_MESSAGE_SERVICE_URL
-AVIKI_DID_DOMAIN
+AWIKI_CLI_WORKSPACE_HOME_DIR
+```
+
+## 9.2 配置入口收口
+
+awiki-cli 当前的配置入口收口为：
+
+- 仅允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` 决定工作区根目录
+- 用户主配置文件固定为 `config.yaml`
+- `config / data / runtime / cache` 全部从工作区根目录派生
+- 其他 awiki-cli 配置环境变量全部停止支持
+- 若检测到旧环境变量或旧 `config.json`，CLI 直接报错并要求迁移
+
+读取优先级固定为：
+
+```text
+flag > config.yaml > default
 ```
 
 ## 9.3 安全规则
@@ -683,7 +699,7 @@ AVIKI_DID_DOMAIN
 * 不通过消息自动执行本地动作
 * 不把本机文件、目录、系统信息通过消息外发
 * 所有协议级默认安全语义必须以底层 AgentConnect / ANP SDK 为准，命令层不得 override
-* 典型冻结项包括：DID 文档 proof 的 `proofPurpose`、group receipt 的 `proofPurpose`、IM proof 的默认 covered components
+* 典型冻结项包括：DID 文档 proof 的 `proofPurpose`、group receipt 的 `proofPurpose`、RFC 9421 origin proof 的默认 covered components
 * 若确实需要改变这些默认语义，必须先升级或扩展 SDK，而不是在 `awiki-cli` 仓库内单独改常量
 
 这些是原 skill 里最重要的安全边界，Go CLI 不应弱化。

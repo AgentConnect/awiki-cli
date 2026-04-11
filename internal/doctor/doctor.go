@@ -11,6 +11,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/upgrade"
 )
 
 type Check struct {
@@ -38,9 +39,11 @@ func Run(resolved *config.Resolved) Report {
 		buildCheck(resolved),
 		configFileCheck(resolved),
 		envCheck(resolved),
+		anpServiceCheck(resolved),
 		runtimeCheck(resolved),
 		identityStoreCheck(resolved),
 		sqliteCheck(resolved),
+		upgradeStateCheck(resolved),
 		legacyCheck(resolved),
 	}
 	counts := Counts{}
@@ -87,12 +90,58 @@ func buildCheck(resolved *config.Resolved) Check {
 	}
 }
 
+func upgradeStateCheck(resolved *config.Resolved) Check {
+	inspection, err := upgrade.Inspect(context.Background(), resolved, buildinfo.Version)
+	if err != nil {
+		paths := upgrade.ResolvePaths(resolved)
+		return Check{
+			Name:    "workspace_upgrade",
+			Status:  "error",
+			Summary: "Workspace upgrade state inspection failed",
+			Details: map[string]any{
+				"meta_path":    paths.MetaPath,
+				"journal_path": paths.JournalPath,
+				"error":        err.Error(),
+			},
+		}
+	}
+	status := "ok"
+	summary := "Workspace upgrade metadata is up to date"
+	if inspection.Journal != nil {
+		status = "warn"
+		summary = "Workspace upgrade journal indicates an interrupted upgrade"
+	} else if inspection.Meta != nil && len(inspection.Meta.Warnings) > 0 {
+		status = "warn"
+		summary = "Workspace upgrade completed with migration warnings"
+	} else if inspection.Detection.CurrentVersion < inspection.Detection.LatestVersion {
+		status = "warn"
+		summary = "Workspace data still needs to be upgraded"
+	} else if inspection.Detection.CurrentVersionSource == "legacy_detector" {
+		status = "warn"
+		summary = "Workspace upgrade metadata has not been initialized yet"
+	}
+	return Check{
+		Name:    "workspace_upgrade",
+		Status:  status,
+		Summary: summary,
+		Details: map[string]any{
+			"meta":      inspection.Meta,
+			"journal":   inspection.Journal,
+			"detection": inspection.Detection,
+		},
+	}
+}
+
 func configFileCheck(resolved *config.Resolved) Check {
 	status := "warn"
 	summary := "No config file found yet"
 	if resolved.ConfigExists {
 		status = "ok"
 		summary = "Config file loaded"
+	}
+	if resolved.ConfigExists && resolved.ConfigSchemaVersion < config.ConfigSchemaVersion {
+		status = "warn"
+		summary = "Config file exists but schema version is not current"
 	}
 	if resolved.ConfigError != "" {
 		status = "error"
@@ -103,33 +152,20 @@ func configFileCheck(resolved *config.Resolved) Check {
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"path":   resolved.Paths.ConfigFile,
-			"exists": resolved.ConfigExists,
-			"error":  resolved.ConfigError,
+			"path":           resolved.Paths.ConfigFile,
+			"exists":         resolved.ConfigExists,
+			"schema_version": resolved.ConfigSchemaVersion,
+			"error":          resolved.ConfigError,
 		},
 	}
 }
 
 func envCheck(resolved *config.Resolved) Check {
 	status := "info"
-	summary := "No environment overrides detected"
-	aliasHits := 0
-	legacyHits := 0
-	for _, hit := range resolved.EnvHits {
-		if hit.Tier == "draft_alias_env" {
-			aliasHits++
-		}
-		if hit.Tier == "legacy_env" {
-			legacyHits++
-		}
-	}
+	summary := "No workspace environment override detected"
 	if len(resolved.EnvHits) > 0 {
 		status = "ok"
-		summary = "Environment overrides detected"
-	}
-	if aliasHits > 0 || legacyHits > 0 {
-		status = "warn"
-		summary = "Compatibility environment variables are in use"
+		summary = "Workspace environment override detected"
 	}
 	return Check{
 		Name:    "environment",
@@ -160,6 +196,33 @@ func runtimeCheck(resolved *config.Resolved) Check {
 	}
 }
 
+func anpServiceCheck(resolved *config.Resolved) Check {
+	status := "ok"
+	summary := "ANP service discovery fields are ready for DID generation"
+	details := map[string]any{
+		"anp_service_endpoint": resolved.ANPServiceEndpoint,
+		"anp_service_did":      resolved.ANPServiceDID,
+	}
+	if err := identity.ValidateANPServiceEndpoint(resolved.ANPServiceEndpoint); err != nil {
+		status = "error"
+		summary = "ANP service endpoint is invalid for public DID discovery"
+		details["endpoint_error"] = err.Error()
+	}
+	if err := identity.ValidateANPServiceDID(resolved.ANPServiceDID); err != nil {
+		if status != "error" {
+			status = "error"
+			summary = "ANP service DID is invalid for public DID discovery"
+		}
+		details["service_did_error"] = err.Error()
+	}
+	return Check{
+		Name:    "anp_service",
+		Status:  status,
+		Summary: summary,
+		Details: details,
+	}
+}
+
 func identityStoreCheck(resolved *config.Resolved) Check {
 	manager := identity.NewManager(resolved.Paths)
 	indexPath := filepath.Join(resolved.Paths.IdentityDir, identity.IndexFileName)
@@ -177,9 +240,21 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 		summary = "Identity index exists but failed to parse"
 	}
 	current, currentErr := manager.Current()
+	identities, listErr := manager.List()
+	legacyK1DIDs := make([]string, 0)
+	if listErr == nil {
+		for _, summaryItem := range identities {
+			if identity.IsK1DID(summaryItem.DID) {
+				legacyK1DIDs = append(legacyK1DIDs, summaryItem.DID)
+			}
+		}
+	}
 	if currentErr != nil && !errors.Is(currentErr, identity.ErrNoDefaultIdentity) && len(index.Credentials) > 0 {
 		status = "error"
 		summary = "Identity index is missing a valid default identity"
+	} else if len(legacyK1DIDs) > 0 {
+		status = "warn"
+		summary = "Identity store still contains legacy k1 DID material"
 	} else if current != nil && !current.UserState.ReadyForMessaging {
 		status = "warn"
 		summary = "Default identity is local-only and cannot be used for messaging yet"
@@ -197,6 +272,8 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 			"default_identity": current,
 			"user_state":       defaultIdentityUserState(current),
 			"index_error":      errorText(indexErr),
+			"list_error":       errorText(listErr),
+			"legacy_k1_dids":   legacyK1DIDs,
 		},
 	}
 }

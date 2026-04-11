@@ -12,11 +12,11 @@ import (
 func TestResolveShortensLongSocketPath(t *testing.T) {
 	t.Parallel()
 
-	longStateDir := filepath.Join("/tmp", strings.Repeat("very-long-runtime-dir-", 10))
+	longWorkspaceHome := filepath.Join("/tmp", strings.Repeat("very-long-runtime-dir-", 10))
 	resolved := Resolve(&appconfig.Resolved{
 		RuntimeMode: "websocket",
 		Paths: appconfig.Paths{
-			StateDir: longStateDir,
+			StateDir: longWorkspaceHome,
 		},
 	})
 	if resolved.Mode != ModeWebSocket {
@@ -37,10 +37,19 @@ func TestResolveKeepsShortSocketPath(t *testing.T) {
 		RuntimeMode:       "websocket",
 		RuntimeSocketPath: "/tmp/custom-awiki.sock",
 		Paths: appconfig.Paths{
-			StateDir: "/tmp/state",
+			StateDir: "/tmp/.awiki-cli/runtime",
 		},
 	})
 	if resolved.SocketPath != "/tmp/custom-awiki.sock" {
 		t.Fatalf("resolved.SocketPath = %q, want /tmp/custom-awiki.sock", resolved.SocketPath)
+	}
+}
+
+func TestResolveDefaultsToWebSocketMode(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(nil)
+	if resolved.Mode != ModeWebSocket {
+		t.Fatalf("resolved.Mode = %q, want %q", resolved.Mode, ModeWebSocket)
 	}
 }

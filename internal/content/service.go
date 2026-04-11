@@ -267,11 +267,16 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 		record.JWTToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
-	session.SetBearer(s.config.UserServiceURL, record.JWTToken)
+	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
+	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if _, err := session.EnsureJWT(ctx, s.remote.Client(), strings.TrimRight(s.config.UserServiceURL, "/")+didAuthRPCEndpoint); err != nil {
+		if _, err := session.EnsureJWT(
+			ctx,
+			s.remote.Client(),
+			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+		); err != nil {
 			var httpErr *authsdk.HTTPError
 			if errors.As(err, &httpErr) {
 				return nil, &identityServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}

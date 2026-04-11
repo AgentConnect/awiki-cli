@@ -30,6 +30,7 @@ awiki-cli v2 的实施目标是：
 | 类别 | 路径 | 用途 |
 |---|---|---|
 | 总体架构 | `docs/architecture/awiki-v2-architecture.md` | v2 总体分层、域模型、runtime、安全、发布 |
+| 本地状态升级 | `docs/architecture/local-state-upgrade.md` | workspace schema、meta/journal、backup、legacy 导入与统一升级入口 |
 | 命令与执行方案 | `docs/architecture/awiki-command-v2.md` | 最终命令树、参数、输出、目录、阶段划分 |
 | 输出契约 | `docs/architecture/output-format.md` | JSON envelope、dry-run、schema、exit code |
 | 飞书 CLI 参考 | `../cli/` | Cobra 命令组织、schema/doctor/completion、skills、shortcuts、发布 |
@@ -101,19 +102,21 @@ awiki-cli v2 的实施目标是：
 - 支持：`--jq`
 - exit code 与错误码统一收敛到 v2 新协议。
 
-### 2.5 环境变量冻结
+### 2.5 配置入口冻结
 
 存在一个已发现冲突：
 
-- v2 命令文档当前使用 `AVIKI_*`
-- v1 Python CLI 当前使用 `AWIKI_*`
-- 旧环境还有 `E2E_*`
+- 历史文档里同时存在多套环境变量前缀
+- 工作区路径与业务配置都曾允许环境变量注入
+- 主配置文件历史上使用 `config.yaml`
 
 实现规划采用以下冻结规则：
 
-- **v2 新变量 canonical 名称使用 `AVIKI_*`**（遵循当前 v2 命令文档）
-- **兼容读取旧变量**：`AWIKI_*` 与 `E2E_*`
-- doctor 需要显式提示当前命中的来源与优先级，避免隐式混用
+- **仅保留 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量入口**
+- **所有业务配置统一收口到 `config.yaml`**
+- **旧变量（`AWIKI_*` / `AVIKI_*` / `E2E_*`）全部停止兼容读取**
+- **检测到旧变量或旧 `config.json` 时，CLI 直接报错并要求迁移**
+- doctor 需要显式提示当前工作区来源与主配置文件路径
 
 ### 2.6 参考基线冻结
 
@@ -126,7 +129,7 @@ awiki-cli v2 的实施目标是：
 这些问题不阻塞规划，但必须在 Phase 0 记录为审计任务：
 
 1. `local-store-schema.md` 当前未列出 `e2ee_outbox`，但 `local_store.py` 中该表是权威存在的。
-2. v2 文档使用 `AVIKI_*`，v1 实际环境使用 `AWIKI_*`，需要在实现层做兼容。
+2. 历史环境变量入口已废弃，后续实现只允许 `AWIKI_CLI_WORKSPACE_HOME_DIR` + `config.yaml`。
 3. E2EE 协议文档存在历史冲突，v2 必须先冻结具体协议再编码实现。
 
 ---
@@ -189,7 +192,7 @@ awiki-cli v2 的实施目标是：
 | `internal/cli` | Cobra 命令树、flag 绑定、命令执行入口 |
 | `internal/cmdmeta` | 命令元数据、schema/help/docs 生成的单一事实来源 |
 | `internal/output` | JSON envelope、pretty/table/ndjson、错误输出、_notice |
-| `internal/config` | XDG 路径、env 兼容、配置加载、默认 identity 选择 |
+| `internal/config` | 单根目录工作区路径、env 兼容、配置加载、默认 identity 选择 |
 | `internal/identity` | DID、注册、绑定、恢复、profile、多 identity 管理 |
 | `internal/messaging` | direct/group 消息收发、history、mark-read |
 | `internal/group` | group 生命周期与本地快照管理 |
@@ -216,19 +219,23 @@ v2 的 identity 存储设计，参考以下实现：
 
 #### 4.1.1 目录布局基线
 
-v2 采用 XDG 目录，但 identity 内部文件布局继续参考 v1 的 indexed multi-credential layout：
+v2 采用单根目录工作区模型，identity 内部文件布局继续参考 v1 的 indexed multi-credential layout：
 
 ```text
-~/.config/awiki-cli/config.yaml
-~/.config/awiki-cli/identities/index.json
-~/.config/awiki-cli/identities/<identity-dir>/identity.json
-~/.config/awiki-cli/identities/<identity-dir>/auth.json
-~/.config/awiki-cli/identities/<identity-dir>/did_document.json
-~/.config/awiki-cli/identities/<identity-dir>/key-1-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/key-1-public.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-signing-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-agreement-private.pem
-~/.config/awiki-cli/identities/<identity-dir>/e2ee-state.json
+~/.awiki-cli/config.yaml
+~/.awiki-cli/identities/index.json
+~/.awiki-cli/identities/<identity-dir>/identity.json
+~/.awiki-cli/identities/<identity-dir>/auth.json
+~/.awiki-cli/identities/<identity-dir>/did_document.json
+~/.awiki-cli/identities/<identity-dir>/key-1-private.pem
+~/.awiki-cli/identities/<identity-dir>/key-1-public.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-signing-private.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-agreement-private.pem
+~/.awiki-cli/identities/<identity-dir>/e2ee-state.json
+~/.awiki-cli/data/awiki-cli.db
+~/.awiki-cli/runtime/
+~/.awiki-cli/cache/
+~/.awiki-cli/upgrade/
 ```
 
 #### 4.1.2 index.json 基线
@@ -368,7 +375,7 @@ v2 本地 SQLite 设计参考以下来源：
    - v2 文档与 v1 Python 行为差异
    - v2 文档与 API 文档差异
 4. 明确 E2EE 协议冻结结果。
-5. 明确环境变量兼容顺序与 XDG 目录规则。
+5. 明确环境变量兼容顺序与单根目录工作区规则。
 
 **交付物**：
 
@@ -435,15 +442,16 @@ v2 本地 SQLite 设计参考以下来源：
 
 **主要任务**：
 
-1. 落地 XDG 目录解析：
+1. 落地单根目录工作区解析：
+   - workspace home
    - config
    - data
-   - state
+   - runtime
    - cache
-2. 落地 env 兼容读取：
-   - `AVIKI_*`
-   - fallback `AWIKI_*`
-   - fallback `E2E_*`
+2. 落地配置入口收口：
+   - `AWIKI_CLI_WORKSPACE_HOME_DIR`
+   - `config.yaml`
+   - 旧环境变量检测与报错
 3. 实现 identity index store。
 4. 实现 identity create/list/use/current。
 5. 明确 `id create` 只负责本地 DID / 密钥 / did_document 生成，不作为对外用户完成态。
@@ -768,7 +776,7 @@ v2 本地 SQLite 设计参考以下来源：
 | 编号 | 工作包 | 对应阶段 | 完成定义 |
 |---|---|---|---|
 | EPIC-01 | 命令壳与输出协议 | Phase 0-1 | 根命令、输出 envelope、schema/doctor 骨架完成 |
-| EPIC-02 | 配置与路径体系 | Phase 2 | XDG、env 兼容、default identity 解析完成 |
+| EPIC-02 | 配置与路径体系 | Phase 2 | 单根目录工作区、env 兼容、default identity 解析完成 |
 | EPIC-03 | identity store 与迁移 | Phase 2 | index.json、identity dir、v1 credential import 完成 |
 | EPIC-04 | user + handle lifecycle | Phase 3 | register/bind/recover/profile/current + user gating 完成 |
 | EPIC-05 | SQLite schema 与 DAO | Phase 4 | 表/视图/migration/fixtures 完成 |

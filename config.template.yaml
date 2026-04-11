@@ -1,0 +1,15 @@
+schema_version: 1
+identity:
+  active: ""
+runtime:
+  mode: websocket
+  socket_path: ""
+output:
+  format: json
+  no_color: false
+services:
+  service_base_url: https://awiki.ai
+  did_domain: awiki.ai
+  anp_service_endpoint: https://awiki.ai/anp-im/rpc
+  anp_service_did: did:wba:awiki.ai
+  ca_bundle: ""

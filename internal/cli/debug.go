@@ -14,7 +14,7 @@ import (
 )
 
 func (a *App) openStore() (*appconfig.Resolved, *sql.DB, output.Format, error) {
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
 		return nil, nil, output.FormatJSON, err
 	}
@@ -29,6 +29,10 @@ func (a *App) openStore() (*appconfig.Resolved, *sql.DB, output.Format, error) {
 func (a *App) storeExit(err error, hint string) error {
 	if err == nil {
 		return nil
+	}
+	var exitErr *output.ExitError
+	if errors.As(err, &exitErr) {
+		return err
 	}
 	switch {
 	case errors.Is(err, store.ErrLegacyDatabaseNotFound), errors.Is(err, sql.ErrNoRows):

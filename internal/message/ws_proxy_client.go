@@ -56,11 +56,15 @@ func (t *WSProxyTransport) GetInbox(ctx context.Context, request InboxRequest) (
 }
 
 func (t *WSProxyTransport) GetHistory(ctx context.Context, request HistoryRequest) (map[string]any, error) {
-	return t.call("direct.get_history", map[string]any{
+	params := map[string]any{
 		"with":   request.With,
 		"limit":  request.Limit,
 		"cursor": request.Cursor,
-	})
+	}
+	if request.Skip > 0 {
+		params["skip"] = request.Skip
+	}
+	return t.call("direct.get_history", params)
 }
 
 func (t *WSProxyTransport) MarkRead(ctx context.Context, request MarkReadRequest) (map[string]any, error) {
@@ -127,7 +131,15 @@ func (t *WSProxyTransport) ListGroupMembers(ctx context.Context, request GroupMe
 }
 
 func (t *WSProxyTransport) ListGroupMessages(ctx context.Context, request GroupMessagesRequest) (map[string]any, error) {
-	return t.call("group.list_messages", map[string]any{"group": request.Group, "limit": request.Limit, "cursor": request.Cursor})
+	params := map[string]any{
+		"group":  request.Group,
+		"limit":  request.Limit,
+		"cursor": request.Cursor,
+	}
+	if request.Skip > 0 {
+		params["skip"] = request.Skip
+	}
+	return t.call("group.list_messages", params)
 }
 
 func (t *WSProxyTransport) UpdateGroupProfile(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {

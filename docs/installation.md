@@ -2,7 +2,7 @@
 
 ## 概述
 
-awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编排对后端服务的 API 调用。支持 DID 身份管理、消息收发（私聊 / 群聊）、群组管理、WebSocket 实时监听等能力。
+awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编排对后端服务的 API 调用。支持 DID 身份管理、消息收发（私聊/群聊）、群组管理、WebSocket 实时监听等能力。
 
 **技术栈**: Go 1.22 (pure Go, no CGO) + Cobra + SQLite + ANP SDK
 
@@ -28,10 +28,10 @@ go version
 
 ### 1.2 ANP Go SDK（远端模块依赖）
 
-awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.7.2`：
+awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.8.3`：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.7.2
+go get github.com/agent-network-protocol/anp/golang@v0.8.3
 ```
 
 首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
@@ -53,12 +53,11 @@ awiki-cli 使用 **pure Go SQLite** 作为本地存储，无需安装外部数�
 
 ### 2.1 自动初始化
 
-数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于 awiki-cli 工作目录下：
+数据库文件在首次运行时自动创建和初始化（`EnsureSchema`），位于工作区数据目录下：
 
-- 默认工作目录（AWIKI_HOME）：
-  - macOS / Linux：`$HOME/.awiki-cli`
-  - Windows：`%LOCALAPPDATA%\AwikiCli`
-- 数据库路径：`$AWIKI_HOME/db/awiki-cli.db`
+```
+~/.awiki-cli/data/awiki-cli.db
+```
 
 Schema 版本为 v11，包含以下本地表：
 
@@ -74,131 +73,177 @@ Schema 版本为 v11，包含以下本地表：
 
 视图：`threads`（会话列表）、`inbox`（收件箱）、`outbox`（发件箱）
 
-### 2.2 工作目录覆盖（AWIKI_HOME / init）
+### 2.2 SQLite 配置
 
-awiki-cli 使用一个统一的“工作目录”存放所有本地数据、配置和日志。
+自动设置以下 PRAGMA：
 
-日常使用推荐通过 `awiki-cli init` 来初始化工作目录：
+| PRAGMA | 值 | 说明 |
+|--------|-----|------|
+| `journal_mode` | WAL | 写前日志，支持并发读 |
+| `foreign_keys` | ON | 外键约束 |
+| `busy_timeout` | 5000ms | 锁等待超时 |
+
+### 2.3 数据库路径覆盖
+
+推荐优先使用工作区根目录覆盖：
 
 ```bash
-# 使用默认工作目录（例如 ~/.awiki-cli）
-./awiki-cli init
+awiki-cli init
 ```
 
-高级场景（如 CI、系统测试或一次性试验）可以通过环境变量 `AWIKI_HOME` 覆盖默认位置：
+如需显式切换工作区根目录，只支持：
 
 ```bash
-export AWIKI_HOME="$HOME/my-awiki"
-# 数据库:     $AWIKI_HOME/db/awiki-cli.db
-# 配置文件:   $AWIKI_HOME/config.json
-# 身份数据:   $AWIKI_HOME/identities/
-# 运行日志:   $AWIKI_HOME/logs/
-# 缓存与临时: $AWIKI_HOME/cache/ / $AWIKI_HOME/tmp/
+export AWIKI_CLI_WORKSPACE_HOME_DIR=~/my-awiki
+# 数据库将位于 ~/my-awiki/data/awiki-cli.db
 ```
 
-> 提示：awiki-cli 会在需要时自动创建上述目录，权限为 `0700`，数据库和敏感文件权限为 `0600`。普通用户可以直接使用默认工作目录；在多环境 / CI 场景下再通过 `AWIKI_HOME` 明确指定工作目录根。
+`config / data / runtime / cache / logs / identities` 都会固定派生在该工作区下，不再支持单独的目录级环境变量覆盖。
 
 ---
 
-## 3. 配置与工作目录
+## 3. 配置文件
 
-### 3.1 目录布局
+### 3.1 工作区目录布局
 
-本轮改造后，awiki-cli 的本地文件全部收敛到单一工作目录（`AWIKI_HOME`）：
+awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
-```text
-$AWIKI_HOME/
-  config.json          # 运行期主配置
-  db/awiki-cli.db      # SQLite 数据库
-  identities/          # 本地身份与密钥
-  logs/                # 运行日志
-  cache/               # 缓存数据
-  tmp/                 # 临时文件 / runtime 状态
+| 用途 | 默认路径 | 环境变量覆盖 |
+|------|----------|-------------|
+| 工作区目录 | `~/.awiki-cli/` | `AWIKI_CLI_WORKSPACE_HOME_DIR` |
+| 配置目录 | `~/.awiki-cli/` | 无 |
+| 数据目录 | `~/.awiki-cli/data/` | 无 |
+| runtime 目录 | `~/.awiki-cli/runtime/` | 无 |
+| 缓存目录 | `~/.awiki-cli/cache/` | 无 |
+| 日志目录 | `~/.awiki-cli/logs/` | 无 |
+
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 之外的旧 `AWIKI_* / AVIKI_* / E2E_*` 业务环境变量不再驱动 awiki-cli；若工作区仍保留上一版的 `config.json`，CLI 会在首次访问工作区时自动迁移到 `config.yaml`。
+>
+> 工作区内容包括：
+>
+> - `config.yaml`
+> - `identities/`
+> - `data/awiki-cli.db`
+> - `cache/`
+> - `runtime/`
+> - `logs/`
+> - workspace upgrade 元数据
+> - upgrade lock / journal
+> - 备份快照
+
+### 3.2 config.yaml
+
+配置文件位于 `~/.awiki-cli/config.yaml`。推荐先执行 `awiki-cli init` 自动创建最小配置；如需手动创建，可参考仓库根目录的 `config.template.yaml`，或直接使用下面的模板：
+
+```yaml
+schema_version: 1
+identity:
+  active: default
+runtime:
+  mode: websocket
+  socket_path: ""
+output:
+  format: json
+  no_color: false
+services:
+  service_base_url: https://awiki.ai
+  did_domain: awiki.ai
+  anp_service_endpoint: https://awiki.ai/anp-im/rpc
+  anp_service_did: did:wba:awiki.ai
+  ca_bundle: ""
 ```
 
-- macOS / Linux 默认工作目录根：`$HOME/.awiki-cli`
-- Windows 默认工作目录根：`%LOCALAPPDATA%\AwikiCli`
-- 运行时解析工作目录根的规则：
-  1. 若设置环境变量 `AWIKI_HOME`，本次运行优先使用该路径（高级/临时覆写入口）；  
-  2. 否则使用默认根本身。
+默认值说明：
 
-### 3.2 config.json 结构
+- `runtime.mode` 默认是 `websocket`
+- `runtime.socket_path` 默认是 `<workspace>/runtime/message-daemon.sock`
+- `output.format` 默认是 `json`
+- `services.service_base_url` 默认是 `https://awiki.ai`
+- `services.did_domain` 默认是 `awiki.ai`
+- `services.anp_service_endpoint` 默认推导为 `https://<did_domain>/anp-im/rpc`
+- `services.anp_service_did` 默认推导为 `did:wba:<did_domain>`
 
-配置文件为标准 JSON（不支持注释、尾逗号），路径为：`$AWIKI_HOME/config.json`。
-
-示例：
-
-```json
-{
-  "services": {
-    "domain": "awiki.ai"
-  },
-  "identity": {
-    "active": "default"
-  },
-  "runtime": {
-    "mode": "http"
-  },
-  "output": {
-    "format": "json",
-    "no_color": false
-  },
-  "update": {
-    "disable_strict_version": false,
-    "metadata_cache_ttl_seconds": 0
-  }
-}
-```
-
-字段说明（与实现保持一致）：
-
-- `services.domain`：后端域名（例如 `awiki.ai` / `awiki.test`），CLI 内部据此推导各服务 URL：
-  - user-service：`https://<domain>`
-  - message-service：`https://<domain>/message-service`
-  - WebSocket：`wss://<domain>/message-service/ws`
-- `identity.active`：当前活跃身份名称（如 `default`）。
-- `runtime.mode`：运行模式，`"http"` 或 `"websocket"`。
-- `output.format`：输出格式，如 `"json"` / `"table"` 等。
-- `output.no_color`：是否禁用彩色输出。
-- `update.disable_strict_version`：是否关闭严格版本校验（目前仅作为配置入口）。
-- `update.metadata_cache_ttl_seconds`：版本元数据缓存 TTL（0 表示使用内部默认值）。
-
-首次运行如果没有 `config.json`，awiki-cli 使用内置默认值；当通过后续命令需要持久化配置时，会自动创建该文件并写入当前生效值。
-
-### 3.3 运行期环境变量覆盖
-
-运行期只保留少量 `AWIKI_*` 环境变量，用于临时覆盖配置（优先级：**命令行 flag > 环境变量 > config.json > 默认值**）：
-
-| 环境变量 | 用途 | 默认值 |
-|----------|------|--------|
-| `AWIKI_HOME` | 临时覆盖工作目录根路径（高级/CI/测试用） | 见 3.1 |
-| `AWIKI_IDENTITY` | 临时覆盖活跃身份 (`identity.active`) | 空（使用 config.json 或身份索引） |
-| `AWIKI_RUNTIME_MODE` | 临时覆盖运行模式 (`runtime.mode`) | `http` |
-| `AWIKI_FORMAT` | 临时覆盖输出格式 (`output.format`) | `json` |
-| `AWIKI_NO_COLOR` | 临时覆盖是否禁用颜色 (`output.no_color`) | `false` |
-
-> 注意：不再提供 `AWIKI_CONFIG_DIR` / `AWIKI_DATA_DIR` / `AWIKI_STATE_DIR` / `AWIKI_CACHE_DIR`，也不再提供 `AWIKI_USER_SERVICE_URL` 等 URL 级环境变量，更不再兼容任何 `AVIKI_*` / `E2E_*` 变量。服务端域名等长期配置统一通过 `config.json` 管理。
-
-### 3.4 身份文件布局
-
-DID 身份存储在 `$AWIKI_HOME/identities/` 下，每个身份一个子目录：
+配置优先级固定为：
 
 ```text
+flag > config.yaml > default
+```
+
+> 该文件可选。未创建时所有配置使用默认值。  
+> `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
+>
+> - `service_base_url`：域内 user-service / content / group / message 的统一基础地址
+> - 域内 message RPC：`<service_base_url>/im/rpc`
+> - 域内 message WebSocket：`<service_base_url>/im/ws`
+> - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址
+> - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID
+
+### 3.3 本地开发配置
+
+连接本地后端服务时，创建如下 `config.yaml`：
+
+```yaml
+schema_version: 1
+identity:
+  active: default
+runtime:
+  mode: websocket
+services:
+  service_base_url: https://awiki.test
+  did_domain: awiki.test
+  anp_service_endpoint: https://awiki.test/anp-im/rpc
+  anp_service_did: did:wba:awiki.test
+  ca_bundle: ""
+```
+
+服务地址、运行模式、输出格式、身份默认值都应通过 `config.yaml` 管理；除了 `AWIKI_CLI_WORKSPACE_HOME_DIR` 以外，不再支持环境变量覆盖这些业务配置。
+
+### 3.4 DID 文档中的 ANP Service 约束
+
+`awiki-cli` 在生成 DID 文档时，会自动写入一个公开的 `ANPMessageService` 条目。为了避免把本地实现细节暴露到 DID 文档里，当前实现会拒绝以下配置：
+
+- `localhost`
+- `127.0.0.1` / `::1` 等 loopback 地址
+- `ws://` / `wss://` URL
+- 带 fragment 的 `serviceDid`
+- 非 bare-domain 的 `did:wba` service DID（例如 `did:wba:example.com:services:message:e1_local`）
+
+推荐做法：
+
+- `anp_service_endpoint` 使用公开 HTTPS RPC 地址，例如 `https://awiki.ai/anp-im/rpc`
+- `anp_service_did` 使用裸域名 DID，例如 `did:wba:awiki.ai`
+
+### 3.5 身份文件布局
+
+DID 身份存储在 `~/.awiki-cli/identities/` 下，每个身份一个子目录：
+
+```
 identities/
 ├── index.json                    # 身份索引（默认身份、凭证列表）
 └── <identity-dir>/
     ├── identity.json             # 身份元数据
     ├── auth.json                 # JWT token 缓存
     ├── did_document.json         # DID 文档
-    ├── key-1-private.pem         # secp256k1 身份私钥
-    ├── key-1-public.pem          # secp256k1 身份公钥
+    ├── key-1-private.pem         # Ed25519 身份私钥
+    ├── key-1-public.pem          # Ed25519 身份公钥
     ├── e2ee-signing-private.pem  # E2EE 签名私钥
     ├── e2ee-agreement-private.pem # E2EE 密钥协商私钥
     └── e2ee-state.json           # E2EE 会话状态
 ```
 
-- 目录权限：`0700`
-- 私钥 / 凭证文件权限：`0600`
+> 私钥文件权限为 `0600`，目录权限为 `0700`。
+
+当前 `awiki-cli` 的活跃身份规范为 `e1` / Ed25519 `key-1`。当你把 Python v1 `awiki-agent-id-message` 本地数据默认升级到 Go 版 workspace 时，CLI 会自动尝试把已导入的 handle `k1` DID 通过 `replace_did` 换绑为新的 `e1` DID，并同步重绑本地 SQLite 的 `owner_did`。若个别身份无法自动替换，升级会继续完成，但会把失败原因记录到 upgrade warning 与 `doctor` 输出中，后续需要手动处理。
+
+### 3.6 环境变量完整列表
+
+| 环境变量 | 用途 | 默认值 |
+|----------|------|--------|
+| `AWIKI_CLI_WORKSPACE_HOME_DIR` | 工作区根目录 | `~/.awiki-cli` |
+
+> 除 `AWIKI_CLI_WORKSPACE_HOME_DIR` 外，其他 awiki-cli 配置环境变量已停止支持；它们不会再覆盖 `config.yaml` 中的业务配置。
 
 ---
 
@@ -223,10 +268,6 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 ```bash
 # 版本信息
 ./awiki-cli version
-
-# 初始化工作目录（推荐在首次安装后执行一次）
-./awiki-cli init
-# ./awiki-cli init --home "$HOME/my-awiki"  # 可选：自定义工作目录
 
 # 系统诊断（检查配置、身份、数据库、运行环境）
 ./awiki-cli doctor
@@ -275,10 +316,16 @@ gofmt -w $(find cmd internal -name '*.go')
 
 ```bash
 # 私聊
-./awiki-cli msg send --to <handle> --content "hello"
+./awiki-cli msg send --to <handle> --text "hello"
 
 # 群聊
-./awiki-cli msg send --group <group-id> --content "hello"
+./awiki-cli msg send --group <group-id> --text "hello"
+
+# 发送附件（caption 可选）
+./awiki-cli msg send --to <handle> --file ./hello.txt --text "hello attachment"
+
+# 下载附件
+./awiki-cli msg attachment download --with <handle> --message-id <msg-id> --output ./downloads/hello.txt
 
 # 查看收件箱
 ./awiki-cli msg inbox
@@ -306,12 +353,11 @@ awiki-cli 是纯客户端，不需要本地数据库服务，但需要连接以�
 | 服务 | 用途 | 默认地址 |
 |------|------|----------|
 | user-service | 用户认证、DID 注册、Handle 管理、群组管理 | `https://awiki.ai` |
-| message-service | 消息收发、WebSocket 推送 | `https://awiki.ai` |
+| message-service (molt-message) | 消息收发、WebSocket 推送 | `https://awiki.ai` |
 
 本地开发时需先启动这两个后端服务，参考各自的安装说明：
-
-- user-service 安装说明：`../../user-service/docs/installation.md`
-- message-service 安装说明：`../../message-service/docs/installation.md`
+- [user-service 安装说明](../../user-service/docs/installation.md)
+- [molt-message 安装说明](../../molt-message/docs/installation.md)
 
 ---
 
@@ -327,10 +373,10 @@ CGO_ENABLED=0 go build ./cmd/awiki-cli/
 
 ### Q: 编译报错找不到 ANP SDK
 
-确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.7.2`：
+确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.8.3`：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.7.2
+go get github.com/agent-network-protocol/anp/golang@v0.8.3
 ```
 
 ### Q: `go mod tidy` 报错
@@ -346,17 +392,17 @@ go version
 数据库在首次使用相关命令时自动创建。如需重置：
 
 ```bash
-rm -rf "$AWIKI_HOME/db/awiki-cli.db"
+rm ~/.awiki-cli/data/awiki-cli.db
 ```
 
 下次运行会自动重建 schema。
 
 ### Q: 连接本地后端服务失败
 
-检查 `config.json` 是否正确指向本地服务域名，或通过环境变量临时覆盖：
+检查 `config.yaml` 是否正确指向本地服务地址：
 
 ```bash
-./awiki-cli config show | jq '.data.user_service_url, .data.message_service_url'
+./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'
 ```
 
 ### Q: v1 身份迁移
