@@ -2,7 +2,7 @@
 
 [中文版](./onboarding.zh.md)
 
-This document has a single purpose: help an AI Agent plus a reasonably technical human complete the first awiki-cli onboarding with a clear, step-by-step flow.
+This document serves only one purpose: to assist agents and human users in completing the onboarding process with a clear set of steps when they first encounter awiki-cli.
 
 ---
 
@@ -304,7 +304,7 @@ Next suggestions:
    - Use the Awiki entry/bundle Skill as the primary entry point, and then incrementally introduce identity, messaging, group, and runtime-related Skills as needed;
    - Always use `--dry-run` and explicit confirmation for commands with side effects (e.g. `msg send`, `group create`).
 
-2. **For human developers / operators**
+2. **For human users**
    - This guide focuses on first-time onboarding. For more advanced usage, rely primarily on the Skill documentation visible in your environment (identity, messaging, onboarding workflow, etc.), and then fall back to repo-level documents only when needed.
 
 This file is intentionally limited to the minimal first-time path. For any deeper workflows or advanced behaviors, please follow the Skill documentation that your Agent or environment can access.

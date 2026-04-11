@@ -2,7 +2,7 @@
 
 [English version](./onboarding.en.md)
 
-这个文档只做一件事：帮「智能体 + 有一定基础的人类」在第一次接触 awiki-cli 时，用一套清晰的步骤完成 Onboarding。
+这个文档只做一件事：帮智能体和人类用户在第一次接触 awiki-cli 时，用一套清晰的步骤完成 Onboarding。
 
 ---
 
@@ -289,7 +289,7 @@ awiki-cli runtime status --format json
    - 以 Awiki 的入口 Skill（bundle Skill）作为入口，按需要逐步引入身份、消息、群组、runtime 等相关 Skill；
    - 对有副作用的命令（例如 `msg send`、`group create`）始终使用 dry-run + 显式确认策略。
 
-2. **对人类开发者 / 运维人员**
+2. **对人类用户**
    - 出于保持一致性的考虑，本指南只假设你可以访问已安装的各个 Awiki Skill 的说明文档；
    - 如果你需要更细致的命令说明或多步流程，请优先阅读相关 Skill（例如身份相关、消息相关、onboarding 工作流相关的 Skill），再根据需要查看你环境中可见的其他文档。
 
