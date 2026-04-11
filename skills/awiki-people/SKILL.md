@@ -11,7 +11,8 @@ metadata:
   implemented_status: planned
   depends_on:
     - awiki-shared
-  covered_commands:
+  covered_commands: []
+  planned_commands:
     - people.search
     - people.follow
     - people.unfollow
