@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -96,4 +97,43 @@ func randomHex(numBytes int) string {
 		return ""
 	}
 	return hex.EncodeToString(buffer)
+}
+
+func IsK1DID(did string) bool {
+	return strings.HasPrefix(didSuffix(strings.TrimSpace(did)), "k1_")
+}
+
+func IsE1DID(did string) bool {
+	return strings.HasPrefix(didSuffix(strings.TrimSpace(did)), "e1_")
+}
+
+func parseDIDPath(did string) (string, []string, error) {
+	trimmed := strings.TrimSpace(did)
+	if !strings.HasPrefix(trimmed, "did:wba:") {
+		return "", nil, fmt.Errorf("%w: invalid did %q", ErrInvalidInput, did)
+	}
+	parts := strings.Split(trimmed, ":")
+	if len(parts) < 5 {
+		return "", nil, fmt.Errorf("%w: invalid did %q", ErrInvalidInput, did)
+	}
+	domain, err := url.PathUnescape(parts[2])
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: invalid did domain %q", ErrInvalidInput, parts[2])
+	}
+	pathSegments := append([]string(nil), parts[3:len(parts)-1]...)
+	if len(pathSegments) == 0 {
+		return "", nil, fmt.Errorf("%w: missing did path segments", ErrInvalidInput)
+	}
+	return domain, pathSegments, nil
+}
+
+func HandlePathPrefixFromDID(did string) (string, []string, error) {
+	domain, pathSegments, err := parseDIDPath(did)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(pathSegments) == 0 || strings.EqualFold(pathSegments[0], "user") {
+		return "", nil, fmt.Errorf("%w: current did is not a handle did", ErrInvalidInput)
+	}
+	return domain, pathSegments, nil
 }

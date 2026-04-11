@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -360,6 +362,90 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 	result, err := service.Recover(context.Background(), params)
 	if err != nil {
 		return a.identityExit(err, "Make sure the handle exists and the recovery OTP is valid.")
+	}
+	return a.renderIdentityResult(cmd, format, result)
+}
+
+func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
+	isPublic, _ := cmd.Flags().GetBool("is-public")
+	isAgent, _ := cmd.Flags().GetBool("is-agent")
+	role, _ := cmd.Flags().GetString("role")
+	endpointURL, _ := cmd.Flags().GetString("endpoint-url")
+
+	service, format, err := a.identityService()
+	if err != nil {
+		return a.identityExit(err, "Run `awiki-cli id current` to confirm the active identity and workspace configuration.")
+	}
+
+	params := identity.ReplaceDIDParams{
+		IdentityName: a.globals.Identity,
+	}
+	if cmd.Flags().Changed("is-public") {
+		params.IsPublic = &isPublic
+	}
+	if cmd.Flags().Changed("is-agent") {
+		params.IsAgent = &isAgent
+	}
+	if cmd.Flags().Changed("role") {
+		params.Role = &role
+	}
+	if cmd.Flags().Changed("endpoint-url") {
+		params.EndpointURL = &endpointURL
+	}
+
+	if a.globals.DryRun {
+		remoteParams := map[string]any{
+			"new_did_document": "generated_e1_document",
+		}
+		if params.IsPublic != nil {
+			remoteParams["is_public"] = *params.IsPublic
+		}
+		if params.IsAgent != nil {
+			remoteParams["is_agent"] = *params.IsAgent
+		}
+		if params.Role != nil {
+			remoteParams["role"] = *params.Role
+		}
+		if params.EndpointURL != nil {
+			remoteParams["endpoint_url"] = *params.EndpointURL
+		}
+		result := &identity.CommandResult{
+			Data: map[string]any{
+				"plan": map[string]any{
+					"action":        "replace_did",
+					"identity_name": a.globals.Identity,
+					"remote_calls":  []string{"did-auth.replace_did"},
+					"remote_params": remoteParams,
+					"local_writes": []string{
+						"index.json",
+						"identity.json",
+						"auth.json",
+						"did_document.json",
+						"key-1-private.pem",
+						"key-1-public.pem",
+						"e2ee-signing-private.pem",
+						"e2ee-agreement-private.pem",
+						"sqlite.owner_did_rebind",
+						"sqlite.e2ee_cleanup",
+					},
+				},
+			},
+			Summary: "Dry run: DID replacement planned",
+		}
+		return a.renderIdentityResult(cmd, format, result)
+	}
+
+	result, err := service.ReplaceDID(context.Background(), params)
+	if err != nil {
+		return a.identityExit(err, "Use a handle-backed identity with valid DID credentials before retrying.")
+	}
+	oldDID, _ := result.Data["old_did"].(string)
+	newDID, _ := result.Data["did"].(string)
+	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(context.Background(), service.Config().Paths, oldDID, newDID)
+	result.Data["store_rebind"] = storeRebind
+	result.Data["e2ee_cleanup"] = e2eeCleanup
+	if rebindErr != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Local SQLite rebinding failed: %v", rebindErr))
 	}
 	return a.renderIdentityResult(cmd, format, result)
 }

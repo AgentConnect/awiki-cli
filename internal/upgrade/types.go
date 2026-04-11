@@ -40,6 +40,7 @@ type Context struct {
 	Inspection  *Inspection
 	BackupDir   string
 	CurrentMeta *Meta
+	Warnings    []string
 }
 
 type Inspection struct {
@@ -73,11 +74,12 @@ type Detection struct {
 }
 
 type Meta struct {
-	WorkspaceSchemaVersion int    `json:"workspace_schema_version"`
-	AppVersion             string `json:"app_version,omitempty"`
-	UpdatedAt              string `json:"updated_at"`
-	LastUpgradeID          string `json:"last_upgrade_id,omitempty"`
-	LastBackupDir          string `json:"last_backup_dir,omitempty"`
+	WorkspaceSchemaVersion int      `json:"workspace_schema_version"`
+	AppVersion             string   `json:"app_version,omitempty"`
+	UpdatedAt              string   `json:"updated_at"`
+	LastUpgradeID          string   `json:"last_upgrade_id,omitempty"`
+	LastBackupDir          string   `json:"last_backup_dir,omitempty"`
+	Warnings               []string `json:"warnings,omitempty"`
 }
 
 type Journal struct {

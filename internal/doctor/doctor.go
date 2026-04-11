@@ -110,6 +110,9 @@ func upgradeStateCheck(resolved *config.Resolved) Check {
 	if inspection.Journal != nil {
 		status = "warn"
 		summary = "Workspace upgrade journal indicates an interrupted upgrade"
+	} else if inspection.Meta != nil && len(inspection.Meta.Warnings) > 0 {
+		status = "warn"
+		summary = "Workspace upgrade completed with migration warnings"
 	} else if inspection.Detection.CurrentVersion < inspection.Detection.LatestVersion {
 		status = "warn"
 		summary = "Workspace data still needs to be upgraded"
@@ -237,9 +240,21 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 		summary = "Identity index exists but failed to parse"
 	}
 	current, currentErr := manager.Current()
+	identities, listErr := manager.List()
+	legacyK1DIDs := make([]string, 0)
+	if listErr == nil {
+		for _, summaryItem := range identities {
+			if identity.IsK1DID(summaryItem.DID) {
+				legacyK1DIDs = append(legacyK1DIDs, summaryItem.DID)
+			}
+		}
+	}
 	if currentErr != nil && !errors.Is(currentErr, identity.ErrNoDefaultIdentity) && len(index.Credentials) > 0 {
 		status = "error"
 		summary = "Identity index is missing a valid default identity"
+	} else if len(legacyK1DIDs) > 0 {
+		status = "warn"
+		summary = "Identity store still contains legacy k1 DID material"
 	} else if current != nil && !current.UserState.ReadyForMessaging {
 		status = "warn"
 		summary = "Default identity is local-only and cannot be used for messaging yet"
@@ -257,6 +272,8 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 			"default_identity": current,
 			"user_state":       defaultIdentityUserState(current),
 			"index_error":      errorText(indexErr),
+			"list_error":       errorText(listErr),
+			"legacy_k1_dids":   legacyK1DIDs,
 		},
 	}
 }

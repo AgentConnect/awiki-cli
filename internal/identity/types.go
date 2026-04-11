@@ -192,6 +192,14 @@ type RecoverParams struct {
 	OTP          string
 }
 
+type ReplaceDIDParams struct {
+	IdentityName string
+	IsPublic     *bool
+	IsAgent      *bool
+	Role         *string
+	EndpointURL  *string
+}
+
 type UpdateProfileParams struct {
 	DisplayName  string
 	Bio          string

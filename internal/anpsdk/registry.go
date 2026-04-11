@@ -43,6 +43,7 @@ var (
 	KeyTypeEd25519                    = anp.KeyTypeEd25519
 	KeyTypeX25519                     = anp.KeyTypeX25519
 	DidProfileE1                      = anpauth.DidProfileE1
+	DidProfileK1                      = anpauth.DidProfileK1
 	AuthModeHTTPSignatures            = anpauth.AuthModeHTTPSignatures
 	AuthModeAuto                      = anpauth.AuthModeAuto
 	GenerateKeyPairPEM                = anp.GenerateKeyPairPEM

@@ -50,6 +50,7 @@ func (workspaceV0ToV1Migration) Apply(ctx context.Context, uc *Context) error {
 		return fmt.Errorf("workspace upgrade requires a resolved config")
 	}
 	detection := uc.Inspection.Detection
+	var importedLegacy *identity.ImportResult
 	if detection.ConfigExists {
 		if err := appconfig.EnsureConfigSchemaVersion(uc.Paths.ConfigFile); err != nil {
 			return err
@@ -76,7 +77,8 @@ func (workspaceV0ToV1Migration) Apply(ctx context.Context, uc *Context) error {
 			return err
 		}
 		if legacyScan != nil && legacyScan.HasLegacy {
-			if _, err := manager.ImportAllLegacy(); err != nil {
+			importedLegacy, err = manager.ImportAllLegacy()
+			if err != nil {
 				return err
 			}
 		}
@@ -104,6 +106,16 @@ func (workspaceV0ToV1Migration) Apply(ctx context.Context, uc *Context) error {
 		if err := ensureTargetStoreSchema(ctx, uc.Resolved.Paths); err != nil {
 			return err
 		}
+	}
+
+	if importedLegacy != nil && len(importedLegacy.Imported) > 0 {
+		refreshed, err := refreshResolvedConfig(uc.Resolved)
+		if err != nil {
+			return err
+		}
+		uc.Resolved = refreshed
+		uc.Paths = ResolvePaths(refreshed)
+		uc.Warnings = append(uc.Warnings, replaceImportedLegacyK1DIDs(ctx, refreshed, importedLegacy.Imported)...)
 	}
 	return nil
 }
@@ -179,6 +191,122 @@ func loadLegacySettings(path string) (*normalizedLegacySettings, error) {
 		DidDomain:      legacy.DidDomain,
 		RuntimeMode:    mode,
 	}, nil
+}
+
+func refreshResolvedConfig(current *appconfig.Resolved) (*appconfig.Resolved, error) {
+	if current == nil {
+		return nil, fmt.Errorf("resolved config is required")
+	}
+	refreshed := *current
+	fileConfig, exists, err := appconfig.ReadFileConfig(current.Paths.ConfigFile)
+	if err != nil {
+		return nil, err
+	}
+	refreshed.ConfigExists = exists
+	refreshed.ConfigSchemaVersion = fileConfig.SchemaVersion
+	if mode := strings.TrimSpace(fileConfig.Runtime.Mode); mode != "" {
+		refreshed.RuntimeMode = mode
+	}
+	if socketPath := strings.TrimSpace(fileConfig.Runtime.SocketPath); socketPath != "" {
+		refreshed.RuntimeSocketPath = socketPath
+	}
+	if format := strings.TrimSpace(fileConfig.Output.Format); format != "" {
+		refreshed.OutputFormat = format
+	}
+	if fileConfig.Output.NoColor != nil {
+		refreshed.NoColor = *fileConfig.Output.NoColor
+	}
+	if baseURL := strings.TrimSpace(fileConfig.Services.ServiceBaseURL); baseURL != "" {
+		refreshed.ServiceBaseURL = appconfig.NormalizeBaseURL(baseURL)
+	}
+	if didDomain := strings.TrimSpace(fileConfig.Services.DIDDomain); didDomain != "" {
+		refreshed.DIDDomain = didDomain
+	}
+	if endpoint := strings.TrimSpace(fileConfig.Services.ANPServiceEndpoint); endpoint != "" {
+		refreshed.ANPServiceEndpoint = endpoint
+	} else if strings.TrimSpace(refreshed.ANPServiceEndpoint) == "" {
+		refreshed.ANPServiceEndpoint = identity.DefaultANPServiceEndpoint(refreshed.DIDDomain)
+	}
+	if serviceDID := strings.TrimSpace(fileConfig.Services.ANPServiceDID); serviceDID != "" {
+		refreshed.ANPServiceDID = serviceDID
+	} else if strings.TrimSpace(refreshed.ANPServiceDID) == "" {
+		refreshed.ANPServiceDID = identity.DefaultANPServiceDID(refreshed.DIDDomain)
+	}
+	if caBundle := strings.TrimSpace(fileConfig.Services.CABundle); caBundle != "" {
+		refreshed.CABundle = caBundle
+	}
+	return &refreshed, nil
+}
+
+func replaceImportedLegacyK1DIDs(ctx context.Context, resolved *appconfig.Resolved, imported []identity.IdentitySummary) []string {
+	if resolved == nil || len(imported) == 0 {
+		return nil
+	}
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		return []string{fmt.Sprintf("Automatic k1 to e1 DID replacement was skipped: %v", err)}
+	}
+
+	seenDirs := map[string]struct{}{}
+	warnings := make([]string, 0)
+	for _, summary := range imported {
+		if !identity.IsK1DID(summary.DID) {
+			continue
+		}
+		if _, ok := seenDirs[summary.DirName]; ok {
+			continue
+		}
+		seenDirs[summary.DirName] = struct{}{}
+
+		if _, _, err := identity.HandlePathPrefixFromDID(summary.DID); err != nil {
+			warnings = append(
+				warnings,
+				fmt.Sprintf(
+					"Automatic DID replacement skipped for identity %s (%s): %v",
+					summary.IdentityName,
+					summary.DID,
+					err,
+				),
+			)
+			continue
+		}
+		result, err := service.ReplaceDID(ctx, identity.ReplaceDIDParams{IdentityName: summary.IdentityName})
+		if err != nil {
+			warnings = append(
+				warnings,
+				fmt.Sprintf(
+					"Automatic DID replacement failed for identity %s (%s): %v",
+					summary.IdentityName,
+					summary.DID,
+					err,
+				),
+			)
+			continue
+		}
+		oldDID, _ := result.Data["old_did"].(string)
+		newDID, _ := result.Data["did"].(string)
+		if _, _, err := store.RebindLocalIdentityState(ctx, resolved.Paths, oldDID, newDID); err != nil {
+			warnings = append(
+				warnings,
+				fmt.Sprintf(
+					"Automatic DID replacement completed but local SQLite rebinding failed for identity %s: %v",
+					summary.IdentityName,
+					err,
+				),
+			)
+		}
+		for _, warning := range result.Warnings {
+			warnings = append(
+				warnings,
+				fmt.Sprintf(
+					"Automatic DID replacement completed with warning for identity %s: %s",
+					summary.IdentityName,
+					warning,
+				),
+			)
+		}
+	}
+	return warnings
 }
 
 func ensureTargetStoreSchema(ctx context.Context, paths appconfig.Paths) error {

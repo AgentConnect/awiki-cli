@@ -246,7 +246,7 @@ identities/
 
 > 私钥文件权限为 `0600`，目录权限为 `0700`。
 
-当前 `awiki-cli` 不再保留本地 `k1` / secp256k1 `key-1` 兼容转换逻辑；活跃身份应使用当前生成的 `e1` / Ed25519 `key-1` 材料。若本地仍保留旧 `k1` 身份，请重新创建或通过 `id recover` 迁移到新的 `e1` 身份。
+当前 `awiki-cli` 的活跃身份规范为 `e1` / Ed25519 `key-1`。当你把 Python v1 `awiki-agent-id-message` 本地数据默认升级到 Go 版 workspace 时，CLI 会自动尝试把已导入的 handle `k1` DID 通过 `replace_did` 换绑为新的 `e1` DID，并同步重绑本地 SQLite 的 `owner_did`。若个别身份无法自动替换，升级会继续完成，但会把失败原因记录到 upgrade warning 与 `doctor` 输出中，后续需要手动处理。
 
 ### 3.6 环境变量完整列表
 

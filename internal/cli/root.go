@@ -155,6 +155,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDResolve
 	case "id.recover":
 		return a.runIDRecover
+	case "id.replace-did":
+		return a.runIDReplaceDID
 	case "id.list":
 		return a.runIDList
 	case "id.current":

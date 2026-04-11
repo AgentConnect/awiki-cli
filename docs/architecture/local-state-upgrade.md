@@ -1,7 +1,7 @@
 # awiki-cli 本地状态升级系统设计
 
 **文档状态**：Draft v1.0  
-**最后更新**：2026-04-10  
+**最后更新**：2026-04-11  
 **适用范围**：`awiki-cli` 本地 config、identity store、SQLite、本地升级元数据，以及从 `awiki-agent-id-message` Python v1 布局导入 legacy 本地状态。
 
 ---
@@ -248,13 +248,21 @@ type Migration interface {
    - `runtime.mode`（由 legacy `message_transport.receive_mode` 推导）
 3. 若当前没有 awiki-cli live workspace，但存在 legacy identities，则导入到 awiki-cli 单根目录 identity store
 4. 若当前没有 awiki-cli live workspace，但存在 legacy sqlite，则导入到 `awiki-cli.db`
-5. 校验 config schema 与 SQLite schema 正确后，写入 `meta.json`
+5. 若本次从 Python v1 导入的 identity 中存在 handle 形态的 `k1_...` DID，则自动调用 `POST /did-auth/rpc` 的内部方法 `replace_did`，把其替换为新的 `e1_...` DID，并同步重绑本地 SQLite `owner_did`
+6. 校验 config schema 与 SQLite schema 正确后，写入 `meta.json`
 
 明确不做：
 
 - 不删除 legacy source
 - 不自动合并已存在的 awiki-cli workspace 与 legacy source
 - 不在本阶段迁移 listener 私有路由细节
+
+`replace_did` 自动迁移策略：
+
+- 只针对本次从 Python v1 导入的 identity 执行
+- 只对 handle 形态的 `k1_...` DID 执行；非 handle DID 跳过并记录 warning
+- 认证继续使用旧 DID 的现有凭证（Bearer / DID 鉴权链路）
+- 若单个 identity 替换失败，不中断整次 workspace upgrade；warning 会落到 `meta.json`
 
 ---
 

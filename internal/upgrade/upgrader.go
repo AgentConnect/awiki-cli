@@ -134,6 +134,7 @@ func (u *Upgrader) UpgradeIfNeeded(ctx context.Context, uc *Context) error {
 			UpdatedAt:              nowUTC().Format(time.RFC3339),
 			LastUpgradeID:          upgradeID,
 			LastBackupDir:          backupDir,
+			Warnings:               append([]string(nil), uc.Warnings...),
 		}
 		if err := SaveMeta(uc.Paths.MetaPath, meta); err != nil {
 			return err
