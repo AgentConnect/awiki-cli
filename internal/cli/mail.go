@@ -288,6 +288,30 @@ func (a *App) runMailAttachmentDownload(cmd *cobra.Command, args []string) error
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, fmt.Sprintf("Attachment saved to %s", outPath), result.Warnings, a.identityMeta())
 }
 
+func (a *App) runMailNotify(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+
+	service, format, err := a.mailService()
+	if err != nil {
+		return a.mailExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":       "mail.notifications",
+			"identity":     a.globals.Identity,
+			"limit":        limit,
+			"remote_calls": []string{}, // local sqlite only
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail notifications planned", nil, a.identityMeta())
+	}
+
+	result, err := service.Notifications(context.Background(), a.globals.Identity, limit)
+	if err != nil {
+		return a.mailExit(err, "Ensure the runtime listener is running in websocket mode and has received notifications.")
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, nil, a.identityMeta())
+}
+
 func splitMailList(raw string) []string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
