@@ -52,4 +52,58 @@ func TestResolveDefaultsToWebSocketMode(t *testing.T) {
 	if resolved.Mode != ModeWebSocket {
 		t.Fatalf("resolved.Mode = %q, want %q", resolved.Mode, ModeWebSocket)
 	}
+	if resolved.HostNotify.Sink != "log" {
+		t.Fatalf("resolved.HostNotify.Sink = %q, want log", resolved.HostNotify.Sink)
+	}
+	if resolved.HostNotify.Enabled {
+		t.Fatal("resolved.HostNotify.Enabled = true, want false")
+	}
+}
+
+func TestResolveIncludesHostNotifyConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(&appconfig.Resolved{
+		RuntimeMode:        "websocket",
+		HostNotifyEnabled:  true,
+		HostNotifySink:     "file",
+		HostNotifyFilePath: "/tmp/host-notify.events.jsonl",
+	})
+	if !resolved.HostNotify.Enabled {
+		t.Fatal("resolved.HostNotify.Enabled = false, want true")
+	}
+	if resolved.HostNotify.Sink != "file" {
+		t.Fatalf("resolved.HostNotify.Sink = %q, want file", resolved.HostNotify.Sink)
+	}
+	if resolved.HostNotify.FilePath != "/tmp/host-notify.events.jsonl" {
+		t.Fatalf("resolved.HostNotify.FilePath = %q, want /tmp/host-notify.events.jsonl", resolved.HostNotify.FilePath)
+	}
+}
+
+func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(&appconfig.Resolved{
+		RuntimeMode:                "websocket",
+		HostNotifyEnabled:          true,
+		HostNotifySink:             "openclaw",
+		HostNotifyOpenClawHookURL:  "http://127.0.0.1:18789/hooks/agent",
+		HostNotifyOpenClawAgentID:  "notify",
+		HostNotifyOpenClawHookName: "AWiki",
+	})
+	if !resolved.HostNotify.Enabled {
+		t.Fatal("resolved.HostNotify.Enabled = false, want true")
+	}
+	if resolved.HostNotify.Sink != "openclaw" {
+		t.Fatalf("resolved.HostNotify.Sink = %q, want openclaw", resolved.HostNotify.Sink)
+	}
+	if resolved.HostNotify.OpenClaw.HookURL != "http://127.0.0.1:18789/hooks/agent" {
+		t.Fatalf("resolved.HostNotify.OpenClaw.HookURL = %q", resolved.HostNotify.OpenClaw.HookURL)
+	}
+	if resolved.HostNotify.OpenClaw.AgentID != "notify" {
+		t.Fatalf("resolved.HostNotify.OpenClaw.AgentID = %q", resolved.HostNotify.OpenClaw.AgentID)
+	}
+	if resolved.HostNotify.OpenClaw.HookName != "AWiki" {
+		t.Fatalf("resolved.HostNotify.OpenClaw.HookName = %q", resolved.HostNotify.OpenClaw.HookName)
+	}
 }

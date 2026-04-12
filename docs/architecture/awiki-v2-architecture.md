@@ -307,6 +307,11 @@ awiki v2 的目标产品形态如下：
 将 CLI 能力接入特定宿主平台，如 OpenClaw。  
 该层与 CLI 核心解耦。
 
+当前 websocket listener 到宿主 Agent 的统一通知事件 v1 方案见：
+
+- `docs/architecture/websocket-host-notification-v1.md`
+- `docs/architecture/openclaw-host-adapter-v1.md`
+
 ---
 
 ## 8. 领域架构

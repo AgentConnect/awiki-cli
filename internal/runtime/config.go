@@ -21,13 +21,33 @@ const (
 )
 
 type Resolved struct {
-	Mode       string `json:"mode"`
-	SocketPath string `json:"socket_path,omitempty"`
+	Mode       string           `json:"mode"`
+	SocketPath string           `json:"socket_path,omitempty"`
+	HostNotify HostNotifyConfig `json:"host_notify"`
+}
+
+type HostNotifyConfig struct {
+	Enabled  bool           `json:"enabled"`
+	Sink     string         `json:"sink"`
+	FilePath string         `json:"file_path,omitempty"`
+	OpenClaw OpenClawConfig `json:"openclaw,omitempty"`
+}
+
+type OpenClawConfig struct {
+	HookURL  string `json:"hook_url,omitempty"`
+	AgentID  string `json:"agent_id,omitempty"`
+	HookName string `json:"hook_name,omitempty"`
 }
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
 	if resolved == nil {
-		return Resolved{Mode: ModeWebSocket}
+		return Resolved{
+			Mode: ModeWebSocket,
+			HostNotify: HostNotifyConfig{
+				Enabled: false,
+				Sink:    "log",
+			},
+		}
 	}
 	mode := strings.ToLower(strings.TrimSpace(resolved.RuntimeMode))
 	if mode != ModeHTTP {
@@ -41,9 +61,27 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 		}
 	}
 	socketPath = normalizeSocketPath(socketPath)
+	hostNotify := HostNotifyConfig{
+		Enabled: resolved.HostNotifyEnabled,
+		Sink:    strings.ToLower(strings.TrimSpace(resolved.HostNotifySink)),
+	}
+	if hostNotify.Sink == "" {
+		hostNotify.Sink = "log"
+	}
+	if hostNotify.Sink == "file" {
+		hostNotify.FilePath = strings.TrimSpace(resolved.HostNotifyFilePath)
+	}
+	if hostNotify.Sink == "openclaw" {
+		hostNotify.OpenClaw = OpenClawConfig{
+			HookURL:  strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
+			AgentID:  strings.TrimSpace(resolved.HostNotifyOpenClawAgentID),
+			HookName: strings.TrimSpace(resolved.HostNotifyOpenClawHookName),
+		}
+	}
 	return Resolved{
 		Mode:       mode,
 		SocketPath: socketPath,
+		HostNotify: hostNotify,
 	}
 }
 

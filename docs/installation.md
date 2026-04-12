@@ -144,6 +144,15 @@ identity:
 runtime:
   mode: websocket
   socket_path: ""
+  host_notify:
+    enabled: false
+    sink: log
+    file_path: ""
+    openclaw:
+      hook_url: http://127.0.0.1:18789/hooks/agent
+      agent_id: main
+      hook_name: AWiki
+      token: ""
 output:
   format: json
   no_color: false
@@ -159,6 +168,13 @@ services:
 
 - `runtime.mode` 默认是 `websocket`
 - `runtime.socket_path` 默认是 `<workspace>/runtime/message-daemon.sock`
+- `runtime.host_notify.enabled` 默认是 `false`
+- `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
+- `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
+- `runtime.host_notify.openclaw.hook_url` 默认是 `http://127.0.0.1:18789/hooks/agent`
+- `runtime.host_notify.openclaw.agent_id` 默认是 `main`
+- `runtime.host_notify.openclaw.hook_name` 默认是 `AWiki`
+- `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供；为空时 `chat.inject` 仍可尝试，但 `/hooks/agent` 外部 channel fan-out 通常会因认证失败而不可用
 - `output.format` 默认是 `json`
 - `services.service_base_url` 默认是 `https://awiki.ai`
 - `services.did_domain` 默认是 `awiki.ai`
@@ -190,6 +206,13 @@ identity:
   active: default
 runtime:
   mode: websocket
+  host_notify:
+    enabled: false
+    sink: log
+    openclaw:
+      hook_url: http://127.0.0.1:18789/hooks/agent
+      agent_id: main
+      hook_name: AWiki
 services:
   service_base_url: https://awiki.test
   did_domain: awiki.test

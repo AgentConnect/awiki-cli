@@ -20,12 +20,21 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	runtimeResolved := runtimecfg.Resolve(resolved)
 	status := Status{
-		Mode:       runtimecfg.Resolve(resolved).Mode,
+		Mode:       runtimeResolved.Mode,
 		PIDFile:    pidFile,
 		LogFile:    logFile,
 		StatusFile: statusFile,
 		SocketPath: socketPath,
+		HostNotify: HostNotifyStatus{
+			Enabled:  runtimeResolved.HostNotify.Enabled,
+			Sink:     runtimeResolved.HostNotify.Sink,
+			FilePath: runtimeResolved.HostNotify.FilePath,
+			HookURL:  runtimeResolved.HostNotify.OpenClaw.HookURL,
+			AgentID:  runtimeResolved.HostNotify.OpenClaw.AgentID,
+			HookName: runtimeResolved.HostNotify.OpenClaw.HookName,
+		},
 	}
 	if saved, err := readStatus(statusFile); err == nil {
 		status = saved
@@ -33,6 +42,12 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 		status.LogFile = logFile
 		status.StatusFile = statusFile
 		status.SocketPath = socketPath
+		status.HostNotify.Enabled = runtimeResolved.HostNotify.Enabled
+		status.HostNotify.Sink = runtimeResolved.HostNotify.Sink
+		status.HostNotify.FilePath = runtimeResolved.HostNotify.FilePath
+		status.HostNotify.HookURL = runtimeResolved.HostNotify.OpenClaw.HookURL
+		status.HostNotify.AgentID = runtimeResolved.HostNotify.OpenClaw.AgentID
+		status.HostNotify.HookName = runtimeResolved.HostNotify.OpenClaw.HookName
 	}
 	pid, err := readPID(pidFile)
 	if err == nil {

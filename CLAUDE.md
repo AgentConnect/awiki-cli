@@ -102,10 +102,14 @@
 **internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
 **internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
 **internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库。  
+**internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口。  
+**internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责 `chat.inject` 主会话投递、活跃外部 channel 发现，以及 `/hooks/agent` fan-out 调用。  
 **internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑。  
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/anp-service-discovery.md**: awiki-cli 生成 DID 文档时的 `ANPMessageService` 填写规则、配置约束与实施记录。
+**docs/architecture/websocket-host-notification-v1.md**: websocket listener 向宿主 Agent 暴露统一通知事件的 v1 设计文档。  
+**docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
 **docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。  
 **docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。  
@@ -175,6 +179,7 @@
   - 后台 listener 进程、pid/status/socket 管理
   - 本地 daemon / unix socket bridge 服务端
   - 远端单 websocket 连接与 `direct.incoming` / `group.incoming` / `group.state_changed` 下行落库
+  - websocket 下行到宿主 Agent 的统一通知事件 v1（字段裁剪 + noop/log/file/openclaw sink）
   - websocket session 断线自动重连、周期 ping 保活、桥接请求按连接状态快速失败后由上层回退 HTTP
 - Phase 7.1（当前首版已落地 ANP SDK 鉴权）：
   - 基于 `DIDWbaAuthHeader` 的 HTTP hop auth

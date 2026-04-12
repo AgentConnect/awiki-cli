@@ -12,15 +12,20 @@ import (
 )
 
 const (
-	appName               = "awiki-cli"
-	configFileName        = "config.yaml"
-	legacyConfigFileName  = "config.json"
-	legacySkillName       = "awiki-agent-id-message"
-	defaultServiceBaseURL = "https://awiki.ai"
-	defaultDIDDomain      = "awiki.ai"
-	defaultANPPath        = "/anp-im/rpc"
-	defaultRuntimeMode    = "websocket"
-	defaultOutputFormat   = "json"
+	appName                 = "awiki-cli"
+	configFileName          = "config.yaml"
+	legacyConfigFileName    = "config.json"
+	legacySkillName         = "awiki-agent-id-message"
+	defaultServiceBaseURL   = "https://awiki.ai"
+	defaultDIDDomain        = "awiki.ai"
+	defaultANPPath          = "/anp-im/rpc"
+	defaultRuntimeMode      = "websocket"
+	defaultOutputFormat     = "json"
+	defaultHostNotifySink   = "log"
+	defaultHostNotifyFile   = "host-notify.events.jsonl"
+	defaultOpenClawHookURL  = "http://127.0.0.1:18789/hooks/agent"
+	defaultOpenClawAgentID  = "main"
+	defaultOpenClawHookName = "AWiki"
 
 	ConfigSchemaVersion = 1
 )
@@ -99,6 +104,17 @@ type FileConfig struct {
 	Runtime struct {
 		Mode       string `json:"mode" yaml:"mode"`
 		SocketPath string `json:"socket_path" yaml:"socket_path"`
+		HostNotify struct {
+			Enabled  *bool  `json:"enabled" yaml:"enabled"`
+			Sink     string `json:"sink" yaml:"sink"`
+			FilePath string `json:"file_path" yaml:"file_path"`
+			OpenClaw struct {
+				HookURL  string `json:"hook_url" yaml:"hook_url"`
+				AgentID  string `json:"agent_id" yaml:"agent_id"`
+				HookName string `json:"hook_name" yaml:"hook_name"`
+				Token    string `json:"token" yaml:"token"`
+			} `json:"openclaw" yaml:"openclaw"`
+		} `json:"host_notify" yaml:"host_notify"`
 	} `json:"runtime" yaml:"runtime"`
 	Output struct {
 		Format  string `json:"format" yaml:"format"`
@@ -127,22 +143,28 @@ type ValueSource struct {
 }
 
 type Resolved struct {
-	Paths               Paths                  `json:"paths"`
-	ConfigSchemaVersion int                    `json:"config_schema_version"`
-	ActiveIdentity      string                 `json:"active_identity,omitempty"`
-	RuntimeMode         string                 `json:"runtime_mode"`
-	RuntimeSocketPath   string                 `json:"runtime_socket_path,omitempty"`
-	OutputFormat        string                 `json:"output_format"`
-	NoColor             bool                   `json:"no_color"`
-	ServiceBaseURL      string                 `json:"service_base_url"`
-	DIDDomain           string                 `json:"did_domain"`
-	ANPServiceEndpoint  string                 `json:"anp_service_endpoint"`
-	ANPServiceDID       string                 `json:"anp_service_did"`
-	CABundle            string                 `json:"ca_bundle,omitempty"`
-	ConfigExists        bool                   `json:"config_exists"`
-	ConfigError         string                 `json:"config_error,omitempty"`
-	EnvHits             []EnvHit               `json:"env_hits,omitempty"`
-	Sources             map[string]ValueSource `json:"sources"`
+	Paths                      Paths                  `json:"paths"`
+	ConfigSchemaVersion        int                    `json:"config_schema_version"`
+	ActiveIdentity             string                 `json:"active_identity,omitempty"`
+	RuntimeMode                string                 `json:"runtime_mode"`
+	RuntimeSocketPath          string                 `json:"runtime_socket_path,omitempty"`
+	HostNotifyEnabled          bool                   `json:"host_notify_enabled"`
+	HostNotifySink             string                 `json:"host_notify_sink"`
+	HostNotifyFilePath         string                 `json:"host_notify_file_path,omitempty"`
+	HostNotifyOpenClawHookURL  string                 `json:"host_notify_openclaw_hook_url,omitempty"`
+	HostNotifyOpenClawAgentID  string                 `json:"host_notify_openclaw_agent_id,omitempty"`
+	HostNotifyOpenClawHookName string                 `json:"host_notify_openclaw_hook_name,omitempty"`
+	OutputFormat               string                 `json:"output_format"`
+	NoColor                    bool                   `json:"no_color"`
+	ServiceBaseURL             string                 `json:"service_base_url"`
+	DIDDomain                  string                 `json:"did_domain"`
+	ANPServiceEndpoint         string                 `json:"anp_service_endpoint"`
+	ANPServiceDID              string                 `json:"anp_service_did"`
+	CABundle                   string                 `json:"ca_bundle,omitempty"`
+	ConfigExists               bool                   `json:"config_exists"`
+	ConfigError                string                 `json:"config_error,omitempty"`
+	EnvHits                    []EnvHit               `json:"env_hits,omitempty"`
+	Sources                    map[string]ValueSource `json:"sources"`
 }
 
 type PolicyError struct {
@@ -233,6 +255,67 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		fileConfig.Runtime.SocketPath,
 		filepath.Join(paths.StateDir, "message-daemon.sock"),
 	)
+	resolved.HostNotifyEnabled, resolved.Sources["host_notify_enabled"] = chooseBool(fileConfig.Runtime.HostNotify.Enabled, false)
+	resolved.HostNotifySink, resolved.Sources["host_notify_sink"] = chooseValue(
+		"",
+		false,
+		fileConfig.Runtime.HostNotify.Sink,
+		defaultHostNotifySink,
+	)
+	resolved.HostNotifySink = strings.ToLower(strings.TrimSpace(resolved.HostNotifySink))
+	if err := validateHostNotifySink(resolved.HostNotifySink); err != nil {
+		return nil, err
+	}
+	hostNotifyFilePath := expandHome(home, fileConfig.Runtime.HostNotify.FilePath)
+	if resolved.HostNotifySink == "file" {
+		resolved.HostNotifyFilePath, resolved.Sources["host_notify_file_path"] = chooseValue(
+			"",
+			false,
+			hostNotifyFilePath,
+			"",
+		)
+		if strings.TrimSpace(resolved.HostNotifyFilePath) == "" {
+			resolved.HostNotifyFilePath = filepath.Join(paths.StateDir, defaultHostNotifyFile)
+			resolved.Sources["host_notify_file_path"] = ValueSource{
+				Source: "derived_default",
+				Key:    "state_dir",
+				Value:  resolved.HostNotifyFilePath,
+			}
+		}
+	} else {
+		resolved.HostNotifyFilePath = ""
+		resolved.Sources["host_notify_file_path"] = ValueSource{
+			Source: "default",
+			Value:  "",
+		}
+	}
+	if resolved.HostNotifySink == "openclaw" {
+		resolved.HostNotifyOpenClawHookURL, resolved.Sources["host_notify_openclaw_hook_url"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.HookURL,
+			defaultOpenClawHookURL,
+		)
+		resolved.HostNotifyOpenClawAgentID, resolved.Sources["host_notify_openclaw_agent_id"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.AgentID,
+			defaultOpenClawAgentID,
+		)
+		resolved.HostNotifyOpenClawHookName, resolved.Sources["host_notify_openclaw_hook_name"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.HookName,
+			defaultOpenClawHookName,
+		)
+	} else {
+		resolved.HostNotifyOpenClawHookURL = ""
+		resolved.HostNotifyOpenClawAgentID = ""
+		resolved.HostNotifyOpenClawHookName = ""
+		resolved.Sources["host_notify_openclaw_hook_url"] = ValueSource{Source: "default", Value: ""}
+		resolved.Sources["host_notify_openclaw_agent_id"] = ValueSource{Source: "default", Value: ""}
+		resolved.Sources["host_notify_openclaw_hook_name"] = ValueSource{Source: "default", Value: ""}
+	}
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(
 		overrides.Format,
 		overrides.FormatChanged,
@@ -303,22 +386,28 @@ func Snapshot(resolved *Resolved) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"paths":                 resolved.Paths,
-		"config_schema_version": resolved.ConfigSchemaVersion,
-		"active_identity":       resolved.ActiveIdentity,
-		"runtime_mode":          resolved.RuntimeMode,
-		"runtime_socket_path":   resolved.RuntimeSocketPath,
-		"output_format":         resolved.OutputFormat,
-		"no_color":              resolved.NoColor,
-		"service_base_url":      resolved.ServiceBaseURL,
-		"did_domain":            resolved.DIDDomain,
-		"anp_service_endpoint":  resolved.ANPServiceEndpoint,
-		"anp_service_did":       resolved.ANPServiceDID,
-		"ca_bundle":             resolved.CABundle,
-		"config_exists":         resolved.ConfigExists,
-		"config_error":          resolved.ConfigError,
-		"env_hits":              resolved.EnvHits,
-		"sources":               resolved.Sources,
+		"paths":                          resolved.Paths,
+		"config_schema_version":          resolved.ConfigSchemaVersion,
+		"active_identity":                resolved.ActiveIdentity,
+		"runtime_mode":                   resolved.RuntimeMode,
+		"runtime_socket_path":            resolved.RuntimeSocketPath,
+		"host_notify_enabled":            resolved.HostNotifyEnabled,
+		"host_notify_sink":               resolved.HostNotifySink,
+		"host_notify_file_path":          resolved.HostNotifyFilePath,
+		"host_notify_openclaw_hook_url":  resolved.HostNotifyOpenClawHookURL,
+		"host_notify_openclaw_agent_id":  resolved.HostNotifyOpenClawAgentID,
+		"host_notify_openclaw_hook_name": resolved.HostNotifyOpenClawHookName,
+		"output_format":                  resolved.OutputFormat,
+		"no_color":                       resolved.NoColor,
+		"service_base_url":               resolved.ServiceBaseURL,
+		"did_domain":                     resolved.DIDDomain,
+		"anp_service_endpoint":           resolved.ANPServiceEndpoint,
+		"anp_service_did":                resolved.ANPServiceDID,
+		"ca_bundle":                      resolved.CABundle,
+		"config_exists":                  resolved.ConfigExists,
+		"config_error":                   resolved.ConfigError,
+		"env_hits":                       resolved.EnvHits,
+		"sources":                        resolved.Sources,
 	}
 }
 
@@ -511,6 +600,18 @@ func collectDeprecatedConfigFields(path string) ([]string, error) {
 		}
 	}
 	return deprecated, nil
+}
+
+func validateHostNotifySink(value string) error {
+	switch value {
+	case "", "noop", "log", "file", "openclaw":
+		return nil
+	default:
+		return &PolicyError{
+			Message: fmt.Sprintf("unsupported runtime.host_notify.sink %q", value),
+			Hint:    "Use runtime.host_notify.sink = noop, log, file, or openclaw in config.yaml.",
+		}
+	}
 }
 
 func NormalizeBaseURL(baseURL string) string {
