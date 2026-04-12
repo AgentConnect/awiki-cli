@@ -149,3 +149,19 @@ func MarkMessagesRead(ctx context.Context, db *sql.DB, ownerDID string, messageI
 	}
 	return result.RowsAffected()
 }
+
+// ListNotifications returns the most recent mail.notification messages for a given owner.
+// These are stored by the runtime listener when it receives mail.notification events
+// from message-service v2 via the websocket channel.
+func ListNotifications(ctx context.Context, db *sql.DB, ownerDID string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return queryMaps(ctx, db, `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND content_type = 'mail.notification'
+ORDER BY COALESCE(sent_at, stored_at) DESC
+LIMIT ?`, normalizeOwnerDID(ownerDID), limit)
+}

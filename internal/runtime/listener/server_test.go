@@ -78,6 +78,50 @@ func TestMessageRecordFromDirectIncomingRejectsNonDirectNotification(t *testing.
 	}
 }
 
+func TestMessageRecordFromMailNotificationBuildsSystemMessage(t *testing.T) {
+	t.Parallel()
+
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "mail.notification",
+		"params": map[string]any{
+			"mailbox_did":     "did:wba:example.com:user:alice:e1_alice",
+			"mailbox_address": "alice@example.com",
+			"from_addr":       "sender@example.com",
+			"subject":         "Mail Subject",
+			"preview":         "First 200 chars of the body...",
+			"has_attachments": true,
+			"message_id":      "mail-msg-001",
+		},
+	}
+
+	record, ok := messageRecordFromMailNotification(notification, "alice")
+	if !ok {
+		t.Fatalf("messageRecordFromMailNotification() ok = false, want true")
+	}
+	if record.OwnerDID != "did:wba:example.com:user:alice:e1_alice" {
+		t.Fatalf("record.OwnerDID = %q", record.OwnerDID)
+	}
+	if record.ThreadID != "mail:alice@example.com" {
+		t.Fatalf("record.ThreadID = %q", record.ThreadID)
+	}
+	if record.Direction != 0 {
+		t.Fatalf("record.Direction = %d, want 0 (inbound)", record.Direction)
+	}
+	if record.ContentType != "mail.notification" {
+		t.Fatalf("record.ContentType = %q", record.ContentType)
+	}
+	if record.Title != "Mail Subject" {
+		t.Fatalf("record.Title = %q", record.Title)
+	}
+	if !strings.Contains(record.Content, "alice@example.com") || !strings.Contains(record.Content, "Mail Subject") {
+		t.Fatalf("record.Content = %q, want summary with mailbox and subject", record.Content)
+	}
+	if record.CredentialName != "alice" {
+		t.Fatalf("record.CredentialName = %q", record.CredentialName)
+	}
+}
+
 func TestMessageRecordFromGroupIncomingUsesProtocolFieldsOnly(t *testing.T) {
 	t.Parallel()
 

@@ -200,6 +200,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMailSend
 	case "msg.mail.attachment.download", "mail.attachment.download":
 		return a.runMailAttachmentDownload
+	case "msg.mail.notify", "mail.notify":
+		return a.runMailNotify
 	case "group.create":
 		return a.runGroupCreate
 	case "group.show":

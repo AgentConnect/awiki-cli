@@ -9,6 +9,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/store"
 )
 
 const didAuthRPCEndpoint = "/user-service/did-auth/rpc"
@@ -36,6 +37,39 @@ func NewService(resolved *appconfig.Resolved) (*Service, error) {
 
 func (s *Service) Config() *appconfig.Resolved {
 	return s.resolved
+}
+
+// Notifications returns recent mail.notification records from the local websocket cache.
+//
+// This does not call the remote mail-service. Instead, it reads from the same
+// sqlite database used by the runtime listener for direct/group messages and
+// surfaces entries where content_type = "mail.notification".
+func (s *Service) Notifications(ctx context.Context, identityName string, limit int) (*CommandResult, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	record, err := s.requireActiveIdentity(identityName)
+	if err != nil {
+		return nil, err
+	}
+	db, err := store.Open(s.resolved.Paths)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(ctx, db); err != nil {
+		return nil, err
+	}
+	rows, err := store.ListNotifications(ctx, db, record.DID, limit)
+	if err != nil {
+		return nil, err
+	}
+	summary := fmt.Sprintf("Loaded %d mail notification(s)", len(rows))
+	data := map[string]any{
+		"notifications": rows,
+		"total":         len(rows),
+	}
+	return &CommandResult{Data: data, Summary: summary}, nil
 }
 
 func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResult, error) {
