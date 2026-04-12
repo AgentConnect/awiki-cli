@@ -139,6 +139,7 @@ awiki-cli msg secure retry OUTBOX_ID [--identity alice]
 awiki-cli msg secure drop OUTBOX_ID [--identity alice]
 
 awiki-cli runtime status [--identity NAME]
+awiki-cli runtime apply
 awiki-cli runtime setup [--mode http|websocket] [--identity NAME]
 awiki-cli runtime mode get
 awiki-cli runtime mode set http|websocket
@@ -148,6 +149,15 @@ awiki-cli runtime listener start
 awiki-cli runtime listener stop
 awiki-cli runtime listener restart
 awiki-cli runtime listener uninstall
+awiki-cli runtime listener config show
+awiki-cli runtime listener config set [--enabled true|false] [--auto-install true|false] [--auto-start true|false]
+awiki-cli runtime listener enable
+awiki-cli runtime listener disable
+awiki-cli runtime host-notify config show
+awiki-cli runtime host-notify config set --sink noop|log|file|openclaw
+awiki-cli runtime host-notify openclaw set [--hook-url ...] [--agent-id ...] [--hook-name ...]
+awiki-cli runtime host-notify openclaw set-token --value <token>
+awiki-cli runtime host-notify openclaw clear-token
 awiki-cli runtime heartbeat status
 awiki-cli runtime heartbeat install [--every 15m]
 awiki-cli runtime heartbeat run-once
@@ -725,12 +735,17 @@ awiki-cli runtime mode set http|websocket
 
 ## 10.2 listener
 
-Go 版 listener 建议这样实现：
+Go 版 listener 当前实现为：
 
-* `listener start`：前台或后台启动本地 listener 进程
-* `listener install`：通过 `kardianos/service` 安装为系统服务
+* `runtime apply`：按 `config.yaml` 收敛 runtime 与 listener 的真实状态
+* `listener install`：只安装系统服务定义
+* `listener start`：只启动已安装的系统服务
 * `listener status`：检查 service 状态 + 本地健康探针
 * `listener uninstall`：移除服务定义与本地状态
+* `listener config show/set`：查看和修改 listener 配置真相源
+* `listener enable/disable`：改配置后自动 `runtime apply`
+* `host-notify config show/set` 与 `host-notify openclaw *`：统一管理宿主通知配置
+* `listener run` / `listener service-run`：内部前台执行入口
 
 ## 10.3 heartbeat
 

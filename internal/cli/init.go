@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
+	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -86,6 +89,9 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		cfg := appconfig.FileConfig{}
 		cfg.Identity.Active = resolved.ActiveIdentity
 		cfg.Runtime.Mode = resolved.RuntimeMode
+		cfg.Runtime.Listener.Enabled = boolPtr(resolved.RuntimeListenerEnabled)
+		cfg.Runtime.Listener.AutoInstall = boolPtr(resolved.RuntimeListenerAutoInstall)
+		cfg.Runtime.Listener.AutoStart = boolPtr(resolved.RuntimeListenerAutoStart)
 		cfg.Output.Format = resolved.OutputFormat
 		noColor := resolved.NoColor
 		cfg.Output.NoColor = &noColor
@@ -105,6 +111,33 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		}
 		resolved.ConfigExists = true
 	}
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		return output.NewExitError(
+			"internal_error",
+			1,
+			err.Error(),
+			"Check write permissions for the local sqlite database.",
+		)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		return output.NewExitError(
+			"internal_error",
+			1,
+			err.Error(),
+			"Initialize the local sqlite schema before enabling runtime.",
+		)
+	}
+	listenerStatus, err := listenerrt.ApplyRuntimePolicy(resolved)
+	if err != nil {
+		return output.NewExitError(
+			"internal_error",
+			1,
+			err.Error(),
+			"Check listener service permissions and runtime.listener settings.",
+		)
+	}
 
 	result := map[string]any{
 		"workspace": map[string]any{
@@ -114,6 +147,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 			"config_file":   resolved.Paths.ConfigFile,
 			"config_exists": resolved.ConfigExists,
 		},
+		"listener": listenerStatus,
 	}
 
 	return a.renderSuccess(
@@ -125,4 +159,9 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		nil,
 		identityMetaFromResolved(resolved),
 	)
+}
+
+func boolPtr(value bool) *bool {
+	result := value
+	return &result
 }

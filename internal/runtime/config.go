@@ -5,10 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -23,7 +20,14 @@ const (
 type Resolved struct {
 	Mode       string           `json:"mode"`
 	SocketPath string           `json:"socket_path,omitempty"`
+	Listener   ListenerConfig   `json:"listener"`
 	HostNotify HostNotifyConfig `json:"host_notify"`
+}
+
+type ListenerConfig struct {
+	Enabled     bool `json:"enabled"`
+	AutoInstall bool `json:"auto_install"`
+	AutoStart   bool `json:"auto_start"`
 }
 
 type HostNotifyConfig struct {
@@ -43,6 +47,11 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	if resolved == nil {
 		return Resolved{
 			Mode: ModeWebSocket,
+			Listener: ListenerConfig{
+				Enabled:     true,
+				AutoInstall: true,
+				AutoStart:   true,
+			},
 			HostNotify: HostNotifyConfig{
 				Enabled: false,
 				Sink:    "log",
@@ -55,12 +64,14 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	}
 	socketPath := strings.TrimSpace(resolved.RuntimeSocketPath)
 	if socketPath == "" {
-		socketPath = filepath.Join(resolved.Paths.StateDir, "message-daemon.sock")
-		if strings.TrimSpace(resolved.Paths.StateDir) == "" {
-			socketPath = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime", "message-daemon.sock")
-		}
+		socketPath = defaultBridgeEndpoint(resolved.Paths)
 	}
-	socketPath = normalizeSocketPath(socketPath)
+	socketPath = normalizeBridgeEndpoint(socketPath)
+	listener := ListenerConfig{
+		Enabled:     resolved.RuntimeListenerEnabled,
+		AutoInstall: resolved.RuntimeListenerAutoInstall,
+		AutoStart:   resolved.RuntimeListenerAutoStart,
+	}
 	hostNotify := HostNotifyConfig{
 		Enabled: resolved.HostNotifyEnabled,
 		Sink:    strings.ToLower(strings.TrimSpace(resolved.HostNotifySink)),
@@ -81,6 +92,7 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	return Resolved{
 		Mode:       mode,
 		SocketPath: socketPath,
+		Listener:   listener,
 		HostNotify: hostNotify,
 	}
 }
@@ -114,13 +126,10 @@ func CallLocalBridge(request BridgeRequest, resolved *appconfig.Resolved) (map[s
 	if strings.TrimSpace(bridge.SocketPath) == "" {
 		return nil, fmt.Errorf("runtime websocket bridge socket is not configured")
 	}
-	if runtime.GOOS == "windows" {
-		return nil, fmt.Errorf("websocket bridge is not implemented on windows yet")
+	if err := prepareBridgeEndpoint(bridge.SocketPath); err != nil {
+		return nil, err
 	}
-	if err := os.MkdirAll(filepath.Dir(bridge.SocketPath), 0o700); err != nil {
-		return nil, fmt.Errorf("prepare websocket bridge socket dir: %w", err)
-	}
-	conn, err := net.Dial("unix", bridge.SocketPath)
+	conn, err := dialBridge(bridge.SocketPath)
 	if err != nil {
 		return nil, fmt.Errorf("local websocket bridge unavailable: %w", err)
 	}
@@ -154,5 +163,5 @@ func normalizeSocketPath(path string) string {
 		return path
 	}
 	sum := sha256.Sum256([]byte(path))
-	return filepath.Join(os.TempDir(), "awiki-cli-"+hex.EncodeToString(sum[:8])+".sock")
+	return filepath.Join(tempDir(), "awiki-cli-"+hex.EncodeToString(sum[:8])+".sock")
 }

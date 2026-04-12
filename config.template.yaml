@@ -4,6 +4,10 @@ identity:
 runtime:
   mode: websocket
   socket_path: ""
+  listener:
+    enabled: true
+    auto_install: true
+    auto_start: true
   host_notify:
     enabled: false
     sink: log

@@ -130,6 +130,15 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.RuntimeMode != "websocket" {
 		t.Fatalf("runtime mode = %q, want websocket", resolved.RuntimeMode)
 	}
+	if !resolved.RuntimeListenerEnabled {
+		t.Fatal("runtime listener enabled = false, want true")
+	}
+	if !resolved.RuntimeListenerAutoInstall {
+		t.Fatal("runtime listener auto_install = false, want true")
+	}
+	if !resolved.RuntimeListenerAutoStart {
+		t.Fatal("runtime listener auto_start = false, want true")
+	}
 	if resolved.HostNotifySink != "log" {
 		t.Fatalf("host notify sink = %q, want log", resolved.HostNotifySink)
 	}
@@ -260,6 +269,32 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 	if resolved.HostNotifyOpenClawHookName != "AWiki" {
 		t.Fatalf("resolved.HostNotifyOpenClawHookName = %q", resolved.HostNotifyOpenClawHookName)
+	}
+}
+
+func TestResolveHonorsRuntimeListenerConfigFromFile(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  listener:\n    enabled: false\n    auto_install: false\n    auto_start: false\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.RuntimeListenerEnabled {
+		t.Fatal("resolved.RuntimeListenerEnabled = true, want false")
+	}
+	if resolved.RuntimeListenerAutoInstall {
+		t.Fatal("resolved.RuntimeListenerAutoInstall = true, want false")
+	}
+	if resolved.RuntimeListenerAutoStart {
+		t.Fatal("resolved.RuntimeListenerAutoStart = true, want false")
 	}
 }
 

@@ -58,6 +58,15 @@ func TestResolveDefaultsToWebSocketMode(t *testing.T) {
 	if resolved.HostNotify.Enabled {
 		t.Fatal("resolved.HostNotify.Enabled = true, want false")
 	}
+	if !resolved.Listener.Enabled {
+		t.Fatal("resolved.Listener.Enabled = false, want true")
+	}
+	if !resolved.Listener.AutoInstall {
+		t.Fatal("resolved.Listener.AutoInstall = false, want true")
+	}
+	if !resolved.Listener.AutoStart {
+		t.Fatal("resolved.Listener.AutoStart = false, want true")
+	}
 }
 
 func TestResolveIncludesHostNotifyConfig(t *testing.T) {
@@ -105,5 +114,25 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 	if resolved.HostNotify.OpenClaw.HookName != "AWiki" {
 		t.Fatalf("resolved.HostNotify.OpenClaw.HookName = %q", resolved.HostNotify.OpenClaw.HookName)
+	}
+}
+
+func TestResolveIncludesListenerConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(&appconfig.Resolved{
+		RuntimeMode:                "websocket",
+		RuntimeListenerEnabled:     false,
+		RuntimeListenerAutoInstall: false,
+		RuntimeListenerAutoStart:   false,
+	})
+	if resolved.Listener.Enabled {
+		t.Fatal("resolved.Listener.Enabled = true, want false")
+	}
+	if resolved.Listener.AutoInstall {
+		t.Fatal("resolved.Listener.AutoInstall = true, want false")
+	}
+	if resolved.Listener.AutoStart {
+		t.Fatal("resolved.Listener.AutoStart = true, want false")
 	}
 }

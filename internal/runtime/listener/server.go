@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -137,11 +136,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 }
 
 func (s *Supervisor) startSocket() error {
-	if err := os.MkdirAll(filepath.Dir(s.status.SocketPath), 0o700); err != nil {
-		return err
-	}
-	_ = os.Remove(s.status.SocketPath)
-	listener, err := net.Listen("unix", s.status.SocketPath)
+	listener, err := runtime.ListenBridge(s.status.SocketPath)
 	if err != nil {
 		return err
 	}

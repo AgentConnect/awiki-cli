@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 
@@ -12,20 +15,23 @@ import (
 )
 
 const (
-	appName                 = "awiki-cli"
-	configFileName          = "config.yaml"
-	legacyConfigFileName    = "config.json"
-	legacySkillName         = "awiki-agent-id-message"
-	defaultServiceBaseURL   = "https://awiki.ai"
-	defaultDIDDomain        = "awiki.ai"
-	defaultANPPath          = "/anp-im/rpc"
-	defaultRuntimeMode      = "websocket"
-	defaultOutputFormat     = "json"
-	defaultHostNotifySink   = "log"
-	defaultHostNotifyFile   = "host-notify.events.jsonl"
-	defaultOpenClawHookURL  = "http://127.0.0.1:18789/hooks/agent"
-	defaultOpenClawAgentID  = "main"
-	defaultOpenClawHookName = "AWiki"
+	appName                    = "awiki-cli"
+	configFileName             = "config.yaml"
+	legacyConfigFileName       = "config.json"
+	legacySkillName            = "awiki-agent-id-message"
+	defaultServiceBaseURL      = "https://awiki.ai"
+	defaultDIDDomain           = "awiki.ai"
+	defaultANPPath             = "/anp-im/rpc"
+	defaultRuntimeMode         = "websocket"
+	defaultOutputFormat        = "json"
+	defaultListenerEnabled     = true
+	defaultListenerAutoInstall = true
+	defaultListenerAutoStart   = true
+	defaultHostNotifySink      = "log"
+	defaultHostNotifyFile      = "host-notify.events.jsonl"
+	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
+	defaultOpenClawAgentID     = "main"
+	defaultOpenClawHookName    = "AWiki"
 
 	ConfigSchemaVersion = 1
 )
@@ -104,6 +110,11 @@ type FileConfig struct {
 	Runtime struct {
 		Mode       string `json:"mode" yaml:"mode"`
 		SocketPath string `json:"socket_path" yaml:"socket_path"`
+		Listener   struct {
+			Enabled     *bool `json:"enabled" yaml:"enabled"`
+			AutoInstall *bool `json:"auto_install" yaml:"auto_install"`
+			AutoStart   *bool `json:"auto_start" yaml:"auto_start"`
+		} `json:"listener" yaml:"listener"`
 		HostNotify struct {
 			Enabled  *bool  `json:"enabled" yaml:"enabled"`
 			Sink     string `json:"sink" yaml:"sink"`
@@ -148,6 +159,9 @@ type Resolved struct {
 	ActiveIdentity             string                 `json:"active_identity,omitempty"`
 	RuntimeMode                string                 `json:"runtime_mode"`
 	RuntimeSocketPath          string                 `json:"runtime_socket_path,omitempty"`
+	RuntimeListenerEnabled     bool                   `json:"runtime_listener_enabled"`
+	RuntimeListenerAutoInstall bool                   `json:"runtime_listener_auto_install"`
+	RuntimeListenerAutoStart   bool                   `json:"runtime_listener_auto_start"`
 	HostNotifyEnabled          bool                   `json:"host_notify_enabled"`
 	HostNotifySink             string                 `json:"host_notify_sink"`
 	HostNotifyFilePath         string                 `json:"host_notify_file_path,omitempty"`
@@ -253,8 +267,11 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 		false,
 		fileConfig.Runtime.SocketPath,
-		filepath.Join(paths.StateDir, "message-daemon.sock"),
+		defaultRuntimeBridgePath(paths),
 	)
+	resolved.RuntimeListenerEnabled, resolved.Sources["runtime_listener_enabled"] = chooseBool(fileConfig.Runtime.Listener.Enabled, defaultListenerEnabled)
+	resolved.RuntimeListenerAutoInstall, resolved.Sources["runtime_listener_auto_install"] = chooseBool(fileConfig.Runtime.Listener.AutoInstall, defaultListenerAutoInstall)
+	resolved.RuntimeListenerAutoStart, resolved.Sources["runtime_listener_auto_start"] = chooseBool(fileConfig.Runtime.Listener.AutoStart, defaultListenerAutoStart)
 	resolved.HostNotifyEnabled, resolved.Sources["host_notify_enabled"] = chooseBool(fileConfig.Runtime.HostNotify.Enabled, false)
 	resolved.HostNotifySink, resolved.Sources["host_notify_sink"] = chooseValue(
 		"",
@@ -391,6 +408,9 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"active_identity":                resolved.ActiveIdentity,
 		"runtime_mode":                   resolved.RuntimeMode,
 		"runtime_socket_path":            resolved.RuntimeSocketPath,
+		"runtime_listener_enabled":       resolved.RuntimeListenerEnabled,
+		"runtime_listener_auto_install":  resolved.RuntimeListenerAutoInstall,
+		"runtime_listener_auto_start":    resolved.RuntimeListenerAutoStart,
 		"host_notify_enabled":            resolved.HostNotifyEnabled,
 		"host_notify_sink":               resolved.HostNotifySink,
 		"host_notify_file_path":          resolved.HostNotifyFilePath,
@@ -485,6 +505,27 @@ func defaultANPServiceDID(didDomain string) string {
 		trimmedDomain = defaultDIDDomain
 	}
 	return "did:wba:" + trimmedDomain
+}
+
+func defaultRuntimeBridgePath(paths Paths) string {
+	if goruntime.GOOS == "windows" {
+		workspace := strings.TrimSpace(paths.WorkspaceHomeDir)
+		if workspace == "" {
+			workspace = filepath.Join(os.TempDir(), "awiki-cli")
+		}
+		sum := sha256Bytes(workspace)
+		return `\\.\pipe\awiki-cli-` + sum[:16]
+	}
+	stateDir := strings.TrimSpace(paths.StateDir)
+	if stateDir == "" {
+		stateDir = filepath.Join(paths.WorkspaceHomeDir, "runtime")
+	}
+	return filepath.Join(stateDir, "message-daemon.sock")
+}
+
+func sha256Bytes(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func LegacyConfigPath(paths Paths) string {

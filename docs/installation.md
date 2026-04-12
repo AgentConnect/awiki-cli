@@ -144,6 +144,10 @@ identity:
 runtime:
   mode: websocket
   socket_path: ""
+  listener:
+    enabled: true
+    auto_install: true
+    auto_start: true
   host_notify:
     enabled: false
     sink: log
@@ -167,7 +171,13 @@ services:
 默认值说明：
 
 - `runtime.mode` 默认是 `websocket`
-- `runtime.socket_path` 默认是 `<workspace>/runtime/message-daemon.sock`
+- `runtime.socket_path` 默认是：
+  - macOS / Linux: `<workspace>/runtime/message-daemon.sock`
+  - Windows: `\\\\.\\pipe\\awiki-cli-<workspace-hash>`
+- `runtime.listener.enabled` 默认是 `true`
+- `runtime.listener.auto_install` 默认是 `true`
+- `runtime.listener.auto_start` 默认是 `true`
+- 在默认 websocket 模式下，`awiki-cli init` 和 `awiki-cli runtime setup` 会自动安装并启动 listener 系统服务
 - `runtime.host_notify.enabled` 默认是 `false`
 - `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
 - `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
@@ -206,6 +216,10 @@ identity:
   active: default
 runtime:
   mode: websocket
+  listener:
+    enabled: true
+    auto_install: true
+    auto_start: true
   host_notify:
     enabled: false
     sink: log
@@ -357,14 +371,70 @@ gofmt -w $(find cmd internal -name '*.go')
 ### 5.4 WebSocket 模式
 
 ```bash
-# 切换到 WebSocket 模式
-./awiki-cli runtime mode set websocket
+# 初始化工作区，并自动安装/启动 listener 系统服务
+./awiki-cli init
 
-# 启动后台监听器
-./awiki-cli runtime listener start
+# 显式执行 runtime bootstrap（也会按配置自动 install/start）
+./awiki-cli runtime setup --mode websocket
+
+# 按当前 config.yaml 重新收敛 runtime / listener 真实状态
+./awiki-cli runtime apply
 
 # 查看监听器状态
 ./awiki-cli runtime listener status
+
+# 只安装服务定义，不自动启动
+./awiki-cli runtime listener install
+
+# 启动已安装的 listener 服务
+./awiki-cli runtime listener start
+
+# 停止 / 重启 / 卸载
+./awiki-cli runtime listener stop
+./awiki-cli runtime listener restart
+./awiki-cli runtime listener uninstall
+
+# 查看 / 修改 listener 配置
+./awiki-cli runtime listener config show
+./awiki-cli runtime listener config set --enabled false
+./awiki-cli runtime listener config set --auto-install false --auto-start false
+
+# 高阶快捷开关：改配置后自动 apply
+./awiki-cli runtime listener enable
+./awiki-cli runtime listener disable
+
+# 查看 / 修改 host notify 配置
+./awiki-cli runtime host-notify config show
+./awiki-cli runtime host-notify config set --sink openclaw
+./awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki
+./awiki-cli runtime host-notify openclaw set-token --value <token>
+./awiki-cli runtime host-notify openclaw clear-token
+```
+
+系统服务形态：
+
+- macOS：LaunchAgent
+- Linux：systemd
+- Windows：Windows Service + Named Pipe
+
+如果你想关闭 realtime listener，改成通过 agent 心跳 / HTTP 轮询收消息，可配置：
+
+```yaml
+runtime:
+  mode: http
+  listener:
+    enabled: false
+```
+
+或者保留 websocket 配置但不自动管理 listener 服务：
+
+```yaml
+runtime:
+  mode: websocket
+  listener:
+    enabled: true
+    auto_install: false
+    auto_start: false
 ```
 
 ---
