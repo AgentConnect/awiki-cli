@@ -38,7 +38,7 @@ func (a *App) messageExit(err error, hint string) error {
 		switch {
 		case serviceErr.StatusCode == 400 || serviceErr.RPCCode == -32602:
 			return output.NewExitError("invalid_argument", 2, err.Error(), hint)
-		case serviceErr.StatusCode == 401 || serviceErr.RPCCode == -32000:
+		case serviceErr.StatusCode == 401 || serviceErr.RPCCode == -32000 || serviceErr.RPCCode == 1401:
 			return output.NewExitError("auth_required", 3, err.Error(), "Use an identity with a valid JWT or DID WBA auth material.")
 		case serviceErr.StatusCode == 404 || serviceErr.RPCCode == -32002:
 			return output.NewExitError("not_found", 5, err.Error(), hint)

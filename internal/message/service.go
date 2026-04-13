@@ -3,11 +3,13 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/runtime"
@@ -74,6 +76,9 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 	request.Target = targetDID
 	result, err := transport.SendDirect(ctx, request)
 	if err != nil {
+		if isSessionUnauthorized(err) {
+			_ = s.refreshJWT(ctx, record)
+		}
 		if fallback, fallbackWarnings, fallbackErr := s.httpFallbackSend(ctx, record, request, targetDID); fallbackErr == nil {
 			warnings = append(warnings, fallbackWarnings...)
 			return s.persistSendResult(ctx, record, targetDID, targetHandle, request, fallback, warnings)
@@ -137,7 +142,19 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 			}
 			raw, err = httpTransport.GetInbox(ctx, request)
 			if err != nil {
-				return nil, err
+				if isSessionUnauthorized(err) {
+					if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
+						httpTransport, httpWarnings, httpErr = s.httpTransport(record)
+						if httpErr != nil {
+							return nil, httpErr
+						}
+						warnings = append(warnings, httpWarnings...)
+						raw, err = httpTransport.GetInbox(ctx, request)
+					}
+				}
+				if err != nil {
+					return nil, err
+				}
 			}
 			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
 			warnings = append(warnings, httpWarnings...)
@@ -149,7 +166,19 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		}
 		raw, err = httpTransport.GetInbox(ctx, request)
 		if err != nil {
-			return nil, err
+			if isSessionUnauthorized(err) {
+				if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
+					httpTransport, httpWarnings, httpErr = s.httpTransport(record)
+					if httpErr != nil {
+						return nil, httpErr
+					}
+					warnings = append(warnings, httpWarnings...)
+					raw, err = httpTransport.GetInbox(ctx, request)
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
 		}
 		warnings = append(warnings, httpWarnings...)
 	}
@@ -218,7 +247,19 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 			}
 			raw, err = httpTransport.GetHistory(ctx, request)
 			if err != nil {
-				return nil, err
+				if isSessionUnauthorized(err) {
+					if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
+						httpTransport, httpWarnings, httpErr = s.httpTransport(record)
+						if httpErr != nil {
+							return nil, httpErr
+						}
+						warnings = append(warnings, httpWarnings...)
+						raw, err = httpTransport.GetHistory(ctx, request)
+					}
+				}
+				if err != nil {
+					return nil, err
+				}
 			}
 			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
 			warnings = append(warnings, httpWarnings...)
@@ -230,7 +271,19 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		}
 		raw, err = httpTransport.GetHistory(ctx, request)
 		if err != nil {
-			return nil, err
+			if isSessionUnauthorized(err) {
+				if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
+					httpTransport, httpWarnings, httpErr = s.httpTransport(record)
+					if httpErr != nil {
+						return nil, httpErr
+					}
+					warnings = append(warnings, httpWarnings...)
+					raw, err = httpTransport.GetHistory(ctx, request)
+				}
+			}
+			if err != nil {
+				return nil, err
+			}
 		}
 		warnings = append(warnings, httpWarnings...)
 	}
@@ -292,11 +345,23 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 		}
 		result, markErr := transport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 		if markErr != nil {
-			if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
-				result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
-				if markErr == nil {
-					transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
-					transportWarnings = append(transportWarnings, httpWarnings...)
+			if isSessionUnauthorized(markErr) {
+				if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
+					if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
+						result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
+						if markErr == nil {
+							transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
+							transportWarnings = append(transportWarnings, httpWarnings...)
+						}
+					}
+				}
+			} else {
+				if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
+					result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
+					if markErr == nil {
+						transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
+						transportWarnings = append(transportWarnings, httpWarnings...)
+					}
 				}
 			}
 		}
@@ -357,6 +422,48 @@ func (s *Service) groupInbox(ctx context.Context, request InboxRequest) (*Comman
 		Summary:  fmt.Sprintf("Loaded %d group inbox messages", len(groupMessages)),
 		Warnings: nil,
 	}, nil
+}
+
+func isSessionUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
+	var serviceErr *ServiceError
+	if errors.As(err, &serviceErr) {
+		if serviceErr.StatusCode == http.StatusUnauthorized {
+			return true
+		}
+		if serviceErr.RPCCode == 1401 {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentity) error {
+	if s == nil || record == nil || s.manager == nil || s.remote == nil || s.resolved == nil {
+		return fmt.Errorf("refreshJWT: identity context is not available")
+	}
+	paths, err := s.manager.PathsForIdentity(record.IdentityName)
+	if err != nil {
+		return err
+	}
+	session := authsdk.NewSession(
+		paths.DIDDocumentPath,
+		paths.Key1PrivatePath,
+		record.IdentityName,
+		record.DID,
+		record.JWTToken,
+		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+	)
+	didAuthURL := appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if _, err := session.EnsureJWT(ctxWithTimeout, s.remote.Client(), didAuthURL); err != nil {
+		return err
+	}
+	record.JWTToken = session.CurrentJWT()
+	return nil
 }
 
 func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity, request InboxRequest) (*CommandResult, error) {
