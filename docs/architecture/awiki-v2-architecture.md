@@ -307,6 +307,11 @@ awiki v2 的目标产品形态如下：
 将 CLI 能力接入特定宿主平台，如 OpenClaw。  
 该层与 CLI 核心解耦。
 
+当前 websocket listener 到宿主 Agent 的统一通知事件 v1 方案见：
+
+- `docs/architecture/websocket-host-notification-v1.md`
+- `docs/architecture/openclaw-host-adapter-v1.md`
+
 ---
 
 ## 8. 领域架构
@@ -867,7 +872,16 @@ v2 继续采用显式运行模式：
 - Unix Domain Socket（Linux/macOS）
 - Named Pipe（Windows）
 
-必要时回退 localhost，但不是首选方案。
+必要时回退 localhost，但不是首选方案。当前实现已经采用：
+
+- Unix Domain Socket（macOS / Linux）
+- Named Pipe（Windows）
+
+listener 的统一控制面固定为：
+
+- `runtime apply`：按 `config.yaml` 收敛 listener 真实状态
+- `runtime listener install/start/stop/restart/uninstall`：系统服务生命周期
+- `runtime listener config show/set`：listener 配置真相源
 
 ## 17.5 heartbeat
 

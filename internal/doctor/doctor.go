@@ -10,6 +10,8 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
+	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
 )
@@ -180,19 +182,40 @@ func envCheck(resolved *config.Resolved) Check {
 func runtimeCheck(resolved *config.Resolved) Check {
 	status := "ok"
 	summary := "Runtime mode resolved"
-	if strings.TrimSpace(resolved.RuntimeMode) == "websocket" {
+	listenerStatus, listenerErr := listenerrt.StatusFor(resolved)
+	runtimeResolved := runtimecfg.Resolve(resolved)
+	if runtimeResolved.Mode == runtimecfg.ModeWebSocket {
 		summary = "Runtime mode is websocket"
+		if !runtimeResolved.Listener.Enabled {
+			status = "warn"
+			summary = "Runtime mode is websocket but listener is disabled"
+		} else if listenerErr != nil {
+			status = "warn"
+			summary = "Runtime mode is websocket but listener status is unavailable"
+		} else if !listenerStatus.Running {
+			status = "warn"
+			summary = "Runtime mode is websocket but listener service is not running"
+		}
 	} else {
 		summary = "Runtime mode is http"
+	}
+	details := map[string]any{
+		"mode":                  resolved.RuntimeMode,
+		"socket_path":           resolved.RuntimeSocketPath,
+		"listener_enabled":      resolved.RuntimeListenerEnabled,
+		"listener_auto_install": resolved.RuntimeListenerAutoInstall,
+		"listener_auto_start":   resolved.RuntimeListenerAutoStart,
+	}
+	if listenerErr != nil {
+		details["listener_status_error"] = listenerErr.Error()
+	} else {
+		details["listener_status"] = listenerStatus
 	}
 	return Check{
 		Name:    "runtime",
 		Status:  status,
 		Summary: summary,
-		Details: map[string]any{
-			"mode":        resolved.RuntimeMode,
-			"socket_path": resolved.RuntimeSocketPath,
-		},
+		Details: details,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -24,7 +25,67 @@ func EnsureConfigSchemaVersion(path string) error {
 }
 
 func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
-	configPath := paths.ConfigFile
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.Mode = mode
+		if socketPath != "" {
+			fileConfig.Runtime.SocketPath = socketPath
+		}
+		return nil
+	})
+}
+
+func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool, autoStart *bool) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		if enabled != nil {
+			fileConfig.Runtime.Listener.Enabled = boolPtr(*enabled)
+		}
+		if autoInstall != nil {
+			fileConfig.Runtime.Listener.AutoInstall = boolPtr(*autoInstall)
+		}
+		if autoStart != nil {
+			fileConfig.Runtime.Listener.AutoStart = boolPtr(*autoStart)
+		}
+		return nil
+	})
+}
+
+func UpdateHostNotifySink(paths Paths, sink string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.Sink = strings.TrimSpace(sink)
+		return nil
+	})
+}
+
+func UpdateOpenClawSettings(paths Paths, hookURL *string, agentID *string, hookName *string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		if hookURL != nil {
+			fileConfig.Runtime.HostNotify.OpenClaw.HookURL = strings.TrimSpace(*hookURL)
+		}
+		if agentID != nil {
+			fileConfig.Runtime.HostNotify.OpenClaw.AgentID = strings.TrimSpace(*agentID)
+		}
+		if hookName != nil {
+			fileConfig.Runtime.HostNotify.OpenClaw.HookName = strings.TrimSpace(*hookName)
+		}
+		return nil
+	})
+}
+
+func SetOpenClawToken(paths Paths, token string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.OpenClaw.Token = token
+		return nil
+	})
+}
+
+func ClearOpenClawToken(paths Paths) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.OpenClaw.Token = ""
+		return nil
+	})
+}
+
+func updateFileConfig(configPath string, mutate func(fileConfig *FileConfig) error) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -32,9 +93,8 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	fileConfig.Runtime.Mode = mode
-	if socketPath != "" {
-		fileConfig.Runtime.SocketPath = socketPath
+	if err := mutate(&fileConfig); err != nil {
+		return err
 	}
 	return WriteFileConfig(configPath, fileConfig)
 }
@@ -95,4 +155,9 @@ func writeAtomicFile(path string, content []byte, mode os.FileMode) error {
 		return fmt.Errorf("sync config dir: %w", err)
 	}
 	return nil
+}
+
+func boolPtr(value bool) *bool {
+	result := value
+	return &result
 }

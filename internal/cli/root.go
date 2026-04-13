@@ -79,6 +79,12 @@ func newRootCommand(app *App) *cobra.Command {
 			Hidden: true,
 			RunE:   app.runRuntimeListenerRun,
 		})
+		runtimeListener.AddCommand(&cobra.Command{
+			Use:    "service-run",
+			Short:  "Run the websocket listener under the system service manager",
+			Hidden: true,
+			RunE:   app.runRuntimeListenerServiceRun,
+		})
 	}
 	return rootCmd
 }
@@ -218,6 +224,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runPageDelete
 	case "runtime.status":
 		return a.runRuntimeStatus
+	case "runtime.apply":
+		return a.runRuntimeApply
 	case "runtime.setup":
 		return a.runRuntimeSetup
 	case "runtime.mode.get":
@@ -236,6 +244,24 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeListenerRestart
 	case "runtime.listener.uninstall":
 		return a.runRuntimeListenerUninstall
+	case "runtime.listener.config.show":
+		return a.runRuntimeListenerConfigShow
+	case "runtime.listener.config.set":
+		return a.runRuntimeListenerConfigSet
+	case "runtime.listener.enable":
+		return a.runRuntimeListenerEnable
+	case "runtime.listener.disable":
+		return a.runRuntimeListenerDisable
+	case "runtime.host-notify.config.show":
+		return a.runRuntimeHostNotifyConfigShow
+	case "runtime.host-notify.config.set":
+		return a.runRuntimeHostNotifyConfigSet
+	case "runtime.host-notify.openclaw.set":
+		return a.runRuntimeHostNotifyOpenClawSet
+	case "runtime.host-notify.openclaw.set-token":
+		return a.runRuntimeHostNotifyOpenClawSetToken
+	case "runtime.host-notify.openclaw.clear-token":
+		return a.runRuntimeHostNotifyOpenClawClearToken
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.import-v1":

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +32,7 @@ type Supervisor struct {
 	sessions   map[string]*session
 	listener   net.Listener
 	db         *sql.DB
+	hostNotify HostNotifySink
 }
 
 type session struct {
@@ -68,6 +68,11 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	hostNotifySink, hostNotifyStatus, err := newHostNotifySink(resolved)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Supervisor{
 		resolved: resolved,
 		manager:  identity.NewManager(resolved.Paths),
@@ -80,9 +85,11 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 			Running:    true,
 			PID:        os.Getpid(),
 			StartedAt:  time.Now().UTC().Format(time.RFC3339),
+			HostNotify: hostNotifyStatus,
 		},
-		sessions: map[string]*session{},
-		db:       db,
+		sessions:   map[string]*session{},
+		db:         db,
+		hostNotify: hostNotifySink,
 	}, nil
 }
 
@@ -97,6 +104,9 @@ func (s *Supervisor) Close() error {
 	s.sessionsMu.Unlock()
 	if s.listener != nil {
 		_ = s.listener.Close()
+	}
+	if s.hostNotify != nil {
+		_ = s.hostNotify.Close()
 	}
 	if s.db != nil {
 		return s.db.Close()
@@ -126,11 +136,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 }
 
 func (s *Supervisor) startSocket() error {
-	if err := os.MkdirAll(filepath.Dir(s.status.SocketPath), 0o700); err != nil {
-		return err
-	}
-	_ = os.Remove(s.status.SocketPath)
-	listener, err := net.Listen("unix", s.status.SocketPath)
+	listener, err := runtime.ListenBridge(s.status.SocketPath)
 	if err != nil {
 		return err
 	}
@@ -448,12 +454,16 @@ func (s *Supervisor) consumeNotifications(ctx context.Context, session *session,
 }
 
 func (s *Supervisor) handleNotification(ctx context.Context, session *session, notification map[string]any) {
+	receivedAt := time.Now().UTC()
+	event, shouldNotify := NormalizeHostNotification(notification, receivedAt)
 	if record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName); ok {
 		_ = store.StoreMessage(ctx, s.db, record)
+		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return
 	}
 	if record, ok := messageRecordFromGroupIncoming(notification, session.record.IdentityName); ok {
 		_ = store.StoreMessage(ctx, s.db, record)
+		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return
 	}
 	groupRecord, memberRecord, messageRecord, ok := recordsFromGroupStateChanged(notification, session.record.IdentityName)
@@ -469,6 +479,18 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 	if messageRecord != nil {
 		_ = store.StoreMessage(ctx, s.db, *messageRecord)
 	}
+	s.dispatchHostNotification(ctx, event, shouldNotify)
+}
+
+func (s *Supervisor) dispatchHostNotification(ctx context.Context, event *HostNotificationEvent, shouldNotify bool) {
+	if !shouldNotify || event == nil || s.hostNotify == nil {
+		return
+	}
+	if err := s.hostNotify.Notify(ctx, *event); err != nil {
+		s.setHostNotifyError(err.Error())
+		return
+	}
+	s.clearHostNotifyError()
 }
 
 func messageRecordFromDirectIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
@@ -661,6 +683,31 @@ func (s *Supervisor) recordSessionError(identityName string, did string, err err
 func (s *Supervisor) writeStatus() error {
 	s.refreshStatus()
 	return nil
+}
+
+func (s *Supervisor) setHostNotifyError(lastError string) {
+	s.statusMu.Lock()
+	changed := s.status.HostNotify.LastError != lastError
+	s.status.HostNotify.LastError = lastError
+	statusFile := s.status.StatusFile
+	status := s.status
+	s.statusMu.Unlock()
+	if changed {
+		_ = writeStatus(statusFile, status)
+	}
+}
+
+func (s *Supervisor) clearHostNotifyError() {
+	s.statusMu.Lock()
+	if s.status.HostNotify.LastError == "" {
+		s.statusMu.Unlock()
+		return
+	}
+	s.status.HostNotify.LastError = ""
+	statusFile := s.status.StatusFile
+	status := s.status
+	s.statusMu.Unlock()
+	_ = writeStatus(statusFile, status)
 }
 
 func stringValue(value any) string {

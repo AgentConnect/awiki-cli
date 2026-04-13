@@ -130,6 +130,24 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.RuntimeMode != "websocket" {
 		t.Fatalf("runtime mode = %q, want websocket", resolved.RuntimeMode)
 	}
+	if !resolved.RuntimeListenerEnabled {
+		t.Fatal("runtime listener enabled = false, want true")
+	}
+	if !resolved.RuntimeListenerAutoInstall {
+		t.Fatal("runtime listener auto_install = false, want true")
+	}
+	if !resolved.RuntimeListenerAutoStart {
+		t.Fatal("runtime listener auto_start = false, want true")
+	}
+	if resolved.HostNotifySink != "log" {
+		t.Fatalf("host notify sink = %q, want log", resolved.HostNotifySink)
+	}
+	if resolved.HostNotifyEnabled {
+		t.Fatal("host notify enabled = true, want false")
+	}
+	if resolved.HostNotifyFilePath != "" {
+		t.Fatalf("host notify file path = %q, want empty string", resolved.HostNotifyFilePath)
+	}
 }
 
 func TestResolveIgnoresDeprecatedWorkspaceEnv(t *testing.T) {
@@ -192,5 +210,110 @@ func TestResolveRejectsDeprecatedServiceURLFieldsInConfigYAML(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "services.user_service_url") {
 		t.Fatalf("Resolve() error = %q, want deprecated config field name", err.Error())
+	}
+}
+
+func TestResolveDerivesHostNotifyFilePathForFileSink(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: file\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if !resolved.HostNotifyEnabled {
+		t.Fatal("resolved.HostNotifyEnabled = false, want true")
+	}
+	if resolved.HostNotifySink != "file" {
+		t.Fatalf("resolved.HostNotifySink = %q, want file", resolved.HostNotifySink)
+	}
+	wantPath := filepath.Join(workspaceHome, "runtime", "host-notify.events.jsonl")
+	if resolved.HostNotifyFilePath != wantPath {
+		t.Fatalf("resolved.HostNotifyFilePath = %q, want %q", resolved.HostNotifyFilePath, wantPath)
+	}
+	if source := resolved.Sources["host_notify_file_path"]; source.Source != "derived_default" {
+		t.Fatalf("resolved.Sources[host_notify_file_path].Source = %q, want derived_default", source.Source)
+	}
+}
+
+func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: openclaw\n    openclaw:\n      hook_url: http://127.0.0.1:18789/hooks/agent\n      agent_id: notify\n      hook_name: AWiki\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifySink != "openclaw" {
+		t.Fatalf("resolved.HostNotifySink = %q, want openclaw", resolved.HostNotifySink)
+	}
+	if resolved.HostNotifyOpenClawHookURL != "http://127.0.0.1:18789/hooks/agent" {
+		t.Fatalf("resolved.HostNotifyOpenClawHookURL = %q", resolved.HostNotifyOpenClawHookURL)
+	}
+	if resolved.HostNotifyOpenClawAgentID != "notify" {
+		t.Fatalf("resolved.HostNotifyOpenClawAgentID = %q", resolved.HostNotifyOpenClawAgentID)
+	}
+	if resolved.HostNotifyOpenClawHookName != "AWiki" {
+		t.Fatalf("resolved.HostNotifyOpenClawHookName = %q", resolved.HostNotifyOpenClawHookName)
+	}
+}
+
+func TestResolveHonorsRuntimeListenerConfigFromFile(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  listener:\n    enabled: false\n    auto_install: false\n    auto_start: false\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.RuntimeListenerEnabled {
+		t.Fatal("resolved.RuntimeListenerEnabled = true, want false")
+	}
+	if resolved.RuntimeListenerAutoInstall {
+		t.Fatal("resolved.RuntimeListenerAutoInstall = true, want false")
+	}
+	if resolved.RuntimeListenerAutoStart {
+		t.Fatal("resolved.RuntimeListenerAutoStart = true, want false")
+	}
+}
+
+func TestResolveRejectsUnsupportedHostNotifySink(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: stdout\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	_, err := Resolve(Overrides{})
+	if err == nil {
+		t.Fatal("Resolve() error = nil, want unsupported host notify sink error")
+	}
+	if !strings.Contains(err.Error(), "runtime.host_notify.sink") {
+		t.Fatalf("Resolve() error = %q, want runtime.host_notify.sink", err.Error())
 	}
 }

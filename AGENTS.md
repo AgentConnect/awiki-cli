@@ -6,6 +6,8 @@ This repository currently serves as the design home for **awiki-cli**, a rewrite
 
 - `awiki-v2-architecture.md` — overall CLI architecture
 - `awiki-command-v2.md` — command model and command flow
+- `websocket-host-notification-v1.md` — websocket listener to host notification normalization and sink contract
+- `openclaw-host-adapter-v1.md` — OpenClaw `/hooks/agent` adapter contract for awiki-cli host notifications
 - `cli-init.md` / `overall-init.md` — bootstrap and initialization flows
 - `output-format.md` — terminal output contract
 

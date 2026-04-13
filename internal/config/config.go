@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 
@@ -12,15 +15,23 @@ import (
 )
 
 const (
-	appName               = "awiki-cli"
-	configFileName        = "config.yaml"
-	legacyConfigFileName  = "config.json"
-	legacySkillName       = "awiki-agent-id-message"
-	defaultServiceBaseURL = "https://awiki.ai"
-	defaultDIDDomain      = "awiki.ai"
-	defaultANPPath        = "/anp-im/rpc"
-	defaultRuntimeMode    = "websocket"
-	defaultOutputFormat   = "json"
+	appName                    = "awiki-cli"
+	configFileName             = "config.yaml"
+	legacyConfigFileName       = "config.json"
+	legacySkillName            = "awiki-agent-id-message"
+	defaultServiceBaseURL      = "https://awiki.ai"
+	defaultDIDDomain           = "awiki.ai"
+	defaultANPPath             = "/anp-im/rpc"
+	defaultRuntimeMode         = "websocket"
+	defaultOutputFormat        = "json"
+	defaultListenerEnabled     = true
+	defaultListenerAutoInstall = true
+	defaultListenerAutoStart   = true
+	defaultHostNotifySink      = "log"
+	defaultHostNotifyFile      = "host-notify.events.jsonl"
+	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
+	defaultOpenClawAgentID     = "main"
+	defaultOpenClawHookName    = "AWiki"
 
 	ConfigSchemaVersion = 1
 )
@@ -99,6 +110,22 @@ type FileConfig struct {
 	Runtime struct {
 		Mode       string `json:"mode" yaml:"mode"`
 		SocketPath string `json:"socket_path" yaml:"socket_path"`
+		Listener   struct {
+			Enabled     *bool `json:"enabled" yaml:"enabled"`
+			AutoInstall *bool `json:"auto_install" yaml:"auto_install"`
+			AutoStart   *bool `json:"auto_start" yaml:"auto_start"`
+		} `json:"listener" yaml:"listener"`
+		HostNotify struct {
+			Enabled  *bool  `json:"enabled" yaml:"enabled"`
+			Sink     string `json:"sink" yaml:"sink"`
+			FilePath string `json:"file_path" yaml:"file_path"`
+			OpenClaw struct {
+				HookURL  string `json:"hook_url" yaml:"hook_url"`
+				AgentID  string `json:"agent_id" yaml:"agent_id"`
+				HookName string `json:"hook_name" yaml:"hook_name"`
+				Token    string `json:"token" yaml:"token"`
+			} `json:"openclaw" yaml:"openclaw"`
+		} `json:"host_notify" yaml:"host_notify"`
 	} `json:"runtime" yaml:"runtime"`
 	Output struct {
 		Format  string `json:"format" yaml:"format"`
@@ -136,6 +163,15 @@ type Resolved struct {
 	ActiveIdentity                string                 `json:"active_identity,omitempty"`
 	RuntimeMode                   string                 `json:"runtime_mode"`
 	RuntimeSocketPath             string                 `json:"runtime_socket_path,omitempty"`
+	RuntimeListenerEnabled        bool                   `json:"runtime_listener_enabled"`
+	RuntimeListenerAutoInstall    bool                   `json:"runtime_listener_auto_install"`
+	RuntimeListenerAutoStart      bool                   `json:"runtime_listener_auto_start"`
+	HostNotifyEnabled             bool                   `json:"host_notify_enabled"`
+	HostNotifySink                string                 `json:"host_notify_sink"`
+	HostNotifyFilePath            string                 `json:"host_notify_file_path,omitempty"`
+	HostNotifyOpenClawHookURL     string                 `json:"host_notify_openclaw_hook_url,omitempty"`
+	HostNotifyOpenClawAgentID     string                 `json:"host_notify_openclaw_agent_id,omitempty"`
+	HostNotifyOpenClawHookName    string                 `json:"host_notify_openclaw_hook_name,omitempty"`
 	OutputFormat                  string                 `json:"output_format"`
 	NoColor                       bool                   `json:"no_color"`
 	ServiceBaseURL                string                 `json:"service_base_url"`
@@ -237,8 +273,72 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 		false,
 		fileConfig.Runtime.SocketPath,
-		filepath.Join(paths.StateDir, "message-daemon.sock"),
+		defaultRuntimeBridgePath(paths),
 	)
+	resolved.RuntimeListenerEnabled, resolved.Sources["runtime_listener_enabled"] = chooseBool(fileConfig.Runtime.Listener.Enabled, defaultListenerEnabled)
+	resolved.RuntimeListenerAutoInstall, resolved.Sources["runtime_listener_auto_install"] = chooseBool(fileConfig.Runtime.Listener.AutoInstall, defaultListenerAutoInstall)
+	resolved.RuntimeListenerAutoStart, resolved.Sources["runtime_listener_auto_start"] = chooseBool(fileConfig.Runtime.Listener.AutoStart, defaultListenerAutoStart)
+	resolved.HostNotifyEnabled, resolved.Sources["host_notify_enabled"] = chooseBool(fileConfig.Runtime.HostNotify.Enabled, false)
+	resolved.HostNotifySink, resolved.Sources["host_notify_sink"] = chooseValue(
+		"",
+		false,
+		fileConfig.Runtime.HostNotify.Sink,
+		defaultHostNotifySink,
+	)
+	resolved.HostNotifySink = strings.ToLower(strings.TrimSpace(resolved.HostNotifySink))
+	if err := validateHostNotifySink(resolved.HostNotifySink); err != nil {
+		return nil, err
+	}
+	hostNotifyFilePath := expandHome(home, fileConfig.Runtime.HostNotify.FilePath)
+	if resolved.HostNotifySink == "file" {
+		resolved.HostNotifyFilePath, resolved.Sources["host_notify_file_path"] = chooseValue(
+			"",
+			false,
+			hostNotifyFilePath,
+			"",
+		)
+		if strings.TrimSpace(resolved.HostNotifyFilePath) == "" {
+			resolved.HostNotifyFilePath = filepath.Join(paths.StateDir, defaultHostNotifyFile)
+			resolved.Sources["host_notify_file_path"] = ValueSource{
+				Source: "derived_default",
+				Key:    "state_dir",
+				Value:  resolved.HostNotifyFilePath,
+			}
+		}
+	} else {
+		resolved.HostNotifyFilePath = ""
+		resolved.Sources["host_notify_file_path"] = ValueSource{
+			Source: "default",
+			Value:  "",
+		}
+	}
+	if resolved.HostNotifySink == "openclaw" {
+		resolved.HostNotifyOpenClawHookURL, resolved.Sources["host_notify_openclaw_hook_url"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.HookURL,
+			defaultOpenClawHookURL,
+		)
+		resolved.HostNotifyOpenClawAgentID, resolved.Sources["host_notify_openclaw_agent_id"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.AgentID,
+			defaultOpenClawAgentID,
+		)
+		resolved.HostNotifyOpenClawHookName, resolved.Sources["host_notify_openclaw_hook_name"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.HookName,
+			defaultOpenClawHookName,
+		)
+	} else {
+		resolved.HostNotifyOpenClawHookURL = ""
+		resolved.HostNotifyOpenClawAgentID = ""
+		resolved.HostNotifyOpenClawHookName = ""
+		resolved.Sources["host_notify_openclaw_hook_url"] = ValueSource{Source: "default", Value: ""}
+		resolved.Sources["host_notify_openclaw_agent_id"] = ValueSource{Source: "default", Value: ""}
+		resolved.Sources["host_notify_openclaw_hook_name"] = ValueSource{Source: "default", Value: ""}
+	}
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(
 		overrides.Format,
 		overrides.FormatChanged,
@@ -327,6 +427,15 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"active_identity":                   resolved.ActiveIdentity,
 		"runtime_mode":                      resolved.RuntimeMode,
 		"runtime_socket_path":               resolved.RuntimeSocketPath,
+		"runtime_listener_enabled":          resolved.RuntimeListenerEnabled,
+		"runtime_listener_auto_install":     resolved.RuntimeListenerAutoInstall,
+		"runtime_listener_auto_start":       resolved.RuntimeListenerAutoStart,
+		"host_notify_enabled":               resolved.HostNotifyEnabled,
+		"host_notify_sink":                  resolved.HostNotifySink,
+		"host_notify_file_path":             resolved.HostNotifyFilePath,
+		"host_notify_openclaw_hook_url":     resolved.HostNotifyOpenClawHookURL,
+		"host_notify_openclaw_agent_id":     resolved.HostNotifyOpenClawAgentID,
+		"host_notify_openclaw_hook_name":    resolved.HostNotifyOpenClawHookName,
 		"output_format":                     resolved.OutputFormat,
 		"no_color":                          resolved.NoColor,
 		"service_base_url":                  resolved.ServiceBaseURL,
@@ -417,6 +526,27 @@ func defaultANPServiceDID(didDomain string) string {
 		trimmedDomain = defaultDIDDomain
 	}
 	return "did:wba:" + trimmedDomain
+}
+
+func defaultRuntimeBridgePath(paths Paths) string {
+	if goruntime.GOOS == "windows" {
+		workspace := strings.TrimSpace(paths.WorkspaceHomeDir)
+		if workspace == "" {
+			workspace = filepath.Join(os.TempDir(), "awiki-cli")
+		}
+		sum := sha256Bytes(workspace)
+		return `\\.\pipe\awiki-cli-` + sum[:16]
+	}
+	stateDir := strings.TrimSpace(paths.StateDir)
+	if stateDir == "" {
+		stateDir = filepath.Join(paths.WorkspaceHomeDir, "runtime")
+	}
+	return filepath.Join(stateDir, "message-daemon.sock")
+}
+
+func sha256Bytes(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func LegacyConfigPath(paths Paths) string {
@@ -532,6 +662,18 @@ func collectDeprecatedConfigFields(path string) ([]string, error) {
 		}
 	}
 	return deprecated, nil
+}
+
+func validateHostNotifySink(value string) error {
+	switch value {
+	case "", "noop", "log", "file", "openclaw":
+		return nil
+	default:
+		return &PolicyError{
+			Message: fmt.Sprintf("unsupported runtime.host_notify.sink %q", value),
+			Hint:    "Use runtime.host_notify.sink = noop, log, file, or openclaw in config.yaml.",
+		}
+	}
 }
 
 func NormalizeBaseURL(baseURL string) string {
