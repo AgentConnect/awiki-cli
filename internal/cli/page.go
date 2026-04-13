@@ -64,6 +64,12 @@ func (a *App) runPageCreate(cmd *cobra.Command, args []string) error {
 	markdown, _ := cmd.Flags().GetString("markdown")
 	markdownFile, _ := cmd.Flags().GetString("markdown-file")
 	visibility, _ := cmd.Flags().GetString("visibility")
+	if strings.TrimSpace(slug) == "" {
+		return output.NewExitError("invalid_argument", 2, "slug is required", "slug is required")
+	}
+	if strings.TrimSpace(title) == "" {
+		return output.NewExitError("invalid_argument", 2, "title is required", "title is required")
+	}
 	body, err := resolveMarkdownBody(markdown, cmd.Flags().Changed("markdown"), markdownFile, cmd.Flags().Changed("markdown-file"))
 	if err != nil {
 		return output.NewExitError("invalid_argument", 2, err.Error(), "Choose one content body source and make sure the file is readable.")
