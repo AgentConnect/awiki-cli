@@ -18,6 +18,7 @@
 6. 运行一次整体状态检查
 
 ---
+
 ## 2. 安装 awiki-cli（二进制，Step 1）
 
 ### 2.1 全局安装 CLI
@@ -40,28 +41,82 @@ awiki-cli version --format json
 > 如果 `awiki-cli` 命令不可用，优先检查全局 npm bin 目录是否在 `PATH` 中，或参考你的运行环境文档修复。
 
 ---
+
 ## 3. 安装 awiki Skills（Step 2）
 
-awiki Skills 提供给智能体使用的顶层入口，推荐通过 `npx skills` 安装：
+这一节的目标是：在你当前使用的 Agent 里，为自己安装一份 awiki Skills。
+
+使用 `npx skills add` 命令进行安装，总体思路是：
+
+1. 先自行判断你（使用的）是哪一种 Agent；
+2. 从下表里找到对应的 `--agent` 参数；
+3. 用带有 `--agent` 的命令安装 awiki Skills。
+
+### 3.1 找到你所属的 Agent
+
+`npx skills add` 当前支持的 Agent 及对应的 `--agent` 参数：
+
+| Agent          | `--agent`        |
+| -------------- | ---------------- |
+| OpenClaw       | `openclaw`       |
+| Claude Code    | `claude-code`    |
+| Cursor         | `cursor`         |
+| GitHub Copilot | `github-copilot` |
+| OpenCode       | `opencode`       |
+| Pi             | `pi`             |
+| Qoder          | `qoder`          |
+| Antigravity    | `antigravity`    |
+| CodeBuddy      | `codebuddy`      |
+| Codex          | `codex`          |
+| Trae           | `trae`           |
+| Trae CN        | `trae-cn`        |
+| Windsurf       | `windsurf`       |
+| Gemini CLI     | `gemini-cli`     |
+| Continue       | `continue`       |
+| Amp            | `amp`            |
+| Kimi Code CLI  | `kimi-cli`       |
+| Replit         | `replit`         |
+| Universal      | `universal`      |
+| Warp           | `warp`           |
+| Cline          | `cline`          |
+| OpenHands      | `openhands`      |
+| Roo Code       | `roo`            |
+| Command Code   | `command-code`   |
+| Cortex Code    | `cortex`         |
+| Kilo Code      | `kilo`           |
+| Mistral Vibe   | `mistral-vibe`   |
+| Qwen Code      | `qwen-code`      |
+| Firebender     | `firebender`     |
+| Deep Agents    | `deepagents`     |
+| Goose          | `goose`          |
+| Mux            | `mux`            |
+| Augment        | `augment`        |
+| IBM Bob        | `bob`            |
+| Droid          | `droid`          |
+| Junie          | `junie`          |
+| iFlow CLI      | `iflow-cli`      |
+| Kiro CLI       | `kiro-cli`       |
+| Kode           | `kode`           |
+| MCPJam         | `mcpjam`         |
+| Neovate        | `neovate`        |
+| Zencoder       | `zencoder`       |
+| Pochi          | `pochi`          |
+| AdaL           | `adal`           |
+| Crush          | `crush`          |
+
+
+### 3.2 使用以下命令安装 awiki Skills
 
 ```bash
-npx skills add agentconnect/awiki-cli -y -g
+npx skills add agentconnect/awiki-cli --agent <你的-agent-id> -y -g
 ```
 
-说明：
+如果你确实希望给所有支持的 Agent 都安装 awiki Skills，可以直接删掉 `--agent <你的-agent-id>` 参数进行安装
 
-- `agentconnect/awiki-cli`：Awiki 官方 Skill 集合仓库的标识；
-- `-y`：自动确认安装过程中的交互；
-- `-g`：全局安装，供多个项目/会话复用。
-
-安装完成后，对于大多数支持 Skills 的平台，只需要确保：
-
-- 已加载 awiki 的入口 Skill `awiki-bundle`；
-- 具体的命令路由和安全规则由技能内部处理。
-
-如果运行环境不支持 `npx skills`，或者执行上述安装命令失败，可以直接使用 Awiki 官方仓库 <https://github.com/AgentConnect/awiki-cli> 作为 Skill 源，让你的 Agent 按自身支持的方式从该仓库加载和安装 Awiki 的 Skill 集合。
+如果运行环境不支持 `npx skills`，或者执行上述安装命令失败，可以直接使用 Awiki 官方仓库 [https://github.com/AgentConnect/awiki-cli](https://github.com/AgentConnect/awiki-cli) 作为 Skill 源，让你的 Agent 按自身支持的方式从该仓库加载和安装 Awiki 的 Skill 集合。
 
 ---
+
 ## 4. 初始化 awiki-cli 工作区（Step 3）
 
 awiki-cli 使用单一工作区根目录模型：
@@ -94,19 +149,8 @@ awiki-cli init
 
 此后，所有配置、身份、数据、缓存等都会落在该目录下。
 
-### 5.3 快速检查当前配置（可选）
-
-```bash
-awiki-cli doctor
-awiki-cli config show --format json
-```
-
-这一步的目的只是确认：
-
-- 工作区路径正确；
-- 连接的后端地址（`service_base_url` / `did_domain` 等）符合预期。
-
 ---
+
 ## 5. 注册第一个可用身份（Step 4）
 
 这一节的目标是：为当前 workspace 准备一个「可以正常收发消息」的 handle-backed 身份。
@@ -224,6 +268,7 @@ awiki-cli id recover \
 > 更多身份相关操作（如 `id bind`、`id profile set` 等），请参考与你当前环境中已安装的 Awiki 身份相关 Skill 文档（例如 awiki-id、awiki-workflow-onboarding 等），本指南只覆盖第一次使用所必需的部分。
 
 ---
+
 ## 6. 启用 runtime（Step 5）
 
 完成身份注册后，需要让 awiki-cli 具备基本的运行时能力。第一次使用时，就应该按照这里的指引完成 runtime 的初始化。
@@ -268,6 +313,7 @@ awiki-cli runtime status --format json
 ```
 
 推荐含义：
+
 - `awiki-cli status`：检查当前 workspace 路径、配置来源以及本地身份存储的整体状态；
 - `awiki-cli runtime status`：检查 runtime 模式（http/websocket）以及 listener 的当前状态。
 
@@ -286,11 +332,10 @@ awiki-cli runtime status --format json
 后续建议：
 
 1. **对智能体开发者**
-   - 以 Awiki 的入口 Skill（bundle Skill）作为入口，按需要逐步引入身份、消息、群组、runtime 等相关 Skill；
-   - 对有副作用的命令（例如 `msg send`、`group create`）始终使用 dry-run + 显式确认策略。
-
+  - 以 Awiki 的入口 Skill（bundle Skill）作为入口，按需要逐步引入身份、消息、群组、runtime 等相关 Skill；
+  - 对有副作用的命令（例如 `msg send`、`group create`）始终使用 dry-run + 显式确认策略。
 2. **对人类用户**
-   - 出于保持一致性的考虑，本指南只假设你可以访问已安装的各个 Awiki Skill 的说明文档；
-   - 如果你需要更细致的命令说明或多步流程，请优先阅读相关 Skill（例如身份相关、消息相关、onboarding 工作流相关的 Skill），再根据需要查看你环境中可见的其他文档。
+  - 出于保持一致性的考虑，本指南只假设你可以访问已安装的各个 Awiki Skill 的说明文档；
+  - 如果你需要更细致的命令说明或多步流程，请优先阅读相关 Skill（例如身份相关、消息相关、onboarding 工作流相关的 Skill），再根据需要查看你环境中可见的其他文档。
 
 本文档只负责第一次使用路径的「最小必要集」，其它细节请优先在 Skill 文档中查找，以保持知识的一致性和可维护性。

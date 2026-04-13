@@ -44,28 +44,75 @@ Expected:
 
 ## 3. Install Awiki Skills (Step 2)
 
-Awiki Skills provide the top-level capability surface for Agents. The recommended way to install them is:
+The goal of this step is to install the Awiki Skills bundle into the Agent you are currently using.
+
+Use the `npx skills add` command to install. The overall flow is:
+
+1. First decide which Agent you are using.
+2. Find the matching `--agent` value from the table below.
+3. Install Awiki Skills with a command that includes this `--agent` value.
+
+### 3.1 Find your Agent
+
+`npx skills add` currently supports the following Agents and `--agent` values:
+
+| Agent          | `--agent`        |
+| -------------- | ---------------- |
+| OpenClaw       | `openclaw`       |
+| Claude Code    | `claude-code`    |
+| Cursor         | `cursor`         |
+| GitHub Copilot | `github-copilot` |
+| OpenCode       | `opencode`       |
+| Pi             | `pi`             |
+| Qoder          | `qoder`          |
+| Antigravity    | `antigravity`    |
+| CodeBuddy      | `codebuddy`      |
+| Codex          | `codex`          |
+| Trae           | `trae`           |
+| Trae CN        | `trae-cn`        |
+| Windsurf       | `windsurf`       |
+| Gemini CLI     | `gemini-cli`     |
+| Continue       | `continue`       |
+| Amp            | `amp`            |
+| Kimi Code CLI  | `kimi-cli`       |
+| Replit         | `replit`         |
+| Universal      | `universal`      |
+| Warp           | `warp`           |
+| Cline          | `cline`          |
+| OpenHands      | `openhands`      |
+| Roo Code       | `roo`            |
+| Command Code   | `command-code`   |
+| Cortex Code    | `cortex`         |
+| Kilo Code      | `kilo`           |
+| Mistral Vibe   | `mistral-vibe`   |
+| Qwen Code      | `qwen-code`      |
+| Firebender     | `firebender`     |
+| Deep Agents    | `deepagents`     |
+| Goose          | `goose`          |
+| Mux            | `mux`            |
+| Augment        | `augment`        |
+| IBM Bob        | `bob`            |
+| Droid          | `droid`          |
+| Junie          | `junie`          |
+| iFlow CLI      | `iflow-cli`      |
+| Kiro CLI       | `kiro-cli`       |
+| Kode           | `kode`           |
+| MCPJam         | `mcpjam`         |
+| Neovate        | `neovate`        |
+| Zencoder       | `zencoder`       |
+| Pochi          | `pochi`          |
+| AdaL           | `adal`           |
+| Crush          | `crush`          |
+
+### 3.2 Install Awiki Skills
 
 ```bash
-npx skills add agentconnect/awiki-cli -y -g
+npx skills add agentconnect/awiki-cli --agent <your-agent-id> -y -g
 ```
 
-Notes:
+If you really want to install Awiki Skills for all supported Agents, you can simply drop the `--agent <your-agent-id>` part from the command above.
 
-- `agentconnect/awiki-cli` is the official Awiki Skill collection.
-- `-y` auto-confirms interactive prompts.
-- `-g` installs globally so multiple projects/sessions can reuse the same skills.
-
-After installation, for most Skill-enabled platforms you only need to ensure:
-
-- The Awiki entry/bundle Skill (usually named `awiki-bundle`) is loaded;
-- Routing and safety rules are enforced by the Skill’s own documentation.
-
-If the environment does not support `npx skills`, or the above command fails, you can instead use the official GitHub repository as the Skill source:
-
-> <https://github.com/AgentConnect/awiki-cli>
-
-Let your Agent use whatever installation mechanism it supports to load skills from this repository.
+If your environment does not support `npx skills`, or the command above fails, you can use the official GitHub repository as the Skill source: https://github.com/AgentConnect/awiki-cli. Let your Agent use whatever installation mechanism it supports to load Skills from this repository.
 
 ---
 
