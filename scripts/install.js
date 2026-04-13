@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
 function mapPlatform() {
   const p = process.platform;
@@ -137,7 +137,63 @@ function extractArchive(archivePath, destDir, osName) {
   });
 }
 
+function applySystemProxyFromMacOS() {
+  // If the user已经显式配置了代理，就不要覆盖。
+  if (process.env.HTTPS_PROXY || process.env.HTTP_PROXY) {
+    return;
+  }
+  if (process.platform !== 'darwin') {
+    return;
+  }
+
+  try {
+    const output = execSync('scutil --proxy', { encoding: 'utf8' });
+    const lines = output.split('\n').map(line => line.trim()).filter(Boolean);
+    const values = {};
+
+    for (const line of lines) {
+      // 形如: "HTTPSProxy : 127.0.0.1"
+      const parts = line.split(':');
+      if (parts.length < 2) continue;
+      const key = parts[0].trim();
+      const value = parts.slice(1).join(':').trim();
+      values[key] = value;
+    }
+
+    const httpsEnabled = values.HTTPSEnable === '1';
+    const httpsHost = values.HTTPSProxy || '';
+    const httpsPort = values.HTTPSPort || '';
+
+    let proxyURL = '';
+    if (httpsEnabled && httpsHost && httpsPort) {
+      proxyURL = `http://${httpsHost}:${httpsPort}`;
+    } else {
+      const httpEnabled = values.HTTPEnable === '1';
+      const httpHost = values.HTTPProxy || '';
+      const httpPort = values.HTTPPort || '';
+      if (httpEnabled && httpHost && httpPort) {
+        proxyURL = `http://${httpHost}:${httpPort}`;
+      }
+    }
+
+    if (proxyURL) {
+      // 只在尚未设置时填充，避免覆盖用户显式配置。
+      if (!process.env.HTTPS_PROXY) {
+        process.env.HTTPS_PROXY = proxyURL;
+      }
+      if (!process.env.HTTP_PROXY) {
+        process.env.HTTP_PROXY = proxyURL;
+      }
+    }
+  } catch {
+    // best-effort：探测失败时忽略，走默认直连行为。
+  }
+}
+
 async function main() {
+  // 在读取 package.json 和执行任何网络请求前，尝试从系统代理设置同步到 env。
+  applySystemProxyFromMacOS();
+
   const rootDir = path.resolve(__dirname, '..');
   const pkgPath = path.join(rootDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
