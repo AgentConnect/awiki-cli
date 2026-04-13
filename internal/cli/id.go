@@ -345,14 +345,20 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		existing, _ := service.Manager().List()
 		alias := identity.PreviewNamedIdentity(a.globals.Identity, existing, handle)
+		action := "recover_handle"
+		remoteCalls := []string{"did-auth.recover_handle"}
+		if strings.TrimSpace(otp) == "" {
+			action = "send_recover_otp"
+			remoteCalls = []string{"handle.send_otp"}
+		}
 		result := &identity.CommandResult{
 			Data: map[string]any{
 				"plan": map[string]any{
-					"action":        "recover_handle",
+					"action":        action,
 					"identity_name": alias,
 					"handle":        handle,
 					"phone":         phone,
-					"remote_calls":  []string{"did-auth.recover_handle"},
+					"remote_calls":  remoteCalls,
 				},
 			},
 			Summary: "Dry run: handle recovery planned",

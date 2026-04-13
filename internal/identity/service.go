@@ -500,8 +500,8 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 	handle := strings.TrimSpace(params.Handle)
 	phone := strings.TrimSpace(params.Phone)
 	otp := strings.TrimSpace(params.OTP)
-	if handle == "" || phone == "" || otp == "" {
-		return nil, fmt.Errorf("%w: handle, phone, and otp are required", ErrInvalidInput)
+	if handle == "" || phone == "" {
+		return nil, fmt.Errorf("%w: handle and phone are required", ErrInvalidInput)
 	}
 	existing, err := s.manager.List()
 	if err != nil {
@@ -512,6 +512,26 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 	if err != nil {
 		return nil, err
 	}
+
+	if otp == "" {
+		var result map[string]any
+		if err := s.remote.rpcCall(ctx, handleRPCEndpoint, "send_otp", map[string]any{"phone": normalizedPhone}, "", &result); err != nil {
+			return nil, err
+		}
+		return &CommandResult{
+			Data: map[string]any{
+				"action":             "send_recover_otp",
+				"identity_name":      alias,
+				"handle":             handle,
+				"method":             "phone",
+				"phone":              normalizedPhone,
+				"verification_state": "otp_sent",
+				"result":             result,
+			},
+			Summary: fmt.Sprintf("OTP sent for handle %s recovery", handle),
+		}, nil
+	}
+
 	generated, err := GenerateIdentity(GenerateOptions{
 		Hostname:           s.config.DIDDomain,
 		PathPrefix:         []string{handle},
