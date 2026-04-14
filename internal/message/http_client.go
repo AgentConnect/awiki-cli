@@ -353,7 +353,25 @@ func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[s
 	}
 	var rpcErr *authsdk.RPCError
 	if errors.As(err, &rpcErr) {
-		return &ServiceError{RPCCode: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
+		// If the message-service reports an unauthorized RPC (e.g. expired JWT),
+		// try to refresh the JWT via did-auth once and then retry this RPC.
+		if rpcErr.Code == 1401 && t.resolved != nil && t.auth != nil && t.auth.session != nil {
+			didAuthURL := appconfig.JoinBaseURL(t.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
+			if _, refreshErr := t.auth.session.EnsureJWT(ctx, t.httpClient, didAuthURL); refreshErr == nil {
+				t.auth.record.JWTToken = t.auth.session.CurrentJWT()
+				err = t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
+				if err == nil {
+					t.auth.record.JWTToken = t.auth.session.CurrentJWT()
+					return nil
+				}
+				// Update rpcErr to reflect the latest failure, if it is still an RPCError.
+				rpcErr = nil
+				_ = errors.As(err, &rpcErr)
+			}
+		}
+		if rpcErr != nil {
+			return &ServiceError{RPCCode: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
+		}
 	}
 	var httpErr *authsdk.HTTPError
 	if errors.As(err, &httpErr) {

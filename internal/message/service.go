@@ -424,6 +424,10 @@ func (s *Service) groupInbox(ctx context.Context, request InboxRequest) (*Comman
 	}, nil
 }
 
+// isSessionUnauthorized reports whether a message-service error indicates an
+// unauthorized or expired session. For HTTP transport, the primary 1401
+// handling now lives inside HTTPTransport.rpcCall; this helper is kept as a
+// secondary guard around higher-level fallbacks (e.g. websocket → HTTP).
 func isSessionUnauthorized(err error) bool {
 	if err == nil {
 		return false
@@ -440,6 +444,11 @@ func isSessionUnauthorized(err error) bool {
 	return false
 }
 
+// refreshJWT uses did-auth to obtain a new JWT for the given identity and
+// persist it in the local identity store. For message-service RPCs, the
+// first-line auto-refresh now happens inside HTTPTransport.rpcCall; this
+// helper is only used as a fallback when the transport-level refresh fails
+// and the caller decides to make one more attempt.
 func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentity) error {
 	if s == nil || record == nil || s.manager == nil || s.remote == nil || s.resolved == nil {
 		return fmt.Errorf("refreshJWT: identity context is not available")
