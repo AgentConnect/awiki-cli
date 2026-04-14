@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/agent-network-protocol/anp/golang v0.8.3
+	github.com/agent-network-protocol/anp/golang v0.8.4
 	github.com/coder/websocket v1.8.12
 	github.com/itchyny/gojq v0.12.17
 	github.com/kardianos/service v1.2.3
