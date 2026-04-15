@@ -78,7 +78,7 @@ Unless a domain skill explicitly narrows a behavior, command contract, output co
 - hidden bootstrap path: `id create`
 - message writes: `msg send`, `msg mark-read`
 - group writes: `group create`, `group join`, `group add`, `group remove`, `group leave`, `group update`
-- runtime writes: `runtime setup`, `runtime mode set`, `runtime listener install/start/stop/restart/uninstall`
+- runtime writes: `runtime setup`, `runtime mode set`, `runtime listener install/start/stop/restart/uninstall`, `runtime host-notify enable/disable`, `runtime host-notify config set`, `runtime host-notify openclaw set`, `runtime host-notify openclaw set-token`, `runtime host-notify openclaw clear-token`
 - page writes: `page create`, `page update`, `page rename`, `page delete`
 - debug import path: `debug db import-v1`
 

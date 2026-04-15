@@ -113,3 +113,89 @@
   - Immediate `runtime listener status` also shows `bridge_available=true`
   - The transient `listener socket is not available` warning is no longer reproduced in the local websocket restart path
 - Status: fixed locally
+
+### 2026-04-15 6. Host notify webhook E2E requires extra local scaffolding in this environment
+- Observed:
+  - `openclaw` CLI binary is not installed locally by default
+  - `runtime.host_notify.enabled` has no dedicated CLI toggle in the current command surface
+- Impact:
+  - Local webhook E2E testing cannot be completed through public awiki-cli commands alone in this environment
+- Local workaround for test only:
+  - Added a mock `openclaw` CLI at `~/.npm-global/bin/openclaw`
+  - Manually updated isolated `config.yaml` to set `runtime.host_notify.enabled = true`
+- Status: open UX/runtime gap
+
+### 2026-04-15 7. Websocket two-handle messaging and webhook callback fan-out verified locally
+- Setup:
+  - Started local webhook hub: `scripts/host_notify_webhook_server.py` on `127.0.0.1:18900`
+  - Started per-user callback receivers on `127.0.0.1:19001` and `127.0.0.1:19002`
+  - Switched default identity to `changshan-cli02`
+  - Enabled `runtime.host_notify` in isolated config and pointed OpenClaw hook URL to the local webhook hub
+- Local test harness note:
+  - Because real `openclaw` is not installed here, a local mock `openclaw` binary was used for webhook E2E
+  - Callback routing in the mock fan-out path used the OpenClaw-style `to` target (`changshan-cli` / `changshan-cli02`)
+- Messaging verification:
+  - `changshan-cli02 -> changshan-cli`: delivered and visible in `msg inbox`
+  - `changshan-cli -> changshan-cli02`: delivered and visible in `msg inbox`
+- Callback verification:
+  - `awiki-cli-dev/callback-logs/changshan-cli.jsonl` received only the message addressed to `changshan-cli`
+  - `awiki-cli-dev/callback-logs/changshan-cli02.jsonl` received only the message addressed to `changshan-cli02`
+- Status: verified locally with test harness
+
+### 2026-04-15 8. Added host notify enable/disable switch and changed default enablement to on
+- Product behavior change:
+  - `runtime.host_notify.enabled` default changed from `false` to `true`
+  - New commands added:
+    - `awiki-cli runtime host-notify enable`
+    - `awiki-cli runtime host-notify disable`
+- UX simplification:
+  - `runtime host-notify config set --sink ...` now also writes `host_notify.enabled = true`
+  - New workspaces no longer need a separate manual enable step for host notifications
+- Verification:
+  - `CGO_ENABLED=0 go test ./internal/config -count=1`
+  - `CGO_ENABLED=0 go test ./internal/runtime -count=1`
+  - `CGO_ENABLED=0 go test ./internal/cli -count=1`
+  - `./bin/awiki-cli schema 'runtime host-notify enable' --format json`
+- Status: implemented locally
+
+### 2026-04-15 9. Webhook server callback registry persistence added and verified
+- Code change:
+  - Updated `scripts/host_notify_webhook_server.py`
+  - Callback registrations are now persisted to a JSON state file
+  - Default state file path:
+    - when `AWIKI_CLI_WORKSPACE_HOME_DIR` is set: `<workspace>/runtime/host-notify-webhook-callbacks.json`
+    - otherwise: `~/.awiki-cli/runtime/host-notify-webhook-callbacks.json`
+- Verification:
+  - Registered a callback against an explicit test state file
+  - Restarted the webhook server
+  - Confirmed `GET /callbacks` still returned the pre-registered callback after restart
+- Status: fixed locally
+
+### 2026-04-15 10. `id status` fresh-workspace panic fixed
+- Verification:
+  - Ran `HOME=<empty-home> AWIKI_CLI_WORKSPACE_HOME_DIR=<empty-workspace> ./bin/awiki-cli id status --format json`
+  - Command now returns `active_identity: null`, `identity_count: 0`, and summary `No default identity is configured yet`
+  - No panic occurs
+- Regression coverage:
+  - `internal/cli/id_test.go`
+  - `TestIdentityMetaFromDataSkipsTypedNilIdentitySummary`
+- Status: fixed locally
+
+### 2026-04-15 11. `runtime listener start` now auto-installs missing service before start
+- Code change:
+  - Updated `internal/runtime/listener/service.go`
+  - `StartService()` now calls install automatically when the listener service is missing
+- Regression coverage:
+  - `internal/runtime/listener/service_test.go`
+  - `TestStartServiceAutoInstallsWhenMissing`
+- Additional runtime fix:
+  - Hidden commands `awiki-cli runtime listener run` and `awiki-cli runtime listener service-run` are now exempt from strict version blocking so the service manager can launch the listener reliably
+- Manual verification:
+  - Initialized a fresh isolated workspace
+  - Uninstalled the listener service
+  - Ran `runtime listener start` with only the foreground command using `AWIKI_CLI_DISABLE_STRICT_VERSION=true`
+  - Verified the command auto-installed the service and returned `installed=true`, `running=true`, `bridge_available=true`
+- Status: fixed locally
+
+## Remaining Unresolved Test Issues
+- Real OpenClaw end-to-end verification still depends on a real local `openclaw` installation; current webhook E2E used a local mock harness

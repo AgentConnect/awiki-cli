@@ -880,8 +880,9 @@ v2 继续采用显式运行模式：
 listener 的统一控制面固定为：
 
 - `runtime apply`：按 `config.yaml` 收敛 listener 真实状态
-- `runtime listener install/start/stop/restart/uninstall`：系统服务生命周期
+- `runtime listener install/start/stop/restart/uninstall`：系统服务生命周期；`start` 在服务缺失时会自动 install，并等待本地 bridge ready 后返回
 - `runtime listener config show/set`：listener 配置真相源
+- `runtime host-notify config show/set`、`runtime host-notify enable/disable` 与 `runtime host-notify openclaw *`：宿主通知配置与 OpenClaw 适配控制面
 
 ## 17.5 heartbeat
 

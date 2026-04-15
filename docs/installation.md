@@ -149,7 +149,7 @@ runtime:
     auto_install: true
     auto_start: true
   host_notify:
-    enabled: false
+    enabled: true
     sink: log
     file_path: ""
     openclaw:
@@ -178,7 +178,7 @@ services:
 - `runtime.listener.auto_install` 默认是 `true`
 - `runtime.listener.auto_start` 默认是 `true`
 - 在默认 websocket 模式下，`awiki-cli init` 和 `awiki-cli runtime setup` 会自动安装并启动 listener 系统服务
-- `runtime.host_notify.enabled` 默认是 `false`
+- `runtime.host_notify.enabled` 默认是 `true`
 - `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
 - `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
 - `runtime.host_notify.openclaw.hook_url` 默认是 `http://127.0.0.1:18789/hooks/agent`
@@ -221,7 +221,7 @@ runtime:
     auto_install: true
     auto_start: true
   host_notify:
-    enabled: false
+    enabled: true
     sink: log
     openclaw:
       hook_url: http://127.0.0.1:18789/hooks/agent
@@ -383,10 +383,10 @@ gofmt -w $(find cmd internal -name '*.go')
 # 查看监听器状态
 ./awiki-cli runtime listener status
 
-# 只安装服务定义，不自动启动
+# 可选：只安装服务定义，不自动启动
 ./awiki-cli runtime listener install
 
-# 启动已安装的 listener 服务
+# 启动 listener 服务；若服务尚未安装，会自动补 install
 ./awiki-cli runtime listener start
 
 # 停止 / 重启 / 卸载
@@ -405,6 +405,8 @@ gofmt -w $(find cmd internal -name '*.go')
 
 # 查看 / 修改 host notify 配置
 ./awiki-cli runtime host-notify config show
+./awiki-cli runtime host-notify enable
+./awiki-cli runtime host-notify disable
 ./awiki-cli runtime host-notify config set --sink openclaw
 ./awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki
 ./awiki-cli runtime host-notify openclaw set-token --value <token>

@@ -159,6 +159,21 @@ func assertMissingResultError(t *testing.T, err error, commandName string) {
 	}
 }
 
+func TestIsUpdateExemptCommandAllowsListenerServiceRun(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "awiki-cli"}
+	runtime := &cobra.Command{Use: "runtime"}
+	listener := &cobra.Command{Use: "listener"}
+	command := &cobra.Command{Use: "service-run"}
+	root.AddCommand(runtime)
+	runtime.AddCommand(listener)
+	listener.AddCommand(command)
+	if !isUpdateExemptCommand(command) {
+		t.Fatal("isUpdateExemptCommand(service-run) = false, want true")
+	}
+}
+
 func captureStdout(run func() error) (string, error) {
 	reader, writer, err := os.Pipe()
 	if err != nil {

@@ -154,6 +154,8 @@ awiki-cli runtime listener config set [--enabled true|false] [--auto-install tru
 awiki-cli runtime listener enable
 awiki-cli runtime listener disable
 awiki-cli runtime host-notify config show
+awiki-cli runtime host-notify enable
+awiki-cli runtime host-notify disable
 awiki-cli runtime host-notify config set --sink noop|log|file|openclaw
 awiki-cli runtime host-notify openclaw set [--hook-url ...] [--agent-id ...] [--hook-name ...]
 awiki-cli runtime host-notify openclaw set-token --value <token>
@@ -739,12 +741,12 @@ Go 版 listener 当前实现为：
 
 * `runtime apply`：按 `config.yaml` 收敛 runtime 与 listener 的真实状态
 * `listener install`：只安装系统服务定义
-* `listener start`：只启动已安装的系统服务
+* `listener start`：启动 listener；当系统服务缺失时会先自动安装，再等待 bridge ready 后返回
 * `listener status`：检查 service 状态 + 本地健康探针
 * `listener uninstall`：移除服务定义与本地状态
 * `listener config show/set`：查看和修改 listener 配置真相源
 * `listener enable/disable`：改配置后自动 `runtime apply`
-* `host-notify config show/set` 与 `host-notify openclaw *`：统一管理宿主通知配置
+* `host-notify config show/set`、`host-notify enable/disable` 与 `host-notify openclaw *`：统一管理宿主通知配置
 * `listener run` / `listener service-run`：内部前台执行入口
 
 ## 10.3 heartbeat

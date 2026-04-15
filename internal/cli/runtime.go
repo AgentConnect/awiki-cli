@@ -222,7 +222,7 @@ func (a *App) runRuntimeListenerStart(cmd *cobra.Command, args []string) error {
 	}
 	status, err := listenerrt.Start(resolved)
 	if err != nil {
-		return a.runtimeExit(err, "Set runtime.mode to websocket and run `awiki-cli runtime listener install` before starting the listener.")
+		return a.runtimeExit(err, "Set runtime.mode to websocket and check listener service permissions before starting the listener.")
 	}
 	data := map[string]any{"listener": status}
 	summary := "Listener started"
@@ -489,6 +489,45 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 		"host_notify": hostNotifyConfigView(resolved),
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config updated", nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyEnable(cmd *cobra.Command, args []string) error {
+	return a.setRuntimeHostNotifyEnabled(cmd, true)
+}
+
+func (a *App) runRuntimeHostNotifyDisable(cmd *cobra.Command, args []string) error {
+	return a.setRuntimeHostNotifyEnabled(cmd, false)
+}
+
+func (a *App) setRuntimeHostNotifyEnabled(cmd *cobra.Command, enabled bool) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":      "host_notify_enable_toggle",
+			"enabled":     enabled,
+			"config_file": resolved.Paths.ConfigFile,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: host notify enablement change planned", nil, identityMetaFromResolved(resolved))
+	}
+	if err := appconfig.UpdateHostNotifyEnabled(resolved.Paths, enabled); err != nil {
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	data := map[string]any{
+		"host_notify": hostNotifyConfigView(resolved),
+	}
+	summary := "Host notify enabled"
+	if !enabled {
+		summary = "Host notify disabled"
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, nil, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string) error {

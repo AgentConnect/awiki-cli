@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -22,6 +23,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
@@ -54,13 +56,15 @@ class ReceivedEvent:
 
 
 class CallbackRegistry:
-    """Thread-safe in-memory registry for callbacks and received events."""
+    """Thread-safe registry for callbacks and received events."""
 
-    def __init__(self, event_capacity: int) -> None:
+    def __init__(self, event_capacity: int, state_file: Path | None = None) -> None:
         self._callbacks: dict[str, CallbackRegistration] = {}
         self._events: list[ReceivedEvent] = []
         self._event_capacity = event_capacity
+        self._state_file = state_file
         self._lock = threading.RLock()
+        self._load_callbacks()
 
     def register(self, callback_url: str, label: str, match: dict[str, str]) -> CallbackRegistration:
         callback = CallbackRegistration(
@@ -71,11 +75,15 @@ class CallbackRegistry:
         )
         with self._lock:
             self._callbacks[callback.callback_id] = callback
+            self._persist_callbacks_locked()
         return callback
 
     def unregister(self, callback_id: str) -> CallbackRegistration | None:
         with self._lock:
-            return self._callbacks.pop(callback_id, None)
+            removed = self._callbacks.pop(callback_id, None)
+            if removed is not None:
+                self._persist_callbacks_locked()
+            return removed
 
     def list_callbacks(self) -> list[CallbackRegistration]:
         with self._lock:
@@ -93,6 +101,43 @@ class CallbackRegistry:
             if limit <= 0:
                 return []
             return list(self._events[-limit:])
+
+    def _load_callbacks(self) -> None:
+        if self._state_file is None or not self._state_file.exists():
+            return
+        try:
+            raw_payload = json.loads(self._state_file.read_text(encoding="utf-8"))
+            if isinstance(raw_payload, dict):
+                callback_items = raw_payload.get("callbacks", [])
+            else:
+                callback_items = raw_payload
+            loaded_callbacks: dict[str, CallbackRegistration] = {}
+            for item in callback_items:
+                callback = CallbackRegistration(
+                    callback_id=str(item["callback_id"]),
+                    callback_url=str(item["callback_url"]),
+                    label=str(item.get("label", item["callback_url"])),
+                    match={str(key): str(value) for key, value in dict(item.get("match", {})).items()},
+                    created_at=str(item.get("created_at", utc_now())),
+                )
+                loaded_callbacks[callback.callback_id] = callback
+            with self._lock:
+                self._callbacks = loaded_callbacks
+            LOGGER.info("Loaded %s callbacks from %s", len(loaded_callbacks), self._state_file)
+        except Exception:  # pylint: disable=broad-except
+            LOGGER.exception("Failed to load callback registry from %s", self._state_file)
+
+    def _persist_callbacks_locked(self) -> None:
+        if self._state_file is None:
+            return
+        payload = {
+            "version": 1,
+            "callbacks": [asdict(item) for item in self._callbacks.values()],
+        }
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = self._state_file.with_suffix(self._state_file.suffix + ".tmp")
+        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(self._state_file)
 
 
 class CallbackDispatcher:
@@ -437,7 +482,19 @@ def build_argument_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level. Default: INFO",
     )
+    parser.add_argument(
+        "--state-file",
+        default=str(default_state_file()),
+        help="Path to persistent callback registry JSON file.",
+    )
     return parser
+
+
+def default_state_file() -> Path:
+    workspace = os.environ.get("AWIKI_CLI_WORKSPACE_HOME_DIR", "").strip()
+    if workspace:
+        return Path(workspace) / "runtime" / "host-notify-webhook-callbacks.json"
+    return Path.home() / ".awiki-cli" / "runtime" / "host-notify-webhook-callbacks.json"
 
 
 def main() -> None:
@@ -449,11 +506,15 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    registry = CallbackRegistry(event_capacity=max(args.event_capacity, 1))
+    registry = CallbackRegistry(
+        event_capacity=max(args.event_capacity, 1),
+        state_file=Path(args.state_file).expanduser(),
+    )
     dispatcher = CallbackDispatcher(registry, timeout_seconds=max(args.callback_timeout_seconds, 0.1))
     server = HostNotifyWebhookServer((args.host, args.port), registry, dispatcher)
 
     LOGGER.info("Starting webhook server on http://%s:%s", args.host, args.port)
+    LOGGER.info("Callback registry file: %s", Path(args.state_file).expanduser())
     LOGGER.info("Management endpoints: GET /healthz, GET/POST /callbacks, DELETE /callbacks/<id>, GET /events")
     LOGGER.info("Webhook endpoint: POST /hooks/agent")
     try:

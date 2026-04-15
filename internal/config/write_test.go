@@ -105,6 +105,9 @@ func TestHostNotifyMutatorsWriteSinkAndOpenClawConfig(t *testing.T) {
 	if fileConfig.Runtime.HostNotify.Sink != "openclaw" {
 		t.Fatalf("host notify sink = %q, want openclaw", fileConfig.Runtime.HostNotify.Sink)
 	}
+	if fileConfig.Runtime.HostNotify.Enabled == nil || !*fileConfig.Runtime.HostNotify.Enabled {
+		t.Fatalf("host notify enabled = %#v, want true", fileConfig.Runtime.HostNotify.Enabled)
+	}
 	if fileConfig.Runtime.HostNotify.OpenClaw.HookURL != hookURL {
 		t.Fatalf("hook_url = %q, want %q", fileConfig.Runtime.HostNotify.OpenClaw.HookURL, hookURL)
 	}
@@ -113,5 +116,22 @@ func TestHostNotifyMutatorsWriteSinkAndOpenClawConfig(t *testing.T) {
 	}
 	if fileConfig.Runtime.HostNotify.OpenClaw.HookName != hookName {
 		t.Fatalf("hook_name = %q, want %q", fileConfig.Runtime.HostNotify.OpenClaw.HookName, hookName)
+	}
+}
+
+func TestUpdateHostNotifyEnabledWritesBooleanPointer(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	if err := UpdateHostNotifyEnabled(paths, false); err != nil {
+		t.Fatalf("UpdateHostNotifyEnabled() error = %v", err)
+	}
+	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Runtime.HostNotify.Enabled == nil || *fileConfig.Runtime.HostNotify.Enabled {
+		t.Fatalf("host notify enabled = %#v, want false", fileConfig.Runtime.HostNotify.Enabled)
 	}
 }

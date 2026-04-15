@@ -256,6 +256,10 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyConfigShow
 	case "runtime.host-notify.config.set":
 		return a.runRuntimeHostNotifyConfigSet
+	case "runtime.host-notify.enable":
+		return a.runRuntimeHostNotifyEnable
+	case "runtime.host-notify.disable":
+		return a.runRuntimeHostNotifyDisable
 	case "runtime.host-notify.openclaw.set":
 		return a.runRuntimeHostNotifyOpenClawSet
 	case "runtime.host-notify.openclaw.set-token":
@@ -522,6 +526,8 @@ func isUpdateExemptCommand(cmd *cobra.Command) bool {
 		"awiki-cli completion zsh",
 		"awiki-cli completion fish",
 		"awiki-cli completion powershell",
+		"awiki-cli runtime listener run",
+		"awiki-cli runtime listener service-run",
 	}
 	for _, allowed := range exempt {
 		if strings.EqualFold(path, allowed) {
