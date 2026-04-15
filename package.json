@@ -1,12 +1,12 @@
 {
   "name": "@awiki/cli",
-  "version": "0.0.1-beta.12",
+  "version": "0.0.1-beta.13",
   "description": "Awiki command-line interface (awiki-cli)",
   "engines": {
     "node": ">=18"
   },
   "awikiCli": {
-    "minSupportedVersion": "0.0.1-beta.12"
+    "minSupportedVersion": "0.0.1-beta.13"
   },
   "bin": {
     "awiki-cli": "scripts/run.js"
