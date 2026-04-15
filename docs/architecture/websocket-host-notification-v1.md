@@ -247,14 +247,14 @@ runtime:
   mode: websocket
   socket_path: ""
   host_notify:
-    enabled: false
+    enabled: true
     sink: log
     file_path: ""
 ```
 
 Rules:
 
-- `runtime.host_notify.enabled` defaults to `false`
+- `runtime.host_notify.enabled` defaults to `true`
 - `runtime.host_notify.sink` supports `noop | log | file`
 - when `sink = file` and `file_path` is omitted, awiki-cli derives:
   - `<workspace>/runtime/host-notify.events.jsonl`

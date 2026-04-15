@@ -554,6 +554,9 @@ func identityMetaFromData(data map[string]any) *output.IdentityMeta {
 		}
 		switch typed := value.(type) {
 		case *identity.IdentitySummary:
+			if typed == nil {
+				continue
+			}
 			return &output.IdentityMeta{Name: typed.IdentityName, DID: typed.DID}
 		case identity.IdentitySummary:
 			return &output.IdentityMeta{Name: typed.IdentityName, DID: typed.DID}

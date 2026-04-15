@@ -52,6 +52,14 @@ func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool
 func UpdateHostNotifySink(paths Paths, sink string) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		fileConfig.Runtime.HostNotify.Sink = strings.TrimSpace(sink)
+		fileConfig.Runtime.HostNotify.Enabled = boolPtr(true)
+		return nil
+	})
+}
+
+func UpdateHostNotifyEnabled(paths Paths, enabled bool) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.Enabled = boolPtr(enabled)
 		return nil
 	})
 }

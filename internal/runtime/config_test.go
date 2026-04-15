@@ -55,8 +55,8 @@ func TestResolveDefaultsToWebSocketMode(t *testing.T) {
 	if resolved.HostNotify.Sink != "log" {
 		t.Fatalf("resolved.HostNotify.Sink = %q, want log", resolved.HostNotify.Sink)
 	}
-	if resolved.HostNotify.Enabled {
-		t.Fatal("resolved.HostNotify.Enabled = true, want false")
+	if !resolved.HostNotify.Enabled {
+		t.Fatal("resolved.HostNotify.Enabled = false, want true")
 	}
 	if !resolved.Listener.Enabled {
 		t.Fatal("resolved.Listener.Enabled = false, want true")

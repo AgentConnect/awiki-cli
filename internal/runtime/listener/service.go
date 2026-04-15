@@ -84,6 +84,13 @@ type noopProgram struct{}
 func (p *noopProgram) Start(servicepkg.Service) error { return nil }
 func (p *noopProgram) Stop(servicepkg.Service) error  { return nil }
 
+var (
+	newServiceFunc       = newService
+	serviceStatusForFunc = serviceStatusFor
+	ensureInstalledFunc  = EnsureInstalled
+	statusForFunc        = StatusFor
+)
+
 func serviceNameFor(resolved *appconfig.Resolved) string {
 	workspace := "default"
 	if resolved != nil {
@@ -160,7 +167,7 @@ func EnsureInstalled(resolved *appconfig.Resolved) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	installed, running, _, _, err := serviceStatusFor(resolved)
+	installed, running, _, _, err := serviceStatusForFunc(resolved)
 	if err != nil {
 		return Status{}, err
 	}
@@ -179,19 +186,28 @@ func StartService(resolved *appconfig.Resolved) (Status, error) {
 	if runtimeMode := strings.ToLower(strings.TrimSpace(resolved.RuntimeMode)); runtimeMode != "websocket" {
 		return Status{}, fmt.Errorf("runtime mode must be websocket before starting the listener")
 	}
-	svc, err := newService(resolved, &noopProgram{})
+	svc, err := newServiceFunc(resolved, &noopProgram{})
 	if err != nil {
 		return Status{}, err
 	}
-	installed, running, _, _, err := serviceStatusFor(resolved)
+	installed, running, _, _, err := serviceStatusForFunc(resolved)
 	if err != nil {
 		return Status{}, err
 	}
 	if !installed {
-		return Status{}, fmt.Errorf("listener service is not installed")
+		if _, err := ensureInstalledFunc(resolved); err != nil {
+			return Status{}, err
+		}
+		installed, running, _, _, err = serviceStatusForFunc(resolved)
+		if err != nil {
+			return Status{}, err
+		}
+		if !installed {
+			return Status{}, fmt.Errorf("listener service is not installed after auto-install")
+		}
 	}
 	if running {
-		return StatusFor(resolved)
+		return statusForFunc(resolved)
 	}
 	if err := svc.Start(); err != nil {
 		return Status{}, err
@@ -200,11 +216,11 @@ func StartService(resolved *appconfig.Resolved) (Status, error) {
 }
 
 func StopService(resolved *appconfig.Resolved) (Status, error) {
-	svc, err := newService(resolved, &noopProgram{})
+	svc, err := newServiceFunc(resolved, &noopProgram{})
 	if err != nil {
 		return Status{}, err
 	}
-	installed, running, _, _, err := serviceStatusFor(resolved)
+	installed, running, _, _, err := serviceStatusForFunc(resolved)
 	if err != nil {
 		return Status{}, err
 	}
@@ -221,11 +237,11 @@ func StopService(resolved *appconfig.Resolved) (Status, error) {
 }
 
 func RestartService(resolved *appconfig.Resolved) (Status, error) {
-	svc, err := newService(resolved, &noopProgram{})
+	svc, err := newServiceFunc(resolved, &noopProgram{})
 	if err != nil {
 		return Status{}, err
 	}
-	installed, _, _, _, err := serviceStatusFor(resolved)
+	installed, _, _, _, err := serviceStatusForFunc(resolved)
 	if err != nil {
 		return Status{}, err
 	}
@@ -239,11 +255,11 @@ func RestartService(resolved *appconfig.Resolved) (Status, error) {
 }
 
 func Uninstall(resolved *appconfig.Resolved) (Status, error) {
-	svc, err := newService(resolved, &noopProgram{})
+	svc, err := newServiceFunc(resolved, &noopProgram{})
 	if err != nil {
 		return Status{}, err
 	}
-	installed, running, _, _, err := serviceStatusFor(resolved)
+	installed, running, _, _, err := serviceStatusForFunc(resolved)
 	if err != nil {
 		return Status{}, err
 	}
@@ -307,7 +323,7 @@ func waitForServiceStatus(resolved *appconfig.Resolved, wantRunning bool) (Statu
 		runtimeResolved.Listener.Enabled
 	return waitForServiceStatusWith(
 		func() (Status, error) {
-			return StatusFor(resolved)
+			return statusForFunc(resolved)
 		},
 		wantRunning,
 		waitForBridge,

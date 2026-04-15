@@ -9,7 +9,7 @@ runtime:
     auto_install: true
     auto_start: true
   host_notify:
-    enabled: false
+    enabled: true
     sink: log
     file_path: ""
     openclaw:

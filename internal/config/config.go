@@ -27,6 +27,7 @@ const (
 	defaultListenerEnabled     = true
 	defaultListenerAutoInstall = true
 	defaultListenerAutoStart   = true
+	defaultHostNotifyEnabled   = true
 	defaultHostNotifySink      = "log"
 	defaultHostNotifyFile      = "host-notify.events.jsonl"
 	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
@@ -278,7 +279,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 	resolved.RuntimeListenerEnabled, resolved.Sources["runtime_listener_enabled"] = chooseBool(fileConfig.Runtime.Listener.Enabled, defaultListenerEnabled)
 	resolved.RuntimeListenerAutoInstall, resolved.Sources["runtime_listener_auto_install"] = chooseBool(fileConfig.Runtime.Listener.AutoInstall, defaultListenerAutoInstall)
 	resolved.RuntimeListenerAutoStart, resolved.Sources["runtime_listener_auto_start"] = chooseBool(fileConfig.Runtime.Listener.AutoStart, defaultListenerAutoStart)
-	resolved.HostNotifyEnabled, resolved.Sources["host_notify_enabled"] = chooseBool(fileConfig.Runtime.HostNotify.Enabled, false)
+	resolved.HostNotifyEnabled, resolved.Sources["host_notify_enabled"] = chooseBool(fileConfig.Runtime.HostNotify.Enabled, defaultHostNotifyEnabled)
 	resolved.HostNotifySink, resolved.Sources["host_notify_sink"] = chooseValue(
 		"",
 		false,

@@ -83,12 +83,18 @@ Bootstrap-only path:
 - preferred current path: `awiki-cli runtime listener start`
 - `awiki-cli runtime listener status`
 
-Note: the current repo exposes `runtime listener install`, but it delegates to the same implementation as `start`. Do not describe it as a richer install flow yet.
-
 ### 9. Run a messaging smoke-check
 
 - `awiki-cli msg inbox --limit 5`
 - if the user has a known peer, run `awiki-cli msg send --to <peer> --text "Hello" --dry-run` before any real send
+
+### 10. Configure host notifications if needed
+
+- host notifications are enabled by default in new workspaces, with `sink = log`
+- to route notifications to a webhook/OpenClaw host:
+  - `awiki-cli runtime host-notify config set --sink openclaw --dry-run`
+  - `awiki-cli runtime host-notify config set --sink openclaw`
+  - `awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki`
 
 ## Expected Outputs
 
@@ -96,6 +102,7 @@ Note: the current repo exposes `runtime listener install`, but it delegates to t
 - the identity is handle-backed or intentionally bootstrap-only
 - runtime mode is explicit
 - listener status is visible when websocket mode is enabled
+- host notify config is explicit when webhook/OpenClaw delivery is needed
 - inbox read path is working
 
 ## Recovery and Retry

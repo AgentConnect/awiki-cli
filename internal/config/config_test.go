@@ -142,8 +142,8 @@ func TestResolveSetsWorkspaceHomeDir(t *testing.T) {
 	if resolved.HostNotifySink != "log" {
 		t.Fatalf("host notify sink = %q, want log", resolved.HostNotifySink)
 	}
-	if resolved.HostNotifyEnabled {
-		t.Fatal("host notify enabled = true, want false")
+	if !resolved.HostNotifyEnabled {
+		t.Fatal("host notify enabled = false, want true")
 	}
 	if resolved.HostNotifyFilePath != "" {
 		t.Fatalf("host notify file path = %q, want empty string", resolved.HostNotifyFilePath)

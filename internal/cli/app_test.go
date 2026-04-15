@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/spf13/cobra"
 )
 
 func TestRenderSuccessSanitizesInternalIdentityFields(t *testing.T) {
@@ -64,6 +65,21 @@ func TestIdentityGatingUsesFrozenErrorCode(t *testing.T) {
 		if exitErr.Code != 3 {
 			t.Fatalf("exitErr.Code = %d, want 3", exitErr.Code)
 		}
+	}
+}
+
+func TestIsUpdateExemptCommandAllowsListenerServiceRun(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "awiki-cli"}
+	runtime := &cobra.Command{Use: "runtime"}
+	listener := &cobra.Command{Use: "listener"}
+	command := &cobra.Command{Use: "service-run"}
+	root.AddCommand(runtime)
+	runtime.AddCommand(listener)
+	listener.AddCommand(command)
+	if !isUpdateExemptCommand(command) {
+		t.Fatal("isUpdateExemptCommand(service-run) = false, want true")
 	}
 }
 

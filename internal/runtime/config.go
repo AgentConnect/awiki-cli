@@ -53,7 +53,7 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 				AutoStart:   true,
 			},
 			HostNotify: HostNotifyConfig{
-				Enabled: false,
+				Enabled: true,
 				Sink:    "log",
 			},
 		}
