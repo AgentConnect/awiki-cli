@@ -40,12 +40,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish release assets to Gitee
-        if: ${{ secrets.GITEE_TOKEN != '' && secrets.GITEE_USERNAME != '' }}
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
         run: |
           set -euo pipefail
+
+          if [[ -z "${GITEE_TOKEN}" || -z "${GITEE_USERNAME}" ]]; then
+            echo "Skipping Gitee publish because GITEE_TOKEN or GITEE_USERNAME is not configured."
+            exit 0
+          fi
 
           TAG="${GITHUB_REF_NAME}"
           PRERELEASE=false
