@@ -28,12 +28,17 @@ Examples:
   scripts/release/publish-gitee-release.sh v0.0.1-beta.16
 
 Required environment variables:
-  GITEE_USERNAME   Gitee login username for HTTPS git authentication
   GITEE_TOKEN      Gitee personal access token with repo/release permissions
 
 Optional environment variables:
+  GITEE_USERNAME   Gitee login username for HTTPS git authentication
   GITEE_OWNER      Gitee repository owner (default: bitaimeta_admin)
   GITEE_REPO       Gitee repository name (default: awiki-cli)
+  GITEE_GIT_URL    Optional git remote URL for pushing tags to Gitee
+                   Example: git@gitee.com:bitaimeta_admin/awiki-cli.git
+  GITEE_API_PROXY  Optional proxy URL for Gitee API requests. By default,
+                   Gitee API requests are sent directly.
+  GITEE_API_NO_PROXY Optional no_proxy value for Gitee API requests
   GITHUB_OWNER     GitHub repository owner (default: AgentConnect)
   GITHUB_REPO      GitHub repository name (default: awiki-cli)
   GITHUB_TOKEN     Optional GitHub token for higher API rate limits
@@ -67,17 +72,84 @@ GITHUB_OWNER="${GITHUB_OWNER:-AgentConnect}"
 GITHUB_REPO="${GITHUB_REPO:-awiki-cli}"
 GITEE_USERNAME="${GITEE_USERNAME:-}"
 GITEE_TOKEN="${GITEE_TOKEN:-}"
+GITEE_GIT_URL="${GITEE_GIT_URL:-}"
+GITEE_API_PROXY="${GITEE_API_PROXY:-}"
+GITEE_API_NO_PROXY="${GITEE_API_NO_PROXY:-}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-
-if [[ -z "${GITEE_USERNAME}" ]]; then
-  echo "Error: GITEE_USERNAME is required." >&2
-  exit 1
-fi
 
 if [[ -z "${GITEE_TOKEN}" ]]; then
   echo "Error: GITEE_TOKEN is required." >&2
   exit 1
 fi
+
+if [[ -z "${GITEE_GIT_URL}" ]]; then
+  if [[ -z "${GITEE_USERNAME}" ]]; then
+    echo "Error: GITEE_USERNAME is required when GITEE_GIT_URL is not set." >&2
+    exit 1
+  fi
+  GITEE_GIT_URL="https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
+fi
+
+normalize_proxy_value() {
+  local raw="${1:-}"
+
+  # Some shells or wrapper scripts may export malformed values like
+  # `https_proxy=http://127.0.0.1:7897`. Accept both the standard URL form
+  # and this nested `name=value` form.
+  case "${raw}" in
+    http_proxy=*|https_proxy=*|HTTP_PROXY=*|HTTPS_PROXY=*|all_proxy=*|ALL_PROXY=*|no_proxy=*|NO_PROXY=*)
+      raw="${raw#*=}"
+      ;;
+  esac
+
+  raw="${raw%\"}"
+  raw="${raw#\"}"
+  raw="${raw%\'}"
+  raw="${raw#\'}"
+
+  printf '%s\n' "${raw}"
+}
+
+github_curl_proxy_url="$(normalize_proxy_value "${HTTPS_PROXY:-${https_proxy:-${ALL_PROXY:-${all_proxy:-${HTTP_PROXY:-${http_proxy:-}}}}}}")"
+github_curl_no_proxy="$(normalize_proxy_value "${NO_PROXY:-${no_proxy:-}}")"
+gitee_curl_proxy_url="$(normalize_proxy_value "${GITEE_API_PROXY}")"
+gitee_curl_no_proxy="$(normalize_proxy_value "${GITEE_API_NO_PROXY}")"
+
+curl_github() {
+  if [[ -n "${github_curl_proxy_url}" ]]; then
+    if [[ -n "${github_curl_no_proxy}" ]]; then
+      curl --proxy "${github_curl_proxy_url}" --noproxy "${github_curl_no_proxy}" "$@"
+      return
+    fi
+    curl --proxy "${github_curl_proxy_url}" "$@"
+    return
+  fi
+
+  if [[ -n "${github_curl_no_proxy}" ]]; then
+    curl --noproxy "${github_curl_no_proxy}" "$@"
+    return
+  fi
+
+  curl "$@"
+}
+
+curl_gitee() {
+  if [[ -n "${gitee_curl_proxy_url}" ]]; then
+    if [[ -n "${gitee_curl_no_proxy}" ]]; then
+      curl --proxy "${gitee_curl_proxy_url}" --noproxy "${gitee_curl_no_proxy}" "$@"
+      return
+    fi
+    curl --proxy "${gitee_curl_proxy_url}" "$@"
+    return
+  fi
+
+  if [[ -n "${gitee_curl_no_proxy}" ]]; then
+    curl --noproxy "${gitee_curl_no_proxy}" "$@"
+    return
+  fi
+
+  curl "$@"
+}
 
 github_api_headers=(
   -H "Accept: application/vnd.github+json"
@@ -101,7 +173,10 @@ cleanup() {
 trap cleanup EXIT
 
 echo "Fetching GitHub release metadata for ${TAG}..."
-github_status="$(curl -sS -L -o "${release_json}" -w '%{http_code}' \
+if [[ -n "${github_curl_proxy_url}" ]]; then
+  echo "Using curl proxy for GitHub API requests and release downloads."
+fi
+github_status="$(curl_github -sS -L -o "${release_json}" -w '%{http_code}' \
   "${github_api_headers[@]}" \
   "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/tags/${TAG}")"
 
@@ -132,30 +207,34 @@ if [[ "${asset_count}" -eq 0 ]]; then
   exit 1
 fi
 
+asset_manifest="${tmp_dir}/asset-manifest.tsv"
+jq -r '.assets[] | [.name, .browser_download_url] | @tsv' "${release_json}" > "${asset_manifest}"
+
 echo "Ensuring local tag ${TAG} exists..."
 if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
 fi
 
 echo "Pushing tag ${TAG} to Gitee..."
-git remote add gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git" 2>/dev/null || \
-  git remote set-url gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
+git remote add gitee "${GITEE_GIT_URL}" 2>/dev/null || \
+  git remote set-url gitee "${GITEE_GIT_URL}"
 git push gitee "refs/tags/${TAG}:refs/tags/${TAG}"
 
-echo "Downloading GitHub release assets to ${download_dir}..."
+assets_dir="${download_dir}"
+echo "Downloading GitHub release assets to ${assets_dir}..."
 while IFS=$'\t' read -r asset_name asset_url; do
   if [[ -z "${asset_name}" || -z "${asset_url}" ]]; then
     continue
   fi
 
   echo "Downloading ${asset_name}..."
-  curl --fail --location --progress-bar \
-    --output "${download_dir}/${asset_name}" \
+  curl_github --fail --location --progress-bar \
+    --output "${assets_dir}/${asset_name}" \
     "${asset_url}"
-done < <(jq -r '.assets[] | [.name, .browser_download_url] | @tsv' "${release_json}")
+done < "${asset_manifest}"
 
 echo "Looking up Gitee release for ${TAG}..."
-gitee_lookup_status="$(curl -sS -L -o "${gitee_release_json}" -w '%{http_code}' \
+gitee_lookup_status="$(curl_gitee -sS -L -o "${gitee_release_json}" -w '%{http_code}' \
   "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
 
 gitee_release_id=""
@@ -181,7 +260,7 @@ else
     create_args+=(--data-urlencode "target_commitish=${release_target}")
   fi
 
-  create_status="$(curl -sS -L -o "${create_json}" -w '%{http_code}' \
+  create_status="$(curl_gitee -sS -L -o "${create_json}" -w '%{http_code}' \
     "${create_args[@]}" \
     "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")"
 
@@ -191,7 +270,7 @@ else
     echo "Created Gitee release for ${TAG}."
   else
     echo "Create response did not include an id; re-querying Gitee by tag..."
-    gitee_lookup_status="$(curl -sS -L -o "${gitee_release_json}" -w '%{http_code}' \
+    gitee_lookup_status="$(curl_gitee -sS -L -o "${gitee_release_json}" -w '%{http_code}' \
       "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
     if [[ "${gitee_lookup_status}" == "200" ]]; then
       gitee_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${gitee_release_json}")"
@@ -215,9 +294,13 @@ fi
 
 existing_assets="$(jq -r '.assets[]?.name' "${gitee_release_json}")"
 
-mapfile -t local_assets < <(find "${download_dir}" -maxdepth 1 -type f | sort)
+local_assets=()
+while IFS= read -r asset_path; do
+  local_assets+=("${asset_path}")
+done < <(find "${assets_dir}" -maxdepth 1 -type f | sort)
+
 if [[ "${#local_assets[@]}" -eq 0 ]]; then
-  echo "Error: no local assets were downloaded from GitHub." >&2
+  echo "Error: no local assets are available in ${assets_dir}." >&2
   exit 1
 fi
 
@@ -230,7 +313,7 @@ for asset_path in "${local_assets[@]}"; do
 
   asset_size="$(wc -c < "${asset_path}" | tr -d '[:space:]')"
   echo "Uploading ${asset_name} to Gitee (${asset_size} bytes)..."
-  upload_status="$(curl --fail-with-body --location --progress-bar \
+  upload_status="$(curl_gitee --fail-with-body --location --progress-bar \
     --output "${upload_json}" \
     --write-out '%{http_code}' \
     --connect-timeout 15 \
