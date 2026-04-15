@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  GITEE_OWNER: bitaimeta_admin
+  GITEE_REPO: awiki-cli
+
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
@@ -34,6 +38,96 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release assets to Gitee
+        if: ${{ secrets.GITEE_TOKEN != '' && secrets.GITEE_USERNAME != '' }}
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          PRERELEASE=false
+          if [[ "${TAG}" == *-* ]]; then
+            PRERELEASE=true
+          fi
+
+          git remote add gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git" 2>/dev/null || \
+            git remote set-url gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
+          git push gitee "refs/tags/${TAG}:refs/tags/${TAG}"
+
+          release_json="$(mktemp)"
+          create_json="$(mktemp)"
+          upload_json="$(mktemp)"
+          trap 'rm -f "${release_json}" "${create_json}" "${upload_json}"' EXIT
+
+          release_status="$(curl -sS -L -o "${release_json}" -w '%{http_code}' \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
+
+          if [[ "${release_status}" == "200" ]]; then
+            echo "Reusing existing Gitee release for ${TAG}"
+          else
+            create_status="$(curl -sS -L -o "${create_json}" -w '%{http_code}' \
+              -X POST \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              --data-urlencode "access_token=${GITEE_TOKEN}" \
+              --data-urlencode "tag_name=${TAG}" \
+              --data-urlencode "name=${TAG}" \
+              --data-urlencode "target_commitish=${GITHUB_SHA}" \
+              --data-urlencode "body=Release ${TAG}" \
+              --data-urlencode "prerelease=${PRERELEASE}" \
+              "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")"
+
+            if [[ "${create_status}" != "201" && "${create_status}" != "200" ]]; then
+              echo "Failed to create Gitee release:"
+              cat "${create_json}"
+              exit 1
+            fi
+
+            cp "${create_json}" "${release_json}"
+            echo "Created Gitee release for ${TAG}"
+          fi
+
+          RELEASE_ID="$(jq -r '.id // empty' "${release_json}")"
+          if [[ -z "${RELEASE_ID}" ]]; then
+            echo "Gitee release ID missing from API response:"
+            cat "${release_json}"
+            exit 1
+          fi
+
+          existing_assets="$(jq -r '.assets[]?.name' "${release_json}")"
+          mapfile -t artifacts < <(find dist -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*checksums.txt' \) | sort)
+
+          if [[ "${#artifacts[@]}" -eq 0 ]]; then
+            echo "No release artifacts found in dist/"
+            exit 1
+          fi
+
+          for artifact in "${artifacts[@]}"; do
+            asset_name="$(basename "${artifact}")"
+            if printf '%s\n' "${existing_assets}" | grep -Fxq "${asset_name}"; then
+              echo "Skipping existing Gitee asset ${asset_name}"
+              continue
+            fi
+
+            upload_status="$(curl -sS -L -o "${upload_json}" -w '%{http_code}' \
+              -X POST \
+              -F "access_token=${GITEE_TOKEN}" \
+              -F "owner=${GITEE_OWNER}" \
+              -F "repo=${GITEE_REPO}" \
+              -F "release_id=${RELEASE_ID}" \
+              -F "file=@${artifact}" \
+              "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${RELEASE_ID}/attach_files")"
+
+            if [[ "${upload_status}" != "201" && "${upload_status}" != "200" ]]; then
+              echo "Failed to upload ${asset_name} to Gitee:"
+              cat "${upload_json}"
+              exit 1
+            fi
+
+            echo "Uploaded ${asset_name} to Gitee"
+          done
 
       - name: Publish to npm (stable tags only)
         if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')

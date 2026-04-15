@@ -8,6 +8,35 @@ awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编
 
 ---
 
+## 0. 快速安装（推荐）
+
+如果你的目标是直接使用 awiki-cli，而不是从源码编译，可以优先使用 npm 包和 Skills 仓库安装：
+
+```bash
+npm install -g @awiki/cli@latest
+npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git -y -g
+```
+
+说明：
+
+- `npm install -g @awiki/cli@latest` 安装时会优先尝试从 Gitee Release 下载对应平台的二进制，失败后再回退到 GitHub Release。
+- `npx skills add` 推荐使用 Gitee 的完整 `.git` 地址，这样在中国大陆网络环境下通常更稳定。
+
+如果你的环境可以稳定访问 GitHub，也可以改用：
+
+```bash
+npx skills add https://github.com/AgentConnect/awiki-cli.git -y -g
+```
+
+安装完成后，建议立即验证：
+
+```bash
+awiki-cli version --format json
+awiki-cli init
+```
+
+---
+
 ## 1. 编译工具
 
 ### 1.1 Go 1.22

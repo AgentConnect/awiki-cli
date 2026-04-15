@@ -108,13 +108,24 @@ awiki-cli version --format json
 
 ### 2.2 使用以下命令安装 awiki Skills
 
+推荐优先使用 Gitee 仓库地址进行安装，这样在中国大陆网络环境下通常更稳定：
+
 ```bash
-npx skills add agentconnect/awiki-cli --agent <你的-agent-id> -y -g
+npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git --agent <你的-agent-id> -y -g
 ```
 
-如果你确实希望给所有支持的 Agent 都安装 awiki Skills，可以直接删掉 `--agent <你的-agent-id>` 参数进行安装
+如果你确实希望给所有支持的 Agent 都安装 awiki Skills，可以直接删掉 `--agent <你的-agent-id>` 参数进行安装。
 
-如果运行环境不支持 `npx skills`，或者执行上述安装命令失败，可以直接使用 Awiki 官方仓库 [https://github.com/AgentConnect/awiki-cli](https://github.com/AgentConnect/awiki-cli) 作为 Skill 源，让你的 Agent 按自身支持的方式从该仓库加载和安装 Awiki 的 Skill 集合。
+如果你所在的环境可以稳定访问 GitHub，也可以使用官方 GitHub 仓库地址：
+
+```bash
+npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <你的-agent-id> -y -g
+```
+
+如果运行环境不支持 `npx skills`，或者执行上述安装命令失败，可以直接使用 Awiki 官方仓库作为 Skill 源，让你的 Agent 按自身支持的方式从该仓库加载和安装 Awiki 的 Skill 集合：
+
+- Gitee：<https://gitee.com/bitaimeta_admin/awiki-cli>
+- GitHub：<https://github.com/AgentConnect/awiki-cli>
 
 ---
 

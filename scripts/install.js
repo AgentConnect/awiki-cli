@@ -29,26 +29,38 @@ function getVersion(pkg) {
   return v;
 }
 
-function getDownloadUrl(version, osName, arch) {
+function getDownloadSources(version, osName, arch) {
   const archiveBaseName = `awiki-cli-${version}-${osName}-${arch}`;
   const ext = osName === 'windows' ? 'zip' : 'tar.gz';
   const fileName = `${archiveBaseName}.${ext}`;
 
   const mirror = (process.env.AWIKI_CLI_DOWNLOAD_MIRROR || '').trim();
   const mirrorBase = mirror ? mirror.replace(/\/+$/, '') : '';
+  const giteeBase = 'https://gitee.com/bitaimeta_admin/awiki-cli/releases/download'.replace(/\/+$/, '');
   const githubBase = 'https://github.com/AgentConnect/awiki-cli/releases/download'.replace(/\/+$/, '');
   const tag = `v${version}`;
 
-  const urls = [];
-  // If a mirror is configured, try it first.
+  const sources = [];
+  // Respect an explicit mirror first when the user has configured one.
   if (mirrorBase) {
-    urls.push(`${mirrorBase}/${tag}/${fileName}`);
+    sources.push({
+      name: 'mirror',
+      url: `${mirrorBase}/${tag}/${fileName}`,
+    });
   }
-  // Always fall back to GitHub.
-  urls.push(`${githubBase}/${tag}/${fileName}`);
+  // Prefer the mainland-friendly Gitee release mirror by default.
+  sources.push({
+    name: 'gitee',
+    url: `${giteeBase}/${tag}/${fileName}`,
+  });
+  // Always keep GitHub as the final fallback source.
+  sources.push({
+    name: 'github',
+    url: `${githubBase}/${tag}/${fileName}`,
+  });
 
   return {
-    urls,
+    sources,
     fileName,
   };
 }
@@ -201,7 +213,7 @@ async function main() {
   const version = getVersion(pkg);
   const osName = mapPlatform();
   const arch = mapArch();
-  const { urls, fileName } = getDownloadUrl(version, osName, arch);
+  const { sources, fileName } = getDownloadSources(version, osName, arch);
 
   const binDir = path.join(rootDir, 'bin');
   ensureDir(binDir);
@@ -210,15 +222,15 @@ async function main() {
   const archivePath = path.join(tmpDir, fileName);
 
   let lastError;
-  for (const url of urls) {
-    console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url} ...`);
+  for (const source of sources) {
+    console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${source.url} ...`);
     try {
-      await download(url, archivePath);
+      await download(source.url, archivePath);
       lastError = undefined;
       break;
     } catch (err) {
       lastError = err;
-      console.error(`[awiki-cli] Download failed from ${url}: ${err.message}`);
+      console.error(`[awiki-cli] Download failed from ${source.url}: ${err.message}`);
     }
   }
 
@@ -268,6 +280,6 @@ module.exports = {
     mapPlatform,
     mapArch,
     getVersion,
-    getDownloadUrl,
+    getDownloadSources,
   },
 };

@@ -27,7 +27,13 @@ awiki-cli 是 Awiki 平台的官方命令行客户端和 Skill 后端。它同�
 
 ```bash
 npm install -g @awiki/cli@latest
-npx skills add agentconnect/awiki-cli -y -g
+npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git -y -g
+```
+
+如果你的环境可以稳定访问 GitHub，也可以使用：
+
+```bash
+npx skills add https://github.com/AgentConnect/awiki-cli.git -y -g
 ```
 
 初始化工作区：

@@ -27,7 +27,13 @@ Install the CLI and Skills:
 
 ```bash
 npm install -g @awiki/cli@latest
-npx skills add agentconnect/awiki-cli -y -g
+npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git -y -g
+```
+
+If your environment can reliably reach GitHub, you can also use:
+
+```bash
+npx skills add https://github.com/AgentConnect/awiki-cli.git -y -g
 ```
 
 Initialize the workspace:

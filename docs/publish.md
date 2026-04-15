@@ -25,9 +25,18 @@
 
 2. 确认 `package.json.version` 为标准 semver（不带 `-beta` / `-rc` 等）。
 
-3. 在 GitHub 仓库的 workflow secrets 中配置 npm 凭据：
+3. 在 GitHub 仓库的 workflow secrets 中配置发布凭据：
 
    - `NPM_TOKEN`：具有发布 `@awiki/cli` 的权限。
+   - `GITEE_USERNAME`：用于 push tag 到 Gitee 的用户名。
+   - `GITEE_TOKEN`：用于创建 Gitee Release 并上传附件的个人访问令牌。
+
+4. 添加 secrets 的位置：
+
+   - 打开 GitHub 仓库页面。
+   - 进入 `Settings`。
+   - 进入 `Secrets and variables` -> `Actions`。
+   - 点击 `New repository secret`，分别创建 `NPM_TOKEN`、`GITEE_USERNAME`、`GITEE_TOKEN`。
 
 ### 2.2 创建并推送 Tag
 
@@ -49,7 +58,8 @@ scripts/release/tag-release.sh
 推送 `vX.Y.Z` Tag 后，`.github/workflows/release.yml` 会自动执行：
 
 1. 使用 GoReleaser 按 `.goreleaser.yml` 构建多平台二进制，并创建 GitHub Release；
-2. 对稳定 Tag（`vX.Y.Z` 且不包含 `-`）执行一次 npm 发布：
+2. 将同名 Tag 推送到 Gitee，并在 Gitee 上创建或复用同名 Release，然后上传构建产物；
+3. 对稳定 Tag（`vX.Y.Z` 且不包含 `-`）执行一次 npm 发布：
 
    ```bash
    npm publish --access public

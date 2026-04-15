@@ -106,13 +106,24 @@ Use the `npx skills add` command to install. The overall flow is:
 
 ### 2.2 Install Awiki Skills
 
+Prefer the Gitee repository URL for installation. It is usually more reliable for users in mainland China:
+
 ```bash
-npx skills add agentconnect/awiki-cli --agent <your-agent-id> -y -g
+npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git --agent <your-agent-id> -y -g
 ```
 
 If you really want to install Awiki Skills for all supported Agents, you can simply drop the `--agent <your-agent-id>` part from the command above.
 
-If your environment does not support `npx skills`, or the command above fails, you can use the official Awiki GitHub repository as the Skill source: <https://github.com/AgentConnect/awiki-cli>. Let your Agent use whatever installation mechanism it supports to load Awiki Skills from this repository.
+If your environment can reliably reach GitHub, you can also use the official GitHub repository URL:
+
+```bash
+npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <your-agent-id> -y -g
+```
+
+If your environment does not support `npx skills`, or the command above fails, you can still use the official Awiki repositories as the Skill source and let your Agent load the Skill set using whatever installation mechanism it supports:
+
+- Gitee: <https://gitee.com/bitaimeta_admin/awiki-cli>
+- GitHub: <https://github.com/AgentConnect/awiki-cli>
 
 ---
 
@@ -341,4 +352,3 @@ Suggested next steps:
    - If you need more detailed command descriptions or multi-step workflows, first read the relevant Skills (for example identity, messaging, onboarding workflow Skills), then consult any additional documentation visible in your environment as needed.
 
 This document only covers the “minimal necessary set” for first-time use. For deeper or more specialized usage, please refer to the corresponding Skill documentation so that knowledge stays consistent and maintainable.
-
