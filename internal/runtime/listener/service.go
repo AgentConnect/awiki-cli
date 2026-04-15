@@ -301,26 +301,62 @@ func ApplyRuntimePolicy(resolved *appconfig.Resolved) (Status, error) {
 }
 
 func waitForServiceStatus(resolved *appconfig.Resolved, wantRunning bool) (Status, error) {
-	deadline := time.Now().Add(15 * time.Second)
+	runtimeResolved := runtimecfg.Resolve(resolved)
+	waitForBridge := wantRunning &&
+		runtimeResolved.Mode == runtimecfg.ModeWebSocket &&
+		runtimeResolved.Listener.Enabled
+	return waitForServiceStatusWith(
+		func() (Status, error) {
+			return StatusFor(resolved)
+		},
+		wantRunning,
+		waitForBridge,
+		15*time.Second,
+		250*time.Millisecond,
+	)
+}
+
+func waitForServiceStatusWith(
+	statusFn func() (Status, error),
+	wantRunning bool,
+	waitForBridge bool,
+	timeout time.Duration,
+	interval time.Duration,
+) (Status, error) {
+	deadline := time.Now().Add(timeout)
+	lastStatus := Status{}
+	var lastErr error
 	for {
-		status, err := StatusFor(resolved)
+		status, err := statusFn()
 		if err == nil {
-			if wantRunning {
-				if status.Installed && status.Running {
-					return status, nil
-				}
-			} else if !status.Running {
+			lastStatus = status
+			if serviceStatusReady(status, wantRunning, waitForBridge) {
 				return status, nil
 			}
+		} else {
+			lastErr = err
 		}
 		if time.Now().After(deadline) {
-			if err != nil {
-				return Status{}, err
+			if lastErr != nil {
+				return Status{}, lastErr
 			}
-			return status, nil
+			return lastStatus, nil
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(interval)
 	}
+}
+
+func serviceStatusReady(status Status, wantRunning bool, waitForBridge bool) bool {
+	if wantRunning {
+		if !status.Installed || !status.Running {
+			return false
+		}
+		if waitForBridge && !status.BridgeAvailable {
+			return false
+		}
+		return true
+	}
+	return !status.Running
 }
 
 func cleanupRuntimeArtifacts(resolved *appconfig.Resolved) {
