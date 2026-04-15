@@ -225,7 +225,11 @@ func (a *App) runRuntimeListenerStart(cmd *cobra.Command, args []string) error {
 		return a.runtimeExit(err, "Set runtime.mode to websocket and run `awiki-cli runtime listener install` before starting the listener.")
 	}
 	data := map[string]any{"listener": status}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Listener started", status.Warnings, identityMetaFromResolved(resolved))
+	summary := "Listener started"
+	if listenerrt.HasDisconnectedSessions(status.Sessions) {
+		summary = "Listener started, but some websocket sessions are disconnected"
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, status.Warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeListenerStop(cmd *cobra.Command, args []string) error {

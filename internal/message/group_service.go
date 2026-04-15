@@ -36,7 +36,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	groupDID := stringFromAny(result["group_did"])
@@ -71,7 +71,7 @@ func (s *Service) GetGroup(ctx context.Context, request GroupGetRequest) (*Comma
 	if err != nil {
 		cached, cacheErr := s.readCachedGroupSnapshot(ctx, record, request.Group)
 		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"group": cached, "source": "local_ws_cache_fallback"}, Summary: "Loaded group snapshot from local cache", Warnings: []string{err.Error()}}, nil
+			return &CommandResult{Data: map[string]any{"group": cached, "source": "local_ws_cache_fallback"}, Summary: "Loaded group snapshot from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
@@ -81,7 +81,7 @@ func (s *Service) GetGroup(ctx context.Context, request GroupGetRequest) (*Comma
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.persistGroupSnapshot(ctx, record, result)...)
@@ -114,7 +114,7 @@ func (s *Service) JoinGroup(ctx context.Context, request GroupJoinRequest) (*Com
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	groupDID := stringFromAny(result["group_did"])
@@ -170,7 +170,7 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.syncGroupState(ctx, record, request.Group, true)...)
@@ -205,7 +205,7 @@ func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*C
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.markCachedGroupLeft(ctx, record, request.Group)...)
@@ -241,7 +241,7 @@ func (s *Service) UpdateGroup(ctx context.Context, request GroupUpdateRequest) (
 			if callErr != nil {
 				return nil, callErr
 			}
-			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+			warnings = append(warnings, websocketHTTPFallbackWarning(err))
 			warnings = append(warnings, httpWarnings...)
 		}
 		responses = append(responses, result)
@@ -257,7 +257,7 @@ func (s *Service) UpdateGroup(ctx context.Context, request GroupUpdateRequest) (
 			if callErr != nil {
 				return nil, callErr
 			}
-			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+			warnings = append(warnings, websocketHTTPFallbackWarning(err))
 			warnings = append(warnings, httpWarnings...)
 		}
 		responses = append(responses, result)
@@ -283,7 +283,7 @@ func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest)
 	if err != nil {
 		cached, cacheErr := s.readCachedGroupMembers(ctx, record, request.Group, request.Limit)
 		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"members": cached, "total": len(cached), "group": request.Group, "source": "local_ws_cache_fallback"}, Summary: "Loaded group members from local cache", Warnings: []string{err.Error()}}, nil
+			return &CommandResult{Data: map[string]any{"members": cached, "total": len(cached), "group": request.Group, "source": "local_ws_cache_fallback"}, Summary: "Loaded group members from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
@@ -293,7 +293,7 @@ func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest)
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.persistGroupMembers(ctx, record, request.Group, result)...)
@@ -321,7 +321,7 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 	if err != nil {
 		cached, cacheErr := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
 		if cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{err.Error()}}, nil
+			return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
@@ -331,7 +331,7 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.persistGroupMessages(ctx, record, request.Group, result)...)
@@ -371,7 +371,7 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+		warnings = append(warnings, websocketHTTPFallbackWarning(err))
 		warnings = append(warnings, httpWarnings...)
 	}
 	return s.persistGroupSendResult(ctx, record, request, result, warnings)

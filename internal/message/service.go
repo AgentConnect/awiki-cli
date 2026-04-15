@@ -133,7 +133,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded inbox from local websocket cache",
-					Warnings: []string{err.Error()},
+					Warnings: []string{websocketCacheFallbackWarning(err)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -156,7 +156,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					return nil, err
 				}
 			}
-			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+			warnings = append(warnings, websocketHTTPFallbackWarning(err))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -238,7 +238,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded history from local websocket cache",
-					Warnings: []string{err.Error()},
+					Warnings: []string{websocketCacheFallbackWarning(err)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -261,7 +261,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					return nil, err
 				}
 			}
-			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
+			warnings = append(warnings, websocketHTTPFallbackWarning(err))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -345,12 +345,13 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 		}
 		result, markErr := transport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 		if markErr != nil {
+			fallbackCause := markErr
 			if isSessionUnauthorized(markErr) {
 				if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
 					if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 						result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 						if markErr == nil {
-							transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
+							transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 							transportWarnings = append(transportWarnings, httpWarnings...)
 						}
 					}
@@ -359,7 +360,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 				if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 					result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 					if markErr == nil {
-						transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
+						transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 						transportWarnings = append(transportWarnings, httpWarnings...)
 					}
 				}
