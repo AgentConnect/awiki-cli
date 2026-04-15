@@ -54,6 +54,7 @@ func (a *App) messageExit(err error, hint string) error {
 	case errors.Is(err, message.ErrTargetRequired),
 		errors.Is(err, message.ErrGroupRequired),
 		errors.Is(err, message.ErrMemberRequired),
+		errors.Is(err, message.ErrGroupOwnerCannotLeave),
 		errors.Is(err, message.ErrTextRequired),
 		errors.Is(err, message.ErrFilePathRequired),
 		errors.Is(err, message.ErrMimeTypeWithoutFile),

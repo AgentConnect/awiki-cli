@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -69,7 +70,7 @@ func (s *Service) GetGroup(ctx context.Context, request GroupGetRequest) (*Comma
 	result, err := transport.GetGroup(ctx, request)
 	if err != nil {
 		cached, cacheErr := s.readCachedGroupSnapshot(ctx, record, request.Group)
-		if cacheErr == nil && len(cached) > 0 {
+		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
 			return &CommandResult{Data: map[string]any{"group": cached, "source": "local_ws_cache_fallback"}, Summary: "Loaded group snapshot from local cache", Warnings: []string{err.Error()}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -186,6 +187,10 @@ func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*C
 	if err != nil {
 		return nil, err
 	}
+	cachedSnapshot, snapshotErr := s.readCachedGroupSnapshot(ctx, record, request.Group)
+	if snapshotErr == nil && isActiveGroupOwner(cachedSnapshot) {
+		return nil, ErrGroupOwnerCannotLeave
+	}
 	transport, warnings, err := s.transportFor(record)
 	if err != nil {
 		return nil, err
@@ -277,7 +282,7 @@ func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest)
 	result, err := transport.ListGroupMembers(ctx, request)
 	if err != nil {
 		cached, cacheErr := s.readCachedGroupMembers(ctx, record, request.Group, request.Limit)
-		if cacheErr == nil && len(cached) > 0 {
+		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
 			return &CommandResult{Data: map[string]any{"members": cached, "total": len(cached), "group": request.Group, "source": "local_ws_cache_fallback"}, Summary: "Loaded group members from local cache", Warnings: []string{err.Error()}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -609,8 +614,12 @@ func (s *Service) markCachedGroupLeft(ctx context.Context, record *identity.Stor
 	if err := store.EnsureSchema(ctx, db); err != nil {
 		return []string{fmt.Sprintf("Failed to ensure local schema for leave projection: %v", err)}
 	}
-	if err := store.UpsertGroup(ctx, db, store.GroupRecord{OwnerDID: record.DID, GroupID: groupStorageKey(groupDID), GroupDID: groupDID, MembershipStatus: "left", CredentialName: record.IdentityName}); err != nil {
+	groupKey := groupStorageKey(groupDID)
+	if err := store.UpsertGroup(ctx, db, store.GroupRecord{OwnerDID: record.DID, GroupID: groupKey, GroupDID: groupDID, MyRole: "", MembershipStatus: "left", CredentialName: record.IdentityName}); err != nil {
 		return []string{fmt.Sprintf("Failed to update local group leave status: %v", err)}
+	}
+	if _, err := store.DeleteGroupMembers(ctx, db, record.DID, groupKey, "", ""); err != nil {
+		return []string{fmt.Sprintf("Failed to clear local group members after leave: %v", err)}
 	}
 	return nil
 }
@@ -686,6 +695,31 @@ func normalizeGroupSnapshot(raw map[string]any) map[string]any {
 
 func groupMembersFromResult(value any) []map[string]any {
 	return messagesFromResult(value)
+}
+
+func shouldUseCachedGroupFallback(err error) bool {
+	return !isInactiveGroupViewerError(err)
+}
+
+func isInactiveGroupViewerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var serviceErr *ServiceError
+	if errors.As(err, &serviceErr) && serviceErr.RPCCode == 2501 {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "viewer is not an active member")
+}
+
+func isActiveGroupOwner(snapshot map[string]any) bool {
+	if len(snapshot) == 0 {
+		return false
+	}
+	role := strings.TrimSpace(defaultString(stringFromAny(snapshot["my_role"]), stringFromAny(snapshot["member_role"])))
+	status := strings.TrimSpace(defaultString(stringFromAny(snapshot["membership_status"]), stringFromAny(snapshot["member_status"])))
+	return role == "owner" && status == "active"
 }
 
 func inferGroupMessageContentType(message map[string]any) string {
