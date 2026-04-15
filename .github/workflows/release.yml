@@ -69,9 +69,18 @@ jobs:
           release_status="$(curl -sS -L -o "${release_json}" -w '%{http_code}' \
             "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
 
+          existing_release_id=""
           if [[ "${release_status}" == "200" ]]; then
+            existing_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${release_json}")"
+          fi
+
+          if [[ -n "${existing_release_id}" ]]; then
             echo "Reusing existing Gitee release for ${TAG}"
           else
+            if [[ "${release_status}" == "200" ]]; then
+              echo "Gitee tag lookup returned 200 but no release object for ${TAG}; creating release now."
+            fi
+
             create_status="$(curl -sS -L -o "${create_json}" -w '%{http_code}' \
               -X POST \
               -H "Content-Type: application/x-www-form-urlencoded" \
@@ -83,14 +92,22 @@ jobs:
               --data-urlencode "prerelease=${PRERELEASE}" \
               "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")"
 
-            if [[ "${create_status}" != "201" && "${create_status}" != "200" ]]; then
+            created_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${create_json}")"
+
+            if [[ -n "${created_release_id}" ]]; then
+              cp "${create_json}" "${release_json}"
+              echo "Created Gitee release for ${TAG}"
+            else
+              echo "Gitee create release response did not include an id; re-querying by tag."
+              release_status="$(curl -sS -L -o "${release_json}" -w '%{http_code}' \
+                "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
+            fi
+
+            if [[ "${create_status}" != "201" && "${create_status}" != "200" ]] && [[ "${release_status}" != "200" ]]; then
               echo "Failed to create Gitee release:"
               cat "${create_json}"
               exit 1
             fi
-
-            cp "${create_json}" "${release_json}"
-            echo "Created Gitee release for ${TAG}"
           fi
 
           RELEASE_ID="$(jq -r '.id // empty' "${release_json}")"
