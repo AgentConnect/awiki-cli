@@ -268,6 +268,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyOpenClawClearToken
 	case "debug.db.query":
 		return a.runDebugDBQuery
+	case "debug.db.handle-history":
+		return a.runDebugDBHandleHistory
 	case "debug.db.import-v1":
 		return a.runDebugDBImportV1
 	case "completion.bash":

@@ -309,6 +309,9 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 # 系统诊断（检查配置、身份、数据库、运行环境）
 ./awiki-cli doctor
 
+# 查看某个 handle 在本地记录过哪些历史 DID
+./awiki-cli debug db handle-history alice
+
 # 查看当前配置
 ./awiki-cli config show
 ```

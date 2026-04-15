@@ -44,7 +44,7 @@ What still differs from Python:
 
 - input source is the normalized `HostNotificationEvent`, not raw websocket params
 - the hook prompt is rendered from normalized event fields instead of the Python raw message dict
-- receiver/sender handles are currently rendered as `unknown` when not present in the normalized event
+- receiver/sender handles are rendered from normalized event fields when available, otherwise fallback to `unknown`
 
 ---
 
@@ -170,7 +170,9 @@ Examples:
 
 ```text
 [Awiki New Direct Message]
+sender_handle: alice
 sender_did: did:wba:...
+recipient_handle: bob
 sent_at: 2026-04-07T00:00:00Z
 
 hello back
@@ -180,7 +182,9 @@ hello back
 
 ```text
 [Awiki New Group Message]
+sender_handle: alice
 sender_did: did:wba:...
+recipient_handle: bob
 group_did: did:wba:groups:...
 sent_at: 2026-04-07T09:11:01Z
 
@@ -202,9 +206,9 @@ event_type=member-removed subject_method=group.remove subject_did=did:wba:... me
 
 The hook prompt stays close to the Python long-form instruction style:
 
-- sender handle: `unknown` when unavailable
+- sender handle when available, otherwise `unknown`
 - sender DID
-- receiver handle: `unknown` when unavailable
+- receiver handle when available, otherwise `unknown`
 - receiver DID
 - message type
 - group ID

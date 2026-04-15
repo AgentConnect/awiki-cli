@@ -65,6 +65,14 @@ type RemoteClient struct {
 	client  *http.Client
 }
 
+type HandleLookupResult struct {
+	Handle     string `json:"handle"`
+	DID        string `json:"did"`
+	Domain     string `json:"domain"`
+	FullHandle string `json:"full_handle"`
+	Status     string `json:"status"`
+}
+
 func NewRemoteClient(resolved *appconfig.Resolved) (*RemoteClient, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("%w: resolved config is required", ErrInvalidInput)
@@ -248,6 +256,27 @@ func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.V
 
 func (c *RemoteClient) RestGet(ctx context.Context, endpoint string, query url.Values, out any) error {
 	return c.restGet(ctx, endpoint, query, out)
+}
+
+func (c *RemoteClient) LookupHandleByDID(ctx context.Context, did string) (*HandleLookupResult, error) {
+	did = strings.TrimSpace(did)
+	if did == "" {
+		return nil, fmt.Errorf("%w: did is required", ErrInvalidInput)
+	}
+	var result HandleLookupResult
+	if err := c.rpcCall(ctx, handleRPCEndpoint, "lookup", map[string]any{"did": did}, "", &result); err != nil {
+		var serviceErr *ServiceError
+		if errors.As(err, &serviceErr) {
+			if serviceErr.StatusCode == http.StatusNotFound || serviceErr.RPCCode == -32002 {
+				return nil, nil
+			}
+		}
+		return nil, err
+	}
+	if strings.TrimSpace(result.Handle) == "" || strings.TrimSpace(result.DID) == "" {
+		return nil, nil
+	}
+	return &result, nil
 }
 
 func (c *RemoteClient) authenticatedRPCCall(ctx context.Context, endpoint string, method string, params any, auth *authsdk.Session, out any) error {

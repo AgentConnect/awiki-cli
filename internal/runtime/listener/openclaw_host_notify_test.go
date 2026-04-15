@@ -58,10 +58,12 @@ func TestBuildOpenClawEventTextUsesMainAgentSessionFormat(t *testing.T) {
 		Topic:      "im.message.received",
 		ReceivedAt: "2026-04-12T10:30:00Z",
 		Data: DirectMessageNotificationData{
-			SenderDID:    "did:wba:example.com:user:alice:e1_alice",
-			RecipientDID: "did:wba:example.com:user:bob:e1_bob",
-			CreatedAt:    "2026-04-07T00:00:00Z",
-			Text:         "hello back",
+			SenderHandle:    "alice",
+			SenderDID:       "did:wba:example.com:user:alice:e1_alice",
+			RecipientHandle: "bob",
+			RecipientDID:    "did:wba:example.com:user:bob:e1_bob",
+			CreatedAt:       "2026-04-07T00:00:00Z",
+			Text:            "hello back",
 		},
 	})
 	if !strings.Contains(text, "[Awiki New Direct Message]") {
@@ -69,6 +71,12 @@ func TestBuildOpenClawEventTextUsesMainAgentSessionFormat(t *testing.T) {
 	}
 	if !strings.Contains(text, "sender_did: did:wba:example.com:user:alice:e1_alice") {
 		t.Fatalf("text = %q, want sender_did", text)
+	}
+	if !strings.Contains(text, "sender_handle: alice") {
+		t.Fatalf("text = %q, want sender_handle", text)
+	}
+	if !strings.Contains(text, "recipient_handle: bob") {
+		t.Fatalf("text = %q, want recipient_handle", text)
 	}
 	if !strings.Contains(text, "sent_at: 2026-04-07T00:00:00Z") {
 		t.Fatalf("text = %q, want sent_at", text)
