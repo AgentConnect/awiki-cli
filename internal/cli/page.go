@@ -58,6 +58,13 @@ func (a *App) contentExit(err error, hint string) error {
 	}
 }
 
+func (a *App) renderContentResult(cmd *cobra.Command, format output.Format, result *content.CommandResult) error {
+	if result == nil {
+		return commandResultMissing(cmd.CommandPath())
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+}
+
 func (a *App) runPageCreate(cmd *cobra.Command, args []string) error {
 	slug, _ := cmd.Flags().GetString("slug")
 	title, _ := cmd.Flags().GetString("title")
@@ -97,7 +104,7 @@ func (a *App) runPageCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the active identity has a handle and the page slug is valid.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func (a *App) runPageList(cmd *cobra.Command, args []string) error {
@@ -117,7 +124,7 @@ func (a *App) runPageList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the active identity has a handle and can access content pages.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func (a *App) runPageGet(cmd *cobra.Command, args []string) error {
@@ -139,7 +146,7 @@ func (a *App) runPageGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the active identity can access it.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func (a *App) runPageUpdate(cmd *cobra.Command, args []string) error {
@@ -190,7 +197,7 @@ func (a *App) runPageUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the updated fields are valid.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func (a *App) runPageRename(cmd *cobra.Command, args []string) error {
@@ -214,7 +221,7 @@ func (a *App) runPageRename(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the source page exists and the target slug is available.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func (a *App) runPageDelete(cmd *cobra.Command, args []string) error {
@@ -236,7 +243,7 @@ func (a *App) runPageDelete(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the active identity can delete it.")
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderContentResult(cmd, format, result)
 }
 
 func resolveMarkdownBody(markdown string, markdownChanged bool, markdownFile string, markdownFileChanged bool) (string, error) {

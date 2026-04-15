@@ -295,6 +295,9 @@ func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the local identity store.")
 	}
+	if result == nil {
+		return commandResultMissing(cmd.CommandPath())
+	}
 	data := map[string]any{
 		"cli": map[string]any{
 			"phase":   "phase1-shell",

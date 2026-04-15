@@ -27,7 +27,7 @@ func (a *App) identityService() (*identity.Service, output.Format, error) {
 
 func (a *App) renderIdentityResult(cmd *cobra.Command, format output.Format, result *identity.CommandResult) error {
 	if result == nil {
-		return nil
+		return commandResultMissing(cmd.CommandPath())
 	}
 	meta := a.identityMeta()
 	if meta == nil {
@@ -445,6 +445,12 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Use a handle-backed identity with valid DID credentials before retrying.")
 	}
+	if result == nil {
+		return commandResultMissing(cmd.CommandPath())
+	}
+	if result.Data == nil {
+		result.Data = map[string]any{}
+	}
 	oldDID, _ := result.Data["old_did"].(string)
 	newDID, _ := result.Data["did"].(string)
 	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(context.Background(), service.Config().Paths, oldDID, newDID)
@@ -554,6 +560,9 @@ func identityMetaFromData(data map[string]any) *output.IdentityMeta {
 		}
 		switch typed := value.(type) {
 		case *identity.IdentitySummary:
+			if typed == nil {
+				continue
+			}
 			return &output.IdentityMeta{Name: typed.IdentityName, DID: typed.DID}
 		case identity.IdentitySummary:
 			return &output.IdentityMeta{Name: typed.IdentityName, DID: typed.DID}
