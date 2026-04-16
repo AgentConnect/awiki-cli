@@ -266,6 +266,12 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyOpenClawSetToken
 	case "runtime.host-notify.openclaw.clear-token":
 		return a.runRuntimeHostNotifyOpenClawClearToken
+	case "runtime.host-notify.openclaw.route.add":
+		return a.runRuntimeHostNotifyOpenClawRouteAdd
+	case "runtime.host-notify.openclaw.route.list":
+		return a.runRuntimeHostNotifyOpenClawRouteList
+	case "runtime.host-notify.openclaw.route.remove":
+		return a.runRuntimeHostNotifyOpenClawRouteRemove
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.import-v1":

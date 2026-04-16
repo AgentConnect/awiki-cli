@@ -247,7 +247,7 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: openclaw\n    openclaw:\n      hook_url: http://127.0.0.1:18789/hooks/agent\n      agent_id: notify\n      hook_name: AWiki\n"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: openclaw\n    openclaw:\n      hook_url: http://127.0.0.1:18789/hooks/agent\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -263,12 +263,6 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 	if resolved.HostNotifyOpenClawHookURL != "http://127.0.0.1:18789/hooks/agent" {
 		t.Fatalf("resolved.HostNotifyOpenClawHookURL = %q", resolved.HostNotifyOpenClawHookURL)
-	}
-	if resolved.HostNotifyOpenClawAgentID != "notify" {
-		t.Fatalf("resolved.HostNotifyOpenClawAgentID = %q", resolved.HostNotifyOpenClawAgentID)
-	}
-	if resolved.HostNotifyOpenClawHookName != "AWiki" {
-		t.Fatalf("resolved.HostNotifyOpenClawHookName = %q", resolved.HostNotifyOpenClawHookName)
 	}
 }
 

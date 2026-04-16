@@ -38,9 +38,7 @@ type HostNotifyConfig struct {
 }
 
 type OpenClawConfig struct {
-	HookURL  string `json:"hook_url,omitempty"`
-	AgentID  string `json:"agent_id,omitempty"`
-	HookName string `json:"hook_name,omitempty"`
+	HookURL string `json:"hook_url,omitempty"`
 }
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
@@ -84,9 +82,7 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	}
 	if hostNotify.Sink == "openclaw" {
 		hostNotify.OpenClaw = OpenClawConfig{
-			HookURL:  strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
-			AgentID:  strings.TrimSpace(resolved.HostNotifyOpenClawAgentID),
-			HookName: strings.TrimSpace(resolved.HostNotifyOpenClawHookName),
+			HookURL: strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
 		}
 	}
 	return Resolved{

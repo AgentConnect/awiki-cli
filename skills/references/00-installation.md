@@ -237,42 +237,35 @@ awiki-cli runtime listener status --format json
 
 重点说明：
 
-- `path` 建议保持 `/hooks`，这样 webhook URL 才会对应到 `http://127.0.0.1:18789/hooks/agent`
-- `allowedAgentIds` 里要包含你准备让 awiki-cli 投递到的 agent id；如果你用默认值，就保持 `main`
-- 如果你在 OpenClaw 里把 agent id 改成了别的值，例如 `notify`，那么后面 awiki-cli 侧也必须把 `--agent-id` 改成同一个值
+- `path` 建议保持 `/hooks`，这样 awiki-cli 才能按 `http://127.0.0.1:<gateway-port>/hooks/agent` 自动推导 webhook URL
 - `allowRequestSessionKey` 可以保持 `false`
 - token 是否启用由 OpenClaw 配置决定；如果启用了，就需要在 awiki-cli 里写入同一个 token
 
-也就是说，**Webhook 要先改 OpenClaw 配置里的 hooks 和 agent id，再改 awiki-cli 的 OpenClaw 参数**。
+也就是说，**Webhook 要先改 OpenClaw 配置里的 hooks 和 agent id，再回到 awiki-cli 启用 openclaw sink 并注册 route**。
 
 建议命令顺序：
 
 ```bash
 awiki-cli runtime host-notify config show
 awiki-cli runtime host-notify config set --sink openclaw
-awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki
 awiki-cli runtime host-notify openclaw set-token --value <token>
 awiki-cli runtime host-notify enable
+awiki-cli runtime host-notify openclaw route add --session-key <session-key>
 awiki-cli runtime host-notify config show
 ```
 
 说明：
 
 - `runtime host-notify` 默认是启用的，但默认 `sink` 是 `log`；如果要通知宿主智能体，需要把 `sink` 改成 `openclaw`
-- OpenClaw 默认参数为：
-  - `hook_url = http://127.0.0.1:18789/hooks/agent`
-  - `agent_id = main`
-  - `hook_name = AWiki`
-- 如果你已经在 OpenClaw 配置里把 `allowedAgentIds` 改成别的值，awiki-cli 这里也要用相同的 `--agent-id`
+- `hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port`，自动推导出有效的 `http://127.0.0.1:<port>/hooks/agent`
 - 如果 OpenClaw hooks 启用了 token 校验，需要使用 `runtime host-notify openclaw set-token --value <token>` 写入 token
 - `runtime host-notify config show` 会显示 token 是否已配置，但不会暴露 token 内容
+- `route add` 支持两种输入方式：
+  - 显式指定 `--channel <channel> --to <target>`
+  - 指定 `--session-key <session-key>`，由 awiki-cli 本地解析出 `channel/to`
+- 通常由宿主 agent 执行 `route add`，因为只有宿主 agent 知道当前对话的 `channel`、`to` 或 `session-key`
+- `route add` 成功后，awiki-cli 会自动向该 route 发送一条确认消息；后续 awiki 的消息通知就会通过纯 webhook 路径投递到这些已注册 routes
 - OpenClaw hook URL 必须保持在 loopback 地址上
-- 本地还需要有可用的 `openclaw` CLI binary
-
-OpenClaw 适配器的当前行为：
-
-- 主路径会把短事件文本注入到主会话 `agent:main:main`
-- 次路径会向活跃外部 channel 执行 `/hooks/agent` fan-out
 
 如果只需要本地日志通知，而不需要宿主智能体接入，可以保持默认 `sink = log`。
 

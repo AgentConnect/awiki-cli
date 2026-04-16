@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -12,6 +11,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/output"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
+	"github.com/agentconnect/awiki-cli/internal/runtime/openclawnotify"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -445,8 +445,12 @@ func (a *App) runRuntimeHostNotifyConfigShow(cmd *cobra.Command, args []string) 
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
 	format := normalizedFormat(runtimeFormat(resolved))
+	view, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check OpenClaw route registry and host notify configuration.")
+	}
 	data := map[string]any{
-		"host_notify": hostNotifyConfigView(resolved),
+		"host_notify": view,
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config loaded", nil, identityMetaFromResolved(resolved))
 }
@@ -481,8 +485,12 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	view, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check OpenClaw route registry and host notify configuration.")
+	}
 	data := map[string]any{
-		"host_notify": hostNotifyConfigView(resolved),
+		"host_notify": view,
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config updated", nil, identityMetaFromResolved(resolved))
 }
@@ -516,8 +524,12 @@ func (a *App) setRuntimeHostNotifyEnabled(cmd *cobra.Command, enabled bool) erro
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	view, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check OpenClaw route registry and host notify configuration.")
+	}
 	data := map[string]any{
-		"host_notify": hostNotifyConfigView(resolved),
+		"host_notify": view,
 	}
 	summary := "Host notify enabled"
 	if !enabled {
@@ -532,41 +544,40 @@ func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string)
 		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
 	}
 	format := normalizedFormat(runtimeFormat(resolved))
-	var hookURLPtr, agentIDPtr, hookNamePtr *string
+	var hookURLPtr *string
 	if cmd.Flags().Changed("hook-url") {
 		value, _ := cmd.Flags().GetString("hook-url")
 		hookURLPtr = &value
 	}
-	if cmd.Flags().Changed("agent-id") {
-		value, _ := cmd.Flags().GetString("agent-id")
-		agentIDPtr = &value
-	}
-	if cmd.Flags().Changed("hook-name") {
-		value, _ := cmd.Flags().GetString("hook-name")
-		hookNamePtr = &value
-	}
-	if hookURLPtr == nil && agentIDPtr == nil && hookNamePtr == nil {
-		return output.NewExitError("invalid_argument", 2, "openclaw set requires at least one changed flag.", "Use --hook-url, --agent-id, or --hook-name.")
+	if hookURLPtr == nil {
+		return output.NewExitError("invalid_argument", 2, "openclaw set requires at least one changed flag.", "Use --hook-url.")
 	}
 	if a.globals.DryRun {
 		data := map[string]any{"plan": map[string]any{
 			"action":      "host_notify_openclaw_set",
 			"hook_url":    hookURLPtr,
-			"agent_id":    agentIDPtr,
-			"hook_name":   hookNamePtr,
 			"config_file": resolved.Paths.ConfigFile,
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: OpenClaw host notify config change planned", nil, identityMetaFromResolved(resolved))
 	}
-	if err := appconfig.UpdateOpenClawSettings(resolved.Paths, hookURLPtr, agentIDPtr, hookNamePtr); err != nil {
+	if err := appconfig.UpdateOpenClawSettings(resolved.Paths, hookURLPtr); err != nil {
 		return a.runtimeExit(err, "Check write permissions for config.yaml.")
 	}
 	resolved, err = a.resolveConfigForWorkspace()
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	settings, err := openclawnotify.ResolveSettings(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check the OpenClaw hook URL configuration.")
+	}
 	data := map[string]any{
-		"openclaw": runtimecfg.Resolve(resolved).HostNotify.OpenClaw,
+		"openclaw": map[string]any{
+			"hook_url":                settings.HookURL,
+			"hook_url_source":         settings.HookURLSource,
+			"detected_webhook_port":   settings.DetectedWebhookPort,
+			"detected_webhook_source": settings.DetectedWebhookPortInfo.Source,
+		},
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw host notify config updated", nil, identityMetaFromResolved(resolved))
 }
@@ -616,25 +627,29 @@ func (a *App) runRuntimeHostNotifyOpenClawClearToken(cmd *cobra.Command, args []
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token cleared", nil, identityMetaFromResolved(resolved))
 }
 
-func hostNotifyConfigView(resolved *appconfig.Resolved) map[string]any {
+func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) {
 	config := runtimecfg.Resolve(resolved).HostNotify
-	fileConfig, _, _ := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
-	tokenSource := "unset"
-	if strings.TrimSpace(fileConfig.Runtime.HostNotify.OpenClaw.Token) != "" {
-		tokenSource = "config_file"
-	} else if strings.TrimSpace(config.OpenClaw.HookURL) != "" && strings.TrimSpace(os.Getenv("OPENCLAW_HOOK_TOKEN")) != "" {
-		tokenSource = "environment"
+	settings, err := openclawnotify.ResolveSettings(resolved)
+	if err != nil {
+		return nil, err
+	}
+	routes, err := openclawnotify.LoadRoutes(resolved.Paths)
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{
-		"enabled":   config.Enabled,
-		"sink":      config.Sink,
-		"file_path": config.FilePath,
+		"enabled":             config.Enabled,
+		"sink":                config.Sink,
+		"file_path":           config.FilePath,
+		"route_registry_path": openclawnotify.RoutesPath(resolved.Paths),
+		"routes":              routes,
 		"openclaw": map[string]any{
-			"hook_url":         config.OpenClaw.HookURL,
-			"agent_id":         config.OpenClaw.AgentID,
-			"hook_name":        config.OpenClaw.HookName,
-			"token_configured": tokenSource != "unset",
-			"token_source":     tokenSource,
+			"hook_url":                settings.HookURL,
+			"hook_url_source":         settings.HookURLSource,
+			"detected_webhook_port":   settings.DetectedWebhookPort,
+			"detected_webhook_source": settings.DetectedWebhookPortInfo.Source,
+			"token_configured":        settings.TokenConfigured,
+			"token_source":            settings.TokenSource,
 		},
-	}
+	}, nil
 }

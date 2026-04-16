@@ -5,6 +5,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
+	"github.com/agentconnect/awiki-cli/internal/runtime/openclawnotify"
 )
 
 func StatusFor(resolved *appconfig.Resolved) (Status, error) {
@@ -25,9 +26,15 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 			Sink:     runtimeResolved.HostNotify.Sink,
 			FilePath: runtimeResolved.HostNotify.FilePath,
 			HookURL:  runtimeResolved.HostNotify.OpenClaw.HookURL,
-			AgentID:  runtimeResolved.HostNotify.OpenClaw.AgentID,
-			HookName: runtimeResolved.HostNotify.OpenClaw.HookName,
 		},
+	}
+	if runtimeResolved.HostNotify.Sink == "openclaw" {
+		settings, err := openclawnotify.ResolveSettings(resolved)
+		if err != nil {
+			status.Warnings = append(status.Warnings, fmt.Sprintf("openclaw host notify config unavailable: %v", err))
+		} else {
+			status.HostNotify.HookURL = settings.HookURL
+		}
 	}
 	installed, running, platform, serviceName, serviceErr := serviceStatusFor(resolved)
 	if serviceErr != nil {

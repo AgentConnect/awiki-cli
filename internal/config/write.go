@@ -64,16 +64,10 @@ func UpdateHostNotifyEnabled(paths Paths, enabled bool) error {
 	})
 }
 
-func UpdateOpenClawSettings(paths Paths, hookURL *string, agentID *string, hookName *string) error {
+func UpdateOpenClawSettings(paths Paths, hookURL *string) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		if hookURL != nil {
 			fileConfig.Runtime.HostNotify.OpenClaw.HookURL = strings.TrimSpace(*hookURL)
-		}
-		if agentID != nil {
-			fileConfig.Runtime.HostNotify.OpenClaw.AgentID = strings.TrimSpace(*agentID)
-		}
-		if hookName != nil {
-			fileConfig.Runtime.HostNotify.OpenClaw.HookName = strings.TrimSpace(*hookName)
 		}
 		return nil
 	})

@@ -1,8 +1,11 @@
 # OpenClaw Host Adapter V1
 
-**Status**: Draft v1.1  
-**Scope**: `awiki-cli` host notification sink for OpenClaw main session injection and `/hooks/agent` fan-out  
+**Status**: Historical draft; implementation has moved to pure webhook + route registry  
+**Scope**: `awiki-cli` host notification sink for OpenClaw `/hooks/agent` fan-out  
 **Out of scope**: Hermes routing, mapped hooks, OpenClaw plugin-native delivery, and per-channel retry queues
+
+> Note: the current implementation no longer uses `chat.inject` or `gateway call status`.
+> The source of truth is the locally registered route registry, and delivery is pure webhook fan-out to `/hooks/agent`.
 
 ---
 
@@ -105,11 +108,7 @@ For every normalized host event, the adapter first calls:
 openclaw gateway call chat.inject --params '{"sessionKey":"agent:main:main","message":"..."}' --json
 ```
 
-`sessionKey` is built as:
-
-```text
-agent:<agent_id>:main
-```
+`sessionKey` is built as a host-local main session key.
 
 With default config, this becomes exactly:
 
@@ -224,16 +223,12 @@ runtime:
     sink: openclaw
     openclaw:
       hook_url: http://127.0.0.1:18789/hooks/agent
-      agent_id: main
-      hook_name: AWiki
       token: ""
 ```
 
 Rules:
 
 - `hook_url` defaults to `http://127.0.0.1:18789/hooks/agent`
-- `agent_id` defaults to `main`
-- `hook_name` defaults to `AWiki`
 - `token` may be stored in config, but is optional at initialization time
 - if config token is empty, `awiki-cli` falls back to `OPENCLAW_HOOK_TOKEN`
 - if token is still empty, main-session injection may still work, but hook fan-out requests are expected to fail authentication

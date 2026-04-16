@@ -17,22 +17,24 @@ func TestHostNotifyConfigViewRedactsOpenClawTokenValue(t *testing.T) {
     sink: openclaw
     openclaw:
       hook_url: http://127.0.0.1:18789/hooks/agent
-      agent_id: main
-      hook_name: AWiki
       token: super-secret-token
 `), 0o600); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 	resolved := &appconfig.Resolved{
-		Paths:                      appconfig.Paths{ConfigFile: configPath},
-		HostNotifyEnabled:          true,
-		HostNotifySink:             "openclaw",
-		HostNotifyOpenClawHookURL:  "http://127.0.0.1:18789/hooks/agent",
-		HostNotifyOpenClawAgentID:  "main",
-		HostNotifyOpenClawHookName: "AWiki",
+		Paths:                     appconfig.Paths{ConfigFile: configPath},
+		HostNotifyEnabled:         true,
+		HostNotifySink:            "openclaw",
+		HostNotifyOpenClawHookURL: "http://127.0.0.1:18789/hooks/agent",
+		Sources: map[string]appconfig.ValueSource{
+			"host_notify_openclaw_hook_url": {Source: "config_file", Value: "http://127.0.0.1:18789/hooks/agent"},
+		},
 	}
 
-	view := hostNotifyConfigView(resolved)
+	view, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		t.Fatalf("hostNotifyConfigView() error = %v", err)
+	}
 	openclawView, ok := view["openclaw"].(map[string]any)
 	if !ok {
 		t.Fatalf("openclaw view type = %T, want map[string]any", view["openclaw"])

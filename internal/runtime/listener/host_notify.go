@@ -15,6 +15,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
+	"github.com/agentconnect/awiki-cli/internal/runtime/openclawnotify"
 )
 
 const hostNotificationVersion = "1.0"
@@ -161,8 +162,6 @@ func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotify
 		Sink:     config.Sink,
 		FilePath: config.FilePath,
 		HookURL:  config.OpenClaw.HookURL,
-		AgentID:  config.OpenClaw.AgentID,
-		HookName: config.OpenClaw.HookName,
 	}
 	if !config.Enabled {
 		return &noopHostNotifySink{}, status, nil
@@ -179,7 +178,12 @@ func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotify
 		}
 		return sink, status, nil
 	case "openclaw":
-		sink, err := newOpenClawHostNotifySink(resolved, config.OpenClaw)
+		settings, err := openclawnotify.ResolveSettings(resolved)
+		if err != nil {
+			return nil, status, err
+		}
+		status.HookURL = settings.HookURL
+		sink, err := newOpenClawHostNotifySink(resolved)
 		if err != nil {
 			return nil, status, err
 		}

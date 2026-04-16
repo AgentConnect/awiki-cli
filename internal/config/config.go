@@ -31,8 +31,6 @@ const (
 	defaultHostNotifySink      = "log"
 	defaultHostNotifyFile      = "host-notify.events.jsonl"
 	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
-	defaultOpenClawAgentID     = "main"
-	defaultOpenClawHookName    = "AWiki"
 
 	ConfigSchemaVersion = 1
 )
@@ -121,10 +119,8 @@ type FileConfig struct {
 			Sink     string `json:"sink" yaml:"sink"`
 			FilePath string `json:"file_path" yaml:"file_path"`
 			OpenClaw struct {
-				HookURL  string `json:"hook_url" yaml:"hook_url"`
-				AgentID  string `json:"agent_id" yaml:"agent_id"`
-				HookName string `json:"hook_name" yaml:"hook_name"`
-				Token    string `json:"token" yaml:"token"`
+				HookURL string `json:"hook_url" yaml:"hook_url"`
+				Token   string `json:"token" yaml:"token"`
 			} `json:"openclaw" yaml:"openclaw"`
 		} `json:"host_notify" yaml:"host_notify"`
 	} `json:"runtime" yaml:"runtime"`
@@ -171,8 +167,6 @@ type Resolved struct {
 	HostNotifySink                string                 `json:"host_notify_sink"`
 	HostNotifyFilePath            string                 `json:"host_notify_file_path,omitempty"`
 	HostNotifyOpenClawHookURL     string                 `json:"host_notify_openclaw_hook_url,omitempty"`
-	HostNotifyOpenClawAgentID     string                 `json:"host_notify_openclaw_agent_id,omitempty"`
-	HostNotifyOpenClawHookName    string                 `json:"host_notify_openclaw_hook_name,omitempty"`
 	OutputFormat                  string                 `json:"output_format"`
 	NoColor                       bool                   `json:"no_color"`
 	ServiceBaseURL                string                 `json:"service_base_url"`
@@ -320,25 +314,9 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 			fileConfig.Runtime.HostNotify.OpenClaw.HookURL,
 			defaultOpenClawHookURL,
 		)
-		resolved.HostNotifyOpenClawAgentID, resolved.Sources["host_notify_openclaw_agent_id"] = chooseValue(
-			"",
-			false,
-			fileConfig.Runtime.HostNotify.OpenClaw.AgentID,
-			defaultOpenClawAgentID,
-		)
-		resolved.HostNotifyOpenClawHookName, resolved.Sources["host_notify_openclaw_hook_name"] = chooseValue(
-			"",
-			false,
-			fileConfig.Runtime.HostNotify.OpenClaw.HookName,
-			defaultOpenClawHookName,
-		)
 	} else {
 		resolved.HostNotifyOpenClawHookURL = ""
-		resolved.HostNotifyOpenClawAgentID = ""
-		resolved.HostNotifyOpenClawHookName = ""
 		resolved.Sources["host_notify_openclaw_hook_url"] = ValueSource{Source: "default", Value: ""}
-		resolved.Sources["host_notify_openclaw_agent_id"] = ValueSource{Source: "default", Value: ""}
-		resolved.Sources["host_notify_openclaw_hook_name"] = ValueSource{Source: "default", Value: ""}
 	}
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(
 		overrides.Format,
@@ -435,8 +413,6 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"host_notify_sink":                  resolved.HostNotifySink,
 		"host_notify_file_path":             resolved.HostNotifyFilePath,
 		"host_notify_openclaw_hook_url":     resolved.HostNotifyOpenClawHookURL,
-		"host_notify_openclaw_agent_id":     resolved.HostNotifyOpenClawAgentID,
-		"host_notify_openclaw_hook_name":    resolved.HostNotifyOpenClawHookName,
 		"output_format":                     resolved.OutputFormat,
 		"no_color":                          resolved.NoColor,
 		"service_base_url":                  resolved.ServiceBaseURL,

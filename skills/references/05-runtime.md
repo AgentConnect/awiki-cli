@@ -21,6 +21,7 @@
   - `runtime host-notify config show/set`
   - `runtime host-notify enable/disable`
   - `runtime host-notify openclaw set/set-token/clear-token`
+  - `runtime host-notify openclaw route add/list/remove`
 - 已规划但尚未实现：
   - `runtime heartbeat status/install/run-once`
 
@@ -81,9 +82,14 @@
 - `awiki-cli runtime host-notify config set --sink noop|log|file|openclaw`
 - `awiki-cli runtime host-notify enable`
 - `awiki-cli runtime host-notify disable`
-- `awiki-cli runtime host-notify openclaw set --hook-url <url> --agent-id <id> --hook-name <name>`
+- `awiki-cli runtime host-notify openclaw set --hook-url <url>`
 - `awiki-cli runtime host-notify openclaw set-token --value <token>`
 - `awiki-cli runtime host-notify openclaw clear-token`
+- `awiki-cli runtime host-notify openclaw route add --channel <channel> --to <target>`
+- `awiki-cli runtime host-notify openclaw route add --session-key <session-key>`
+- `awiki-cli runtime host-notify openclaw route list`
+- `awiki-cli runtime host-notify openclaw route remove --channel <channel> --to <target>`
+- `awiki-cli runtime host-notify openclaw route remove --session-key <session-key>`
 
 ## 常见模式
 
@@ -119,7 +125,10 @@
 1. `awiki-cli runtime host-notify config show`
 2. `awiki-cli runtime host-notify config set --sink openclaw --dry-run`
 3. `awiki-cli runtime host-notify config set --sink openclaw`
-4. `awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki`
+4. 如果 OpenClaw hooks 启用了 token：`awiki-cli runtime host-notify openclaw set-token --value <token>`
+5. 由宿主 agent 执行：
+   - `awiki-cli runtime host-notify openclaw route add --session-key <session-key>`
+   - 或 `awiki-cli runtime host-notify openclaw route add --channel <channel> --to <target>`
 
 ## 副作用与确认
 
@@ -152,6 +161,8 @@
 - `runtime listener start` 现在在需要时会自动安装 service
 - `runtime listener config show/set` 是 `enabled`、`auto_install` 和 `auto_start` 的持久化控制面
 - `runtime host_notify.enabled` 默认开启，而默认 sink 仍为 `log`
+- `runtime host-notify config show` 会显示 OpenClaw token 是否已配置、已注册 routes、自动识别到的 webhook 端口和最终生效的 `hook_url`
+- OpenClaw 适配器现在只保留纯 webhook 路径，基于本地 route registry 对已注册 routes 执行 fan-out
 - OpenClaw 作为 `host-notify` 的宿主接入推荐路径，可参考 `00-installation.md`
 - `runtime heartbeat` 在当前仓库状态下仍处于规划阶段
 

@@ -366,7 +366,6 @@ def callback_matches_event(callback: CallbackRegistration, event: ReceivedEvent)
         "to": str(event.source.get("target", "")),
         "message_type": str(event.parsed.get("message_type", "")),
         "group_id": str(event.parsed.get("group_id", "")),
-        "hook_name": str(event.source.get("hook_name", "")),
     }
     for key, expected in callback.match.items():
         expected_text = str(expected).strip()
@@ -381,7 +380,6 @@ def build_received_event(payload: dict[str, Any]) -> ReceivedEvent:
     message_text = str(payload.get("message", ""))
     parsed = parse_openclaw_hook_message(message_text)
     source = {
-        "hook_name": str(payload.get("name", "")),
         "channel": str(payload.get("channel", "")),
         "target": str(payload.get("to", "")),
         "wake_mode": str(payload.get("wakeMode", "")),

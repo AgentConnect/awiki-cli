@@ -13,9 +13,7 @@ runtime:
     sink: log
     file_path: ""
     openclaw:
-      hook_url: http://127.0.0.1:18789/hooks/agent
-      agent_id: main
-      hook_name: AWiki
+      hook_url: ""
       token: ""
 output:
   format: json

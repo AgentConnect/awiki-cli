@@ -157,7 +157,7 @@ awiki-cli runtime host-notify config show
 awiki-cli runtime host-notify enable
 awiki-cli runtime host-notify disable
 awiki-cli runtime host-notify config set --sink noop|log|file|openclaw
-awiki-cli runtime host-notify openclaw set [--hook-url ...] [--agent-id ...] [--hook-name ...]
+awiki-cli runtime host-notify openclaw set [--hook-url ...]
 awiki-cli runtime host-notify openclaw set-token --value <token>
 awiki-cli runtime host-notify openclaw clear-token
 awiki-cli runtime heartbeat status

@@ -93,9 +93,7 @@ func TestHostNotifyMutatorsWriteSinkAndOpenClawConfig(t *testing.T) {
 		t.Fatalf("UpdateHostNotifySink() error = %v", err)
 	}
 	hookURL := "http://127.0.0.1:18789/hooks/agent"
-	agentID := "notify"
-	hookName := "AWiki"
-	if err := UpdateOpenClawSettings(paths, &hookURL, &agentID, &hookName); err != nil {
+	if err := UpdateOpenClawSettings(paths, &hookURL); err != nil {
 		t.Fatalf("UpdateOpenClawSettings() error = %v", err)
 	}
 	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
@@ -110,12 +108,6 @@ func TestHostNotifyMutatorsWriteSinkAndOpenClawConfig(t *testing.T) {
 	}
 	if fileConfig.Runtime.HostNotify.OpenClaw.HookURL != hookURL {
 		t.Fatalf("hook_url = %q, want %q", fileConfig.Runtime.HostNotify.OpenClaw.HookURL, hookURL)
-	}
-	if fileConfig.Runtime.HostNotify.OpenClaw.AgentID != agentID {
-		t.Fatalf("agent_id = %q, want %q", fileConfig.Runtime.HostNotify.OpenClaw.AgentID, agentID)
-	}
-	if fileConfig.Runtime.HostNotify.OpenClaw.HookName != hookName {
-		t.Fatalf("hook_name = %q, want %q", fileConfig.Runtime.HostNotify.OpenClaw.HookName, hookName)
 	}
 }
 

@@ -103,7 +103,7 @@
 **internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
 **internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库。  
 **internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口。  
-**internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责 `chat.inject` 主会话投递、活跃外部 channel 发现，以及 `/hooks/agent` fan-out 调用。  
+**internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责从本地 route registry 读取已注册 routes，并通过 `/hooks/agent` 执行纯 webhook fan-out。  
 **internal/runtime/listener/service.go**: listener 系统服务编排，基于 `kardianos/service` 提供 install/start/stop/uninstall 与 service-run；`start` 在服务缺失时会自动 install，并等待 bridge ready 后再返回。  
 **internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑与系统服务状态聚合。  
 **internal/runtime/bridge_unix.go / bridge_windows.go**: 本地 bridge 跨平台 IPC 实现；Unix 平台使用 Unix Domain Socket，Windows 使用 Named Pipe。  

@@ -153,9 +153,7 @@ runtime:
     sink: log
     file_path: ""
     openclaw:
-      hook_url: http://127.0.0.1:18789/hooks/agent
-      agent_id: main
-      hook_name: AWiki
+      hook_url: ""
       token: ""
 output:
   format: json
@@ -181,10 +179,8 @@ services:
 - `runtime.host_notify.enabled` 默认是 `true`
 - `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
 - `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
-- `runtime.host_notify.openclaw.hook_url` 默认是 `http://127.0.0.1:18789/hooks/agent`
-- `runtime.host_notify.openclaw.agent_id` 默认是 `main`
-- `runtime.host_notify.openclaw.hook_name` 默认是 `AWiki`
-- `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供；为空时 `chat.inject` 仍可尝试，但 `/hooks/agent` 外部 channel fan-out 通常会因认证失败而不可用
+- `runtime.host_notify.openclaw.hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 自动推导有效的 webhook URL
+- `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供
 - `output.format` 默认是 `json`
 - `services.service_base_url` 默认是 `https://awiki.ai`
 - `services.did_domain` 默认是 `awiki.ai`
@@ -224,9 +220,7 @@ runtime:
     enabled: true
     sink: log
     openclaw:
-      hook_url: http://127.0.0.1:18789/hooks/agent
-      agent_id: main
-      hook_name: AWiki
+      hook_url: ""
 services:
   service_base_url: https://awiki.test
   did_domain: awiki.test
@@ -410,9 +404,12 @@ gofmt -w $(find cmd internal -name '*.go')
 ./awiki-cli runtime host-notify enable
 ./awiki-cli runtime host-notify disable
 ./awiki-cli runtime host-notify config set --sink openclaw
-./awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent --agent-id main --hook-name AWiki
+./awiki-cli runtime host-notify openclaw set --hook-url http://127.0.0.1:18789/hooks/agent
 ./awiki-cli runtime host-notify openclaw set-token --value <token>
 ./awiki-cli runtime host-notify openclaw clear-token
+./awiki-cli runtime host-notify openclaw route add --session-key <session-key>
+./awiki-cli runtime host-notify openclaw route list
+./awiki-cli runtime host-notify openclaw route remove --session-key <session-key>
 ```
 
 系统服务形态：

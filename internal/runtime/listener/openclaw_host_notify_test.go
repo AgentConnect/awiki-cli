@@ -3,16 +3,16 @@ package listener
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
-	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
+	"github.com/agentconnect/awiki-cli/internal/runtime/openclawnotify"
 )
 
 func TestBuildOpenClawHookRequestIncludesChannelDelivery(t *testing.T) {
@@ -30,7 +30,7 @@ func TestBuildOpenClawHookRequestIncludesChannelDelivery(t *testing.T) {
 			ContentType:    "text/plain",
 			Text:           "hello",
 		},
-	}, "AWiki", "telegram", "123456")
+	}, openclawnotify.FixedHookName, "telegram", "123456")
 	if err != nil {
 		t.Fatalf("buildOpenClawHookRequest() error = %v", err)
 	}
@@ -51,54 +51,17 @@ func TestBuildOpenClawHookRequestIncludesChannelDelivery(t *testing.T) {
 	}
 }
 
-func TestBuildOpenClawEventTextUsesMainAgentSessionFormat(t *testing.T) {
-	text := buildOpenClawEventText(HostNotificationEvent{
-		Version:    "1.0",
-		ID:         "msg-001",
-		Topic:      "im.message.received",
-		ReceivedAt: "2026-04-12T10:30:00Z",
-		Data: DirectMessageNotificationData{
-			SenderDID:    "did:wba:example.com:user:alice:e1_alice",
-			RecipientDID: "did:wba:example.com:user:bob:e1_bob",
-			CreatedAt:    "2026-04-07T00:00:00Z",
-			Text:         "hello back",
-		},
-	})
-	if !strings.Contains(text, "[Awiki New Direct Message]") {
-		t.Fatalf("text = %q, want direct message header", text)
-	}
-	if !strings.Contains(text, "sender_did: did:wba:example.com:user:alice:e1_alice") {
-		t.Fatalf("text = %q, want sender_did", text)
-	}
-	if !strings.Contains(text, "sent_at: 2026-04-07T00:00:00Z") {
-		t.Fatalf("text = %q, want sent_at", text)
-	}
-}
-
-func TestParseOpenClawExternalChannelsFiltersHookAndMainSessions(t *testing.T) {
-	nowMillis := time.Now().UnixMilli()
-	channels, err := parseOpenClawExternalChannels(fmt.Sprintf(`plugin log line
-{"sessions":{"recent":[{"key":"agent:main:telegram:user:123","updatedAt":%d},{"key":"agent:main:main","updatedAt":%d},{"key":"hook:awiki:dm:abcd","updatedAt":%d},{"key":"agent:main:slack:user:alice","updatedAt":%d}]}}`, nowMillis, nowMillis, nowMillis, nowMillis-1000))
-	if err != nil {
-		t.Fatalf("parseOpenClawExternalChannels() error = %v", err)
-	}
-	if len(channels) != 2 {
-		t.Fatalf("len(channels) = %d, want 2", len(channels))
-	}
-	if channels[0].Channel != "telegram" || channels[0].Target != "123" {
-		t.Fatalf("channels[0] = %#v, want telegram:123", channels[0])
-	}
-	if channels[1].Channel != "slack" || channels[1].Target != "alice" {
-		t.Fatalf("channels[1] = %#v, want slack:alice", channels[1])
-	}
-}
-
 func TestNewOpenClawHostNotifySinkRejectsNonLoopbackHookURL(t *testing.T) {
-	_, err := newOpenClawHostNotifySink(&appconfig.Resolved{}, runtimecfg.OpenClawConfig{
-		HookURL:  "https://example.com/hooks/agent",
-		AgentID:  "main",
-		HookName: "AWiki",
-	})
+	root := t.TempDir()
+	resolved := &appconfig.Resolved{
+		Paths:                     appconfig.Paths{ConfigFile: filepath.Join(root, "config.yaml")},
+		HostNotifySink:            "openclaw",
+		HostNotifyOpenClawHookURL: "https://example.com/hooks/agent",
+		Sources: map[string]appconfig.ValueSource{
+			"host_notify_openclaw_hook_url": {Source: "config_file", Value: "https://example.com/hooks/agent"},
+		},
+	}
+	_, err := newOpenClawHostNotifySink(resolved)
 	if err == nil {
 		t.Fatal("newOpenClawHostNotifySink() error = nil, want loopback validation error")
 	}
@@ -108,11 +71,16 @@ func TestNewOpenClawHostNotifySinkRejectsNonLoopbackHookURL(t *testing.T) {
 }
 
 func TestNewOpenClawHostNotifySinkAllowsEmptyToken(t *testing.T) {
-	sink, err := newOpenClawHostNotifySink(&appconfig.Resolved{}, runtimecfg.OpenClawConfig{
-		HookURL:  "http://127.0.0.1:18789/hooks/agent",
-		AgentID:  "main",
-		HookName: "AWiki",
-	})
+	root := t.TempDir()
+	resolved := &appconfig.Resolved{
+		Paths:                     appconfig.Paths{ConfigFile: filepath.Join(root, "config.yaml")},
+		HostNotifySink:            "openclaw",
+		HostNotifyOpenClawHookURL: "http://127.0.0.1:18789/hooks/agent",
+		Sources: map[string]appconfig.ValueSource{
+			"host_notify_openclaw_hook_url": {Source: "config_file", Value: "http://127.0.0.1:18789/hooks/agent"},
+		},
+	}
+	sink, err := newOpenClawHostNotifySink(resolved)
 	if err != nil {
 		t.Fatalf("newOpenClawHostNotifySink() error = %v", err)
 	}
@@ -121,11 +89,21 @@ func TestNewOpenClawHostNotifySinkAllowsEmptyToken(t *testing.T) {
 	}
 }
 
-func TestOpenClawHostNotifySinkNotifyUsesChatInjectAndExternalChannels(t *testing.T) {
-	var hookRequests []openClawHookRequest
+func TestOpenClawHostNotifySinkNotifyUsesRouteRegistry(t *testing.T) {
+	root := t.TempDir()
+	paths := appconfig.Paths{
+		ConfigFile:       filepath.Join(root, "config.yaml"),
+		WorkspaceHomeDir: root,
+		StateDir:         filepath.Join(root, "runtime"),
+	}
+	if err := openclawnotify.WriteRoutes(paths, []openclawnotify.Route{{Channel: "telegram", To: "123"}}); err != nil {
+		t.Fatalf("WriteRoutes() error = %v", err)
+	}
+
+	var hookRequests []openclawnotify.HookRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		var body openClawHookRequest
+		var body openclawnotify.HookRequest
 		raw, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("io.ReadAll() error = %v", err)
@@ -134,43 +112,23 @@ func TestOpenClawHostNotifySinkNotifyUsesChatInjectAndExternalChannels(t *testin
 			t.Fatalf("json.Unmarshal() error = %v", err)
 		}
 		hookRequests = append(hookRequests, body)
-		w.WriteHeader(http.StatusAccepted)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"runId":"run-123"}`))
 	}))
 	defer server.Close()
 
-	originalFind := findOpenClawBinary
-	originalRun := runOpenClawCommand
-	defer func() {
-		findOpenClawBinary = originalFind
-		runOpenClawCommand = originalRun
-	}()
-	findOpenClawBinary = func() (string, error) { return "/usr/local/bin/openclaw", nil }
-	var seenInject bool
-	var seenStatus bool
-	runOpenClawCommand = func(_ context.Context, _ string, args ...string) (openClawCLIResult, error) {
-		joined := strings.Join(args, " ")
-		switch {
-		case strings.Contains(joined, "chat.inject"):
-			seenInject = true
-			if !strings.Contains(joined, `agent:main:main`) {
-				return openClawCLIResult{}, fmt.Errorf("chat.inject args = %q, want agent:main:main", joined)
-			}
-			return openClawCLIResult{Stdout: `{"ok":true}`, ExitCode: 0}, nil
-		case strings.Contains(joined, "status --json"):
-			seenStatus = true
-			nowMillis := time.Now().UnixMilli()
-			return openClawCLIResult{Stdout: fmt.Sprintf(`{"sessions":{"recent":[{"key":"agent:main:telegram:user:123","updatedAt":%d}]}}`, nowMillis), ExitCode: 0}, nil
-		default:
-			return openClawCLIResult{}, fmt.Errorf("unexpected openclaw command: %s", joined)
-		}
+	resolved := &appconfig.Resolved{
+		Paths:                     paths,
+		HostNotifyEnabled:         true,
+		HostNotifySink:            "openclaw",
+		HostNotifyOpenClawHookURL: server.URL,
+		Sources: map[string]appconfig.ValueSource{
+			"host_notify_openclaw_hook_url": {Source: "config_file", Value: server.URL},
+		},
 	}
 
-	t.Setenv(openClawHookTokenEnv, "token-123")
-	sink, err := newOpenClawHostNotifySink(&appconfig.Resolved{}, runtimecfg.OpenClawConfig{
-		HookURL:  server.URL,
-		AgentID:  "main",
-		HookName: "AWiki",
-	})
+	sink, err := newOpenClawHostNotifySink(resolved)
 	if err != nil {
 		t.Fatalf("newOpenClawHostNotifySink() error = %v", err)
 	}
@@ -194,12 +152,6 @@ func TestOpenClawHostNotifySinkNotifyUsesChatInjectAndExternalChannels(t *testin
 	if err != nil {
 		t.Fatalf("sink.Notify() error = %v", err)
 	}
-	if !seenInject {
-		t.Fatal("chat.inject was not called")
-	}
-	if !seenStatus {
-		t.Fatal("gateway status was not called")
-	}
 	if len(hookRequests) != 1 {
 		t.Fatalf("len(hookRequests) = %d, want 1", len(hookRequests))
 	}
@@ -212,19 +164,4 @@ func TestOpenClawHostNotifySinkNotifyUsesChatInjectAndExternalChannels(t *testin
 	if hookRequests[0].To != "123" {
 		t.Fatalf("hookRequests[0].To = %q, want 123", hookRequests[0].To)
 	}
-	if strings.Contains(mustJSON(t, hookRequests[0]), "agentId") {
-		t.Fatalf("hook request json = %s, should not include agentId", mustJSON(t, hookRequests[0]))
-	}
-	if strings.Contains(mustJSON(t, hookRequests[0]), "sessionKey") {
-		t.Fatalf("hook request json = %s, should not include sessionKey", mustJSON(t, hookRequests[0]))
-	}
-}
-
-func mustJSON(t *testing.T, value any) string {
-	t.Helper()
-	raw, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	return string(raw)
 }

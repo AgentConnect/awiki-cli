@@ -93,12 +93,10 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	t.Parallel()
 
 	resolved := Resolve(&appconfig.Resolved{
-		RuntimeMode:                "websocket",
-		HostNotifyEnabled:          true,
-		HostNotifySink:             "openclaw",
-		HostNotifyOpenClawHookURL:  "http://127.0.0.1:18789/hooks/agent",
-		HostNotifyOpenClawAgentID:  "notify",
-		HostNotifyOpenClawHookName: "AWiki",
+		RuntimeMode:               "websocket",
+		HostNotifyEnabled:         true,
+		HostNotifySink:            "openclaw",
+		HostNotifyOpenClawHookURL: "http://127.0.0.1:18789/hooks/agent",
 	})
 	if !resolved.HostNotify.Enabled {
 		t.Fatal("resolved.HostNotify.Enabled = false, want true")
@@ -108,12 +106,6 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 	if resolved.HostNotify.OpenClaw.HookURL != "http://127.0.0.1:18789/hooks/agent" {
 		t.Fatalf("resolved.HostNotify.OpenClaw.HookURL = %q", resolved.HostNotify.OpenClaw.HookURL)
-	}
-	if resolved.HostNotify.OpenClaw.AgentID != "notify" {
-		t.Fatalf("resolved.HostNotify.OpenClaw.AgentID = %q", resolved.HostNotify.OpenClaw.AgentID)
-	}
-	if resolved.HostNotify.OpenClaw.HookName != "AWiki" {
-		t.Fatalf("resolved.HostNotify.OpenClaw.HookName = %q", resolved.HostNotify.OpenClaw.HookName)
 	}
 }
 
