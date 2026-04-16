@@ -318,8 +318,6 @@ func sqliteCheck(resolved *config.Resolved) Check {
 	}
 	schemaVersion := 0
 	schemaError := ""
-	handleBindingsExists := false
-	handleBindingsCount := 0
 	if databaseExists {
 		db, err := store.OpenReadOnly(resolved.Paths.DatabaseFile)
 		if err != nil {
@@ -340,13 +338,6 @@ func sqliteCheck(resolved *config.Resolved) Check {
 					summary = "SQLite database exists but schema version is not current"
 				}
 			}
-			var bindingTableCount int
-			if rowsErr := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'contact_handle_bindings'`).Scan(&bindingTableCount); rowsErr == nil {
-				handleBindingsExists = bindingTableCount > 0
-				if handleBindingsExists {
-					_ = db.QueryRow(`SELECT COUNT(*) FROM contact_handle_bindings`).Scan(&handleBindingsCount)
-				}
-			}
 		}
 	}
 	return Check{
@@ -354,14 +345,12 @@ func sqliteCheck(resolved *config.Resolved) Check {
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"database_file":                  resolved.Paths.DatabaseFile,
-			"exists":                         databaseExists,
-			"parent_dir":                     filepath.Dir(resolved.Paths.DatabaseFile),
-			"schema_version":                 schemaVersion,
-			"target_schema_version":          store.SchemaVersion,
-			"contact_handle_bindings_exists": handleBindingsExists,
-			"contact_handle_bindings_count":  handleBindingsCount,
-			"schema_error":                   schemaError,
+			"database_file":         resolved.Paths.DatabaseFile,
+			"exists":                databaseExists,
+			"parent_dir":            filepath.Dir(resolved.Paths.DatabaseFile),
+			"schema_version":        schemaVersion,
+			"target_schema_version": store.SchemaVersion,
+			"schema_error":          schemaError,
 		},
 	}
 }

@@ -53,7 +53,7 @@
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
 **internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
-**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。  
+**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引。  
 **internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
@@ -61,7 +61,7 @@
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。  
 **internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。  
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及隐藏的内部 `replace-did`。  
-**internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。  
+**internal/cli/debug.go**: `debug db query` 与 `debug db import-v1` 的 CLI 处理器。  
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  
 **internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。  
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。  
@@ -76,8 +76,8 @@
 **internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  
 **internal/store/open.go**: pure Go SQLite 打开、WAL / foreign_keys / busy_timeout 配置。  
 **internal/store/helpers.go**: thread id、row map、schema version、表/视图存在性等辅助函数。  
-**internal/store/schema.go**: v12 schema、indexes、views 与 `EnsureSchema()`；新增 `contact_handle_bindings` 历史映射表，用于 Handle↔DID 历史绑定。  
-**internal/store/dao.go**: messages / contacts / contact_handle_bindings / groups / outbox / relationship / rebind / execute_sql 的 DAO。  
+**internal/store/schema.go**: v11 schema、indexes、views 与 `EnsureSchema()`。  
+**internal/store/dao.go**: messages / contacts / groups / outbox / relationship / rebind / execute_sql 的 DAO。  
 **internal/store/rebind.go**: 基于工作区 SQLite 打开器的 owner DID 重绑与旧 E2EE 状态清理编排。  
 **internal/store/import.go**: legacy SQLite 扫描与从 v1 DB 导入 v2 DB。  
 **internal/store/schema_test.go**: schema 初始化和 version 测试。  
@@ -92,8 +92,7 @@
 **internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。  
 **internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。  
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。  
-**internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store；支持收件后自动 DID→Handle 补全，以及按 handle 聚合历史 DID 消息。  
-**internal/message/contact_sync.go**: direct inbox/history 的联系人补全与 Handle 历史 DID 聚合辅助。  
+**internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store。  
 **internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。  
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。  
 **internal/message/proof_test.go**: origin_proof round-trip 测试。  
@@ -102,9 +101,8 @@
 **internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
 **internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
 **internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
-**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库；首条陌生来信会按 DID 反查 Handle 并更新通讯录。  
-**internal/runtime/listener/contact_sync.go**: websocket 收件路径的 DID→Handle 自动补全与联系人重绑定辅助。  
-**internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口；direct/group 事件可带 `sender_handle` / `recipient_handle`。  
+**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库。  
+**internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口。  
 **internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责 `chat.inject` 主会话投递、活跃外部 channel 发现，以及 `/hooks/agent` fan-out 调用。  
 **internal/runtime/listener/service.go**: listener 系统服务编排，基于 `kardianos/service` 提供 install/start/stop/uninstall 与 service-run；`start` 在服务缺失时会自动 install，并等待 bridge ready 后再返回。  
 **internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑与系统服务状态聚合。  
@@ -149,7 +147,7 @@
 - Phase 4：
   - pure Go SQLite 打开与 `EnsureSchema()`
   - v11 tables / indexes / views
-  - 本地 DAO：messages、contacts、contact_handle_bindings、relationship_events、groups、group_members、e2ee_outbox、e2ee_sessions
+  - 本地 DAO：messages、contacts、relationship_events、groups、group_members、e2ee_outbox、e2ee_sessions
   - owner_did rebind 与 E2EE 清理 helper
   - legacy SQLite scan / import
   - 默认 Python v1 → Go workspace upgrade 中，对已导入的 handle k1 DID 自动尝试 `replace_did` 迁移到 e1 DID；失败不阻断整次升级，但会记录 warning

@@ -15,7 +15,7 @@ awiki-cli v2 的目标不是“把旧 Python 脚本逐个翻译成 Go”，而�
 * 所有有副作用的命令都支持 `--dry-run`。
 * 所有命令都支持**结构化输出**。
 * 提供可机器读取的 `schema`。
-* skill 拆成 `shared + domain`，不再把所有内容塞进一个巨型 `SKILL.md`。 
+* skill 采用 `single entry + lazy-loaded references`，不再把所有内容塞进一个巨型 `SKILL.md`，也不再默认装载多层 skill。 
 
 这次语言切换到 Go 后，**命令契约不变**，变的是实现和发布：
 
@@ -185,7 +185,6 @@ awiki-cli discovery recommend --group GROUP_ID
 awiki-cli discovery draft-intro --group GROUP_ID
 awiki-cli discovery draft-dm --group GROUP_ID --member DID
 
-awiki-cli debug db handle-history alice
 awiki-cli debug db query "SELECT ..."
 awiki-cli debug raw rpc ...
 awiki-cli debug schema-cache
@@ -512,7 +511,7 @@ schemas/
 
 * `awiki-cli schema` 从代码内的 command registry 直接生成
 * `CLI_REFERENCE.md` 从 schema 生成
-* `skills/*/SKILL.md` 中的命令引用由 CI 校验
+* `skills/SKILL.md` 与 `skills/references/*.md` 中的命令引用由 CI 校验
 * shell help、Markdown docs、man pages 一起自动生成
 
 Cobra 官方现在已经明确支持从命令树生成 Markdown/man page，并专门有 “LLM-ready CLI docs” 的文档路径；这非常适合 awiki-cli 把命令树、skill 文档和 schema 保持同步。([cobra.dev][3])
@@ -584,16 +583,21 @@ GoReleaser 官方把自己定位为“简化发布工程”，而 `goreleaser-ac
 │   ├── legacy/
 │   └── security/
 ├── skills/
-│   ├── awiki-bundle/
-│   ├── awiki-shared/
-│   ├── awiki-id/
-│   ├── awiki-msg/
-│   ├── awiki-runtime/
-│   ├── awiki-people/
-│   ├── awiki-discovery/
-│   ├── awiki-page/
-│   └── awiki-debug/
-├── references/
+│   ├── SKILL.md
+│   ├── README.md
+│   ├── manifests/
+│   │   └── skills.yaml
+│   └── references/
+│       ├── 00-installation.md
+│       ├── 01-onboarding.md
+│       ├── 02-identity.md
+│       ├── 03-messaging.md
+│       ├── 04-groups.md
+│       ├── 05-runtime.md
+│       ├── 06-pages.md
+│       ├── 07-discovery.md
+│       ├── 08-debug.md
+│       └── 09-people-planned.md
 ├── schemas/
 ├── docs/
 │   └── cli/
@@ -602,7 +606,7 @@ GoReleaser 官方把自己定位为“简化发布工程”，而 `goreleaser-ac
 └── go.mod
 ```
 
-这里 skill 目录我建议**继续保留 `awiki-*` 命名**，因为现有 skill 和服务生态都还是 awiki；CLI 命令名统一改成 `awiki-cli`，避免与项目名、skill 名和服务域混淆。
+这里推荐的 skill 文档结构以当前仓库的 `skills/` 为准：默认只加载 `SKILL.md`，其余领域与 workflow 内容全部下沉到 `references/`，按任务懒加载。
 
 ## 8.3 代码分层
 
@@ -758,58 +762,63 @@ Go 版 listener 当前实现为：
 
 ## 11. skill 与文档拆分
 
-这部分照搬前面 CLI 方案，不再回退成一个大文档。
+当前 skill 架构已经定版为：
 
-## 11.1 skill 目录
+**single entry + lazy-loaded references**
+
+详细规范以 `docs/architecture/awiki-skill-architecture.md` 为准；本节只保留与命令模型直接相关的约束。
+
+## 11.1 当前目录形态
 
 ```text
 skills/
-  awiki-bundle/
-  awiki-shared/
-  awiki-id/
-  awiki-msg/
-  awiki-runtime/
-  awiki-people/
-  awiki-discovery/
-  awiki-page/
-  awiki-debug/
+  SKILL.md
+  README.md
+  manifests/
+    skills.yaml
+  references/
+    00-installation.md
+    01-onboarding.md
+    02-identity.md
+    03-messaging.md
+    04-groups.md
+    05-runtime.md
+    06-pages.md
+    07-discovery.md
+    08-debug.md
+    09-people-planned.md
 ```
 
-职责分别是：
+## 11.2 命令模型对 skill 的要求
 
-* `awiki-bundle`：只做导航
-* `awiki-shared`：共享规则、安全、输出协议、schema、dry-run、确认规则
-* `awiki-id`：身份
-* `awiki-msg`：消息
-* `awiki-runtime`：listener / heartbeat / mode
-* `awiki-people`：search/follow/contacts
-* `awiki-discovery`：群发现工作流
-* `awiki-page`：内容页
-* `awiki-debug`：raw/debug/db
+必须满足：
 
-## 11.2 references 目录
+* 默认只加载 `skills/SKILL.md`
+* 共享规则、输出协议、确认规则、安全边界统一收敛在入口层
+* 单领域任务只补读一个 matching reference
+* workflow 任务只补读一个 matching workflow reference
+* `08-debug.md` 只作为最后兜底入口
+* `09-people-planned.md` 与 `00-installation.md` 不进入默认上下文
 
-```text
-references/
-  SECURITY.md
-  CLI_REFERENCE.md
-  IDENTITY.md
-  MESSAGING.md
-  RUNTIME.md
-  PEOPLE.md
-  DISCOVERY.md
-  PAGE.md
-  DEBUG.md
-  UPGRADE.md
-  WHY_AWIKI.md
-```
+## 11.3 路由约束
+
+* identity 任务 -> `02-identity.md`
+* messaging 与 `msg send --group` -> `03-messaging.md`
+* group lifecycle / members / policy -> `04-groups.md`
+* runtime / listener / host notify -> `05-runtime.md`
+* pages -> `06-pages.md`
+* onboarding -> `01-onboarding.md`
+* discovery workflow -> `07-discovery.md`
+* low-level debug -> `08-debug.md`
+
+## 11.4 文档生成与校验
 
 原则不变：
 
-* 一个主题只有一个权威文档
-* `SKILL.md` 只做路由与默认行为
-* CLI 细节全部下沉到 `CLI_REFERENCE.md`
-* discovery 不再挤占 `msg` 主路径 
+* 一个主题只有一个权威入口
+* `SKILL.md` 只负责路由与默认行为
+* CLI 细节和命令契约以 CLI 自身的 `docs / schema / help` 为准
+* skill/reference 中的命令引用应由统一 registry 和 CI 校验，避免与真实命令面漂移
 
 ---
 
@@ -976,7 +985,7 @@ docs/cli/
 7. **全局格式参数统一为 `--format`；`--output` 仅做兼容别名。**
 8. **`schema`、`--dry-run`、`--jq` 必须是第一天就有的一等能力。**
 9. **Go 技术栈固定为：Cobra + gojq + GoReleaser + kardianos/service + modernc.org/sqlite。**
-10. **skill 和文档按 `shared + domain` 拆分，同时分发支持 GitHub Releases + npm wrapper。**   ([GitHub][1])
+10. **skill 体系采用 `single entry + lazy-loaded references`，同时分发支持 GitHub Releases + npm wrapper。**   ([GitHub][1])
 
 如果你要，我下一步可以直接继续给你两份可落地内容：
 **1）`cmd/awiki-cli` 的 Go 项目目录初始化方案**，以及 **2）`CLI_REFERENCE.md` 的最终文档定稿**。

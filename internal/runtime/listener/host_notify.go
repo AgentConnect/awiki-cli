@@ -36,9 +36,7 @@ type DirectMessageNotificationData struct {
 	MessageID       string `json:"message_id"`
 	OperationID     string `json:"operation_id,omitempty"`
 	ConversationID  string `json:"conversation_id,omitempty"`
-	SenderHandle    string `json:"sender_handle,omitempty"`
 	SenderDID       string `json:"sender_did"`
-	RecipientHandle string `json:"recipient_handle,omitempty"`
 	RecipientDID    string `json:"recipient_did"`
 	Profile         string `json:"profile,omitempty"`
 	SecurityProfile string `json:"security_profile,omitempty"`
@@ -54,9 +52,7 @@ type GroupMessageNotificationData struct {
 	MessageID         string `json:"message_id"`
 	OperationID       string `json:"operation_id,omitempty"`
 	GroupDID          string `json:"group_did"`
-	SenderHandle      string `json:"sender_handle,omitempty"`
 	SenderDID         string `json:"sender_did"`
-	RecipientHandle   string `json:"recipient_handle,omitempty"`
 	RecipientDID      string `json:"recipient_did"`
 	Profile           string `json:"profile,omitempty"`
 	SecurityProfile   string `json:"security_profile,omitempty"`
@@ -206,22 +202,6 @@ func NormalizeHostNotification(notification map[string]any, receivedAt time.Time
 		return normalizeGroupStateChanged(notification, receivedAt)
 	default:
 		return nil, false
-	}
-}
-
-func ApplyHostNotificationHandles(event *HostNotificationEvent, senderHandle string, recipientHandle string) {
-	if event == nil {
-		return
-	}
-	switch data := event.Data.(type) {
-	case DirectMessageNotificationData:
-		data.SenderHandle = fallbackString(strings.TrimSpace(senderHandle), data.SenderHandle)
-		data.RecipientHandle = fallbackString(strings.TrimSpace(recipientHandle), data.RecipientHandle)
-		event.Data = data
-	case GroupMessageNotificationData:
-		data.SenderHandle = fallbackString(strings.TrimSpace(senderHandle), data.SenderHandle)
-		data.RecipientHandle = fallbackString(strings.TrimSpace(recipientHandle), data.RecipientHandle)
-		event.Data = data
 	}
 }
 

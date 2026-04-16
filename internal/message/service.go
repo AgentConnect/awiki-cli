@@ -105,34 +105,13 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	if request.Scope == "all" {
 		return s.allInbox(ctx, record, request)
 	}
-	originalWith := strings.TrimSpace(request.With)
-	targetIsHandle := originalWith != "" && !strings.HasPrefix(originalWith, "did:")
 	peerDID := ""
 	peerHandle := ""
-	if originalWith != "" {
+	if strings.TrimSpace(request.With) != "" {
 		peerDID, peerHandle, err = s.resolveTarget(ctx, request.With)
 		if err != nil {
-			if targetIsHandle {
-				peerHandle = normalizeHandleValue(originalWith)
-				cachedDIDs, cacheErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, "")
-				if cacheErr == nil && len(cachedDIDs) > 0 {
-					cached, readErr := s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
-					if readErr == nil {
-						return &CommandResult{
-							Data: map[string]any{
-								"messages": cached,
-								"total":    len(cached),
-								"source":   "local_handle_history_cache",
-								"with":     peerHandleOrDid(peerHandle, peerDID),
-							},
-							Summary: "Loaded inbox from local handle history cache",
-						}, nil
-					}
-				}
-			}
 			return nil, err
 		}
-		peerHandle = normalizeHandleValue(peerHandle)
 		request.With = peerDID
 	}
 
@@ -145,12 +124,6 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		raw, err = transport.GetInbox(ctx, request)
 		if err != nil {
 			cached, cacheErr := s.readInboxFromCache(ctx, record, peerDID, request.Limit, request.UnreadOnly)
-			if targetIsHandle {
-				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
-				if didErr == nil && len(cachedDIDs) > 0 {
-					cached, cacheErr = s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
-				}
-			}
 			if cacheErr == nil && len(cached) > 0 {
 				return &CommandResult{
 					Data: map[string]any{
@@ -160,7 +133,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded inbox from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{err.Error()},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -183,7 +156,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -209,23 +182,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		}
 		warnings = append(warnings, httpWarnings...)
 	}
-	messages, total, persistWarnings := s.persistInboxMessages(ctx, record, raw, peerHandle)
-	warnings = append(warnings, persistWarnings...)
-	if targetIsHandle {
-		cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
-		if didErr != nil {
-			warnings = append(warnings, fmt.Sprintf("Failed to expand handle history: %v", didErr))
-		} else if len(cachedDIDs) > 0 {
-			cached, cacheErr := s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
-			if cacheErr == nil {
-				messages = cached
-				total = len(cached)
-				raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
-			} else {
-				warnings = append(warnings, fmt.Sprintf("Failed to load handle history from cache: %v", cacheErr))
-			}
-		}
-	}
+	messages, total := s.persistInboxMessages(ctx, record, raw)
 	if request.MarkRead && len(messages) > 0 {
 		messageIDs := collectMessageIDs(messages)
 		if len(messageIDs) > 0 {
@@ -257,32 +214,10 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 	if err != nil {
 		return nil, err
 	}
-	originalWith := strings.TrimSpace(request.With)
-	targetIsHandle := originalWith != "" && !strings.HasPrefix(originalWith, "did:")
 	peerDID, peerHandle, err := s.resolveTarget(ctx, request.With)
 	if err != nil {
-		if targetIsHandle {
-			peerHandle = normalizeHandleValue(originalWith)
-			cachedDIDs, cacheErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, "")
-			if cacheErr == nil && len(cachedDIDs) > 0 {
-				cached, readErr := s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
-				if readErr == nil {
-					return &CommandResult{
-						Data: map[string]any{
-							"messages":      cached,
-							"total":         len(cached),
-							"source":        "local_handle_history_cache",
-							"with":          peerHandle,
-							"resolved_dids": cachedDIDs,
-						},
-						Summary: "Loaded history from local handle history cache",
-					}, nil
-				}
-			}
-		}
 		return nil, err
 	}
-	peerHandle = normalizeHandleValue(peerHandle)
 	request.With = peerDID
 
 	mode := s.runtimeConfig()
@@ -294,12 +229,6 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		raw, err = transport.GetHistory(ctx, request)
 		if err != nil {
 			cached, cacheErr := s.readHistoryFromCache(ctx, record, peerDID, request.Limit)
-			if targetIsHandle {
-				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
-				if didErr == nil && len(cachedDIDs) > 0 {
-					cached, cacheErr = s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
-				}
-			}
 			if cacheErr == nil && len(cached) > 0 {
 				return &CommandResult{
 					Data: map[string]any{
@@ -309,7 +238,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded history from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{err.Error()},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -332,7 +261,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			warnings = append(warnings, "WebSocket transport unavailable; used HTTP fallback.")
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -358,31 +287,13 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		}
 		warnings = append(warnings, httpWarnings...)
 	}
-	messages, total, persistWarnings := s.persistHistoryMessages(ctx, record, peerDID, peerHandle, raw)
-	warnings = append(warnings, persistWarnings...)
-	if targetIsHandle {
-		cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
-		if didErr != nil {
-			warnings = append(warnings, fmt.Sprintf("Failed to expand handle history: %v", didErr))
-		} else if len(cachedDIDs) > 0 {
-			cached, cacheErr := s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
-			if cacheErr == nil {
-				messages = cached
-				total = len(cached)
-				raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
-				raw["resolved_dids"] = cachedDIDs
-			} else {
-				warnings = append(warnings, fmt.Sprintf("Failed to load handle history from cache: %v", cacheErr))
-			}
-		}
-	}
+	messages, total := s.persistHistoryMessages(ctx, record, peerDID, raw)
 	return &CommandResult{
 		Data: map[string]any{
-			"messages":      messages,
-			"total":         total,
-			"source":        sourceWithDefault(raw, mode.Mode),
-			"with":          peerHandleOrDid(peerHandle, peerDID),
-			"resolved_dids": raw["resolved_dids"],
+			"messages": messages,
+			"total":    total,
+			"source":   sourceWithDefault(raw, mode.Mode),
+			"with":     peerHandleOrDid(peerHandle, peerDID),
 		},
 		Summary:  fmt.Sprintf("Loaded %d direct history messages", total),
 		Warnings: warnings,
@@ -434,13 +345,12 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 		}
 		result, markErr := transport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 		if markErr != nil {
-			fallbackCause := markErr
 			if isSessionUnauthorized(markErr) {
 				if refreshErr := s.refreshJWT(ctx, record); refreshErr == nil {
 					if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 						result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 						if markErr == nil {
-							transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
+							transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
 							transportWarnings = append(transportWarnings, httpWarnings...)
 						}
 					}
@@ -449,7 +359,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 				if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 					result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 					if markErr == nil {
-						transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
+						transportWarnings = append(transportWarnings, "WebSocket transport unavailable; used HTTP fallback.")
 						transportWarnings = append(transportWarnings, httpWarnings...)
 					}
 				}
@@ -731,10 +641,10 @@ func (s *Service) persistSendResult(ctx context.Context, record *identity.Stored
 	}, nil
 }
 
-func (s *Service) persistInboxMessages(ctx context.Context, record *identity.StoredIdentity, raw map[string]any, knownHandle string) ([]map[string]any, int, []string) {
+func (s *Service) persistInboxMessages(ctx context.Context, record *identity.StoredIdentity, raw map[string]any) ([]map[string]any, int) {
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
-		return nil, 0, nil
+		return nil, 0
 	}
 	defer db.Close()
 	_ = store.EnsureSchema(ctx, db)
@@ -769,14 +679,13 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
-	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.inbox")
-	return messages, intValueFromAny(raw["total"], len(messages)), warnings
+	return messages, intValueFromAny(raw["total"], len(messages))
 }
 
-func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.StoredIdentity, peerDID string, knownHandle string, raw map[string]any) ([]map[string]any, int, []string) {
+func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.StoredIdentity, peerDID string, raw map[string]any) ([]map[string]any, int) {
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
-		return nil, 0, nil
+		return nil, 0
 	}
 	defer db.Close()
 	_ = store.EnsureSchema(ctx, db)
@@ -811,8 +720,7 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
-	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.history")
-	return messages, intValueFromAny(raw["total"], len(messages)), warnings
+	return messages, intValueFromAny(raw["total"], len(messages))
 }
 
 func (s *Service) readInboxFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
@@ -838,30 +746,6 @@ func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.Sto
 	}
 	threadID := store.MakeThreadID(record.DID, peerDID, "")
 	return store.ListThreadMessages(ctx, db, record.DID, threadID, limit)
-}
-
-func (s *Service) readInboxFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int, unreadOnly bool) ([]map[string]any, error) {
-	db, err := store.Open(s.resolved.Paths)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	if err := store.EnsureSchema(ctx, db); err != nil {
-		return nil, err
-	}
-	return store.ListDirectMessagesByPeerDIDs(ctx, db, record.DID, peerDIDs, limit, unreadOnly, true)
-}
-
-func (s *Service) readHistoryFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int) ([]map[string]any, error) {
-	db, err := store.Open(s.resolved.Paths)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	if err := store.EnsureSchema(ctx, db); err != nil {
-		return nil, err
-	}
-	return store.ListDirectMessagesByPeerDIDs(ctx, db, record.DID, peerDIDs, limit, false, false)
 }
 
 func messagesFromResult(value any) []map[string]any {

@@ -43,8 +43,9 @@ func NewIndex() *Index {
 		},
 		{
 			Name:    "skills",
-			Summary: "Skill topology, manifests, templates, and awiki skill entrypoints",
+			Summary: "Current skill entrypoint, reference topology, and structured manifest index",
 			References: []string{
+				"skills/SKILL.md",
 				"docs/architecture/awiki-skill-architecture.md",
 				"skills/README.md",
 				"skills/manifests/skills.yaml",

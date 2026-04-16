@@ -62,7 +62,6 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 		status.BridgeAvailable = false
 		status.Warnings = append(status.Warnings, "listener is disabled by configuration")
 	}
-	status.Warnings = append(status.Warnings, SessionWarnings(status.Sessions)...)
 	return status, nil
 }
 

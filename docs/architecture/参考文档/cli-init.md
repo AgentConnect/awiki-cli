@@ -1,5 +1,5 @@
 > **文档状态说明（已过时）**  
-> 本文档属于早期 CLI 初始化草案，已被最终方案取代。当前请以 `docs/architecture/awiki-v2-architecture.md`（总体架构）、`docs/architecture/awiki-command-v2.md`（最终命令与初始化方案）和 `docs/architecture/output-format.md`（输出契约）为准；若本文与最终方案存在冲突，以最终方案为准。保留本文仅用于回溯设计演进。
+> 本文档属于早期 CLI 初始化草案，已被最终方案取代。当前请以 `docs/architecture/awiki-v2-architecture.md`（总体架构）、`docs/architecture/awiki-command-v2.md`（最终命令与初始化方案）、`docs/architecture/awiki-skill-architecture.md`（当前 skill 架构）和 `docs/architecture/output-format.md`（输出契约）为准；若本文与最终方案存在冲突，以最终方案为准。本文中关于 `shared/domain/bundle/workflow` skill 拆分的内容均属于历史讨论，当前正式方案已改为 `single entry + lazy-loaded references`。保留本文仅用于回溯设计演进。
 
 我先给结论：
 

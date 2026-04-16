@@ -103,15 +103,6 @@ func (a *App) renderSuccess(command string, format output.Format, jqExpr string,
 	return output.RenderSuccess(os.Stdout, format, jqExpr, envelope)
 }
 
-func commandResultMissing(command string) error {
-	return output.NewExitError(
-		"internal_error",
-		1,
-		fmt.Sprintf("%s completed without returning a result.", command),
-		"Please retry the command. If the problem persists, run `awiki-cli doctor` and inspect the local workspace state.",
-	)
-}
-
 func (a *App) resolveConfig() (*appconfig.Resolved, error) {
 	resolved, err := appconfig.Resolve(appconfig.Overrides{
 		Identity:        a.globals.Identity,

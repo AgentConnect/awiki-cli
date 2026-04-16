@@ -1,5 +1,5 @@
 > **文档状态说明（已过时）**  
-> 本文档属于早期初始化方案讨论稿，已被最终方案取代。当前请以 `docs/architecture/awiki-v2-architecture.md`（总体架构）和 `docs/architecture/awiki-command-v2.md`（最终命令与初始化方案）为准；若本文与最终方案存在冲突，以最终方案为准。保留本文仅用于回溯设计演进。
+> 本文档属于早期初始化方案讨论稿，已被最终方案取代。当前请以 `docs/architecture/awiki-v2-architecture.md`（总体架构）、`docs/architecture/awiki-command-v2.md`（最终命令与初始化方案）和 `docs/architecture/awiki-skill-architecture.md`（当前 skill 架构）为准；若本文与最终方案存在冲突，以最终方案为准。本文中关于 `shared/domain` skill 体系的建议均属于历史方案，当前正式方案已改为 `single entry + lazy-loaded references`。保留本文仅用于回溯设计演进。
 
 下面这份方案，是基于你已经**确定用 Go 重写**这个前提做的，不再纠结“要不要继续 Python”。我把最近几天飞书官方 CLI、飞书官方 OpenClaw 插件、官方 skills、以及社区 issue 里的真实反馈又重新看了一遍；同时把你们当前 awiki 的主 SKILL、Heartbeat、Listener、Schema、Security、E2EE 说明也重新对齐了一次。结论是：
 

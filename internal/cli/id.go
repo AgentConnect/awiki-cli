@@ -27,7 +27,7 @@ func (a *App) identityService() (*identity.Service, output.Format, error) {
 
 func (a *App) renderIdentityResult(cmd *cobra.Command, format output.Format, result *identity.CommandResult) error {
 	if result == nil {
-		return commandResultMissing(cmd.CommandPath())
+		return nil
 	}
 	meta := a.identityMeta()
 	if meta == nil {
@@ -444,12 +444,6 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 	result, err := service.ReplaceDID(context.Background(), params)
 	if err != nil {
 		return a.identityExit(err, "Use a handle-backed identity with valid DID credentials before retrying.")
-	}
-	if result == nil {
-		return commandResultMissing(cmd.CommandPath())
-	}
-	if result.Data == nil {
-		result.Data = map[string]any{}
 	}
 	oldDID, _ := result.Data["old_did"].(string)
 	newDID, _ := result.Data["did"].(string)

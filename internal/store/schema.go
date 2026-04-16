@@ -168,27 +168,8 @@ CREATE TABLE IF NOT EXISTS e2ee_sessions (
 );
 `
 
-const v12TablesSQL = `
-CREATE TABLE IF NOT EXISTS contact_handle_bindings (
-    owner_did        TEXT NOT NULL DEFAULT '',
-    handle           TEXT NOT NULL,
-    did              TEXT NOT NULL,
-    is_current       INTEGER NOT NULL DEFAULT 1,
-    first_seen_at    TEXT NOT NULL,
-    last_seen_at     TEXT NOT NULL,
-    source_type      TEXT,
-    source_group_id  TEXT,
-    metadata         TEXT,
-    credential_name  TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (owner_did, handle, did)
-);
-`
-
 var indexStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(owner_did, last_seen_at DESC)`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_handle_bindings_owner_handle_current_unique ON contact_handle_bindings(owner_did, handle) WHERE is_current = 1`,
-	`CREATE INDEX IF NOT EXISTS idx_contact_handle_bindings_owner_did ON contact_handle_bindings(owner_did, did, last_seen_at DESC)`,
-	`CREATE INDEX IF NOT EXISTS idx_contact_handle_bindings_owner_handle ON contact_handle_bindings(owner_did, handle, last_seen_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_owner_thread ON messages(owner_did, thread_id, sent_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_owner_thread_seq ON messages(owner_did, thread_id, server_seq)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_owner_direction ON messages(owner_did, direction)`,
@@ -263,14 +244,11 @@ func CurrentSchemaVersion(db *sql.DB) (int, error) {
 }
 
 func createSchema(ctx context.Context, db *sql.DB) error {
-	scripts := []string{v6TablesSQL, v7TablesSQL, v8TablesSQL, v11TablesSQL, v12TablesSQL}
+	scripts := []string{v6TablesSQL, v7TablesSQL, v8TablesSQL, v11TablesSQL}
 	for _, script := range scripts {
 		if _, err := db.ExecContext(ctx, script); err != nil {
 			return fmt.Errorf("apply sqlite schema: %w", err)
 		}
-	}
-	if err := backfillContactHandleBindings(ctx, db); err != nil {
-		return err
 	}
 	for _, statement := range indexStatements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -286,71 +264,6 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("apply sqlite view: %w", err)
 		}
-	}
-	return nil
-}
-
-func backfillContactHandleBindings(ctx context.Context, db *sql.DB) error {
-	now := nowUTC()
-	if _, err := db.ExecContext(ctx, `
-INSERT INTO contact_handle_bindings
-    (owner_did, handle, did, is_current, first_seen_at, last_seen_at, source_type, source_group_id, metadata, credential_name)
-SELECT owner_did,
-       handle,
-       did,
-       0,
-       COALESCE(first_seen_at, ?),
-       COALESCE(last_seen_at, ?),
-       source_type,
-       source_group_id,
-       metadata,
-       ''
-FROM contacts
-WHERE TRIM(COALESCE(handle, '')) <> ''
-ON CONFLICT(owner_did, handle, did)
-DO UPDATE SET
-    last_seen_at = excluded.last_seen_at,
-    source_type = COALESCE(excluded.source_type, contact_handle_bindings.source_type),
-    source_group_id = COALESCE(excluded.source_group_id, contact_handle_bindings.source_group_id),
-    metadata = COALESCE(excluded.metadata, contact_handle_bindings.metadata),
-    credential_name = COALESCE(excluded.credential_name, contact_handle_bindings.credential_name)`,
-		now,
-		now,
-	); err != nil {
-		return fmt.Errorf("backfill contact handle bindings: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, `
-WITH ranked AS (
-    SELECT owner_did,
-           handle,
-           did,
-           ROW_NUMBER() OVER (
-               PARTITION BY owner_did, handle
-               ORDER BY COALESCE(last_seen_at, first_seen_at, ?) DESC, did DESC
-           ) AS row_num
-    FROM contacts
-    WHERE TRIM(COALESCE(handle, '')) <> ''
-)
-UPDATE contact_handle_bindings
-SET is_current = CASE
-    WHEN EXISTS (
-        SELECT 1
-        FROM ranked
-        WHERE ranked.owner_did = contact_handle_bindings.owner_did
-          AND ranked.handle = contact_handle_bindings.handle
-          AND ranked.did = contact_handle_bindings.did
-          AND ranked.row_num = 1
-    ) THEN 1
-    ELSE 0
-END
-WHERE EXISTS (
-    SELECT 1
-    FROM ranked
-    WHERE ranked.owner_did = contact_handle_bindings.owner_did
-      AND ranked.handle = contact_handle_bindings.handle
-      AND ranked.did = contact_handle_bindings.did
-)`, now); err != nil {
-		return fmt.Errorf("mark current contact handle bindings: %w", err)
 	}
 	return nil
 }

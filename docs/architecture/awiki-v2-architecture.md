@@ -154,9 +154,9 @@ awiki v2 参考飞书的不是业务范围，而是**结构设计与产品组织
 飞书通过 `lark-cli` 提供统一执行入口，将配置、认证、业务命令、schema、doctor 等整合到一个产品面上。  
 awiki v2 也应只有一个统一入口：`awiki-cli`。
 
-### 4.2.2 shared skill + domain skill
-飞书通过 `lark-shared` 处理共享规则，再按业务域拆 skill。  
-awiki v2 应采用同样策略，将共享安全规则、身份切换、输出约定与领域 skill 分离。
+### 4.2.2 单入口 + reference 懒加载
+飞书的启发在于：共享规则不能散落在每个 skill 中，默认上下文也不能无限膨胀。  
+awiki v2 当前正式方案不再采用 `shared skill + domain skill` 的多层装载，而是将共享规则收敛到单一入口 `skills/SKILL.md`，再按任务懒加载 `references/*.md`。
 
 ### 4.2.3 三层命令体系
 飞书采用：
@@ -229,7 +229,7 @@ awiki v2 的目标产品形态如下：
 
 1. **Go 单二进制 CLI**：`awiki-cli`
 2. **内建文档与自省系统**：`awiki-cli docs` / `awiki-cli schema` / `awiki-cli doctor`
-3. **共享 + 领域 skill 体系**
+3. **单入口 + reference skill 体系**
 4. **可选平台接入层**（如 OpenClaw 插件），但与 CLI 核心解耦
 5. **GitHub Releases + GoReleaser + npm wrapper + 可选包管理器分发**
 
@@ -254,7 +254,7 @@ awiki v2 的目标产品形态如下：
 | identities / keyring / sqlite / cache / migrations   |
 +------------------------------------------------------+
 | Layer 5. Skill & Documentation Layer                 |
-| shared skill / domain skills / generated references  |
+| entry skill / lazy-loaded references / generated docs|
 +------------------------------------------------------+
 | Layer 6. Host Integration Layer                      |
 | OpenClaw plugin / webhook bridge / future adapters   |
@@ -603,66 +603,86 @@ skill 的角色不是：
 
 ## 13.2 skill 划分
 
-建议拆为：
+当前正式方案拆为：
 
 ```text
-awiki-bundle
-awiki-shared
-awiki-id
-awiki-msg
-awiki-group
-awiki-runtime
-awiki-people
-awiki-page
-awiki-debug
-awiki-workflow-onboarding
-awiki-workflow-discovery
+skills/
+  SKILL.md
+  README.md
+  manifests/
+    skills.yaml
+  references/
+    00-installation.md
+    01-onboarding.md
+    02-identity.md
+    03-messaging.md
+    04-groups.md
+    05-runtime.md
+    06-pages.md
+    07-discovery.md
+    08-debug.md
+    09-people-planned.md
 ```
 
 其中：
 
-- `awiki-bundle` 负责总入口路由
-- `awiki-shared` 负责横切规则
-- `awiki-id / awiki-msg / awiki-group / awiki-runtime / awiki-people / awiki-page` 是 domain skills
-- `awiki-workflow-onboarding / awiki-workflow-discovery` 是 workflow skills
-- `awiki-debug` 是最后兜底入口
+- `SKILL.md` 是唯一默认入口
+- 共享规则、安全边界、确认矩阵、输出约定收敛在入口层
+- 领域与 workflow 细节全部放入 `references/`
+- `08-debug.md` 是最后兜底
+- `09-people-planned.md` 与 `00-installation.md` 默认不进入上下文
 
 ## 13.3 每个 skill 的职责
 
-### awiki-shared
-- 安全规则
-- identity 切换规则
-- 输出协议约定
-- dry-run / schema / doctor 使用原则
-- 更新与升级提示
+### `SKILL.md`
+- 默认入口
+- 路由表
+- fast safe commands
+- command contract / output contract / confirmation rules / security rules
 
-### awiki-id
-- DID / Handle / bind / recover / profile
+### `02-identity.md`
+- DID / Handle / bind / recover / profile / identity switching
 
-### awiki-msg
-- direct / group messaging
-- inbox / history
-- secure messaging
+### `03-messaging.md`
+- direct / group plain messaging
+- inbox / history / mark-read
+- secure direct messaging 的当前 contract 与状态
 
-### awiki-group
+### `04-groups.md`
 - group lifecycle
-- join / add / remove / leave
-- 成员与群状态读取
+- join / add / remove / leave / update
+- members / messages / policy 读取
 
-### awiki-runtime
+### `05-runtime.md`
 - mode
 - listener
-- heartbeat
-- setup
+- host notify
+- heartbeat contract status
 
-### awiki-people
-- search / follow / contacts / discovery
-
-### awiki-page
+### `06-pages.md`
 - 内容页
 
-### awiki-debug
-- 调试与运维
+### `01-onboarding.md`
+- first-time setup
+- migration
+- runtime bootstrap
+- listener smoke-check
+
+### `07-discovery.md`
+- review-and-draft workflow
+- 群成员审阅、历史审阅、intro 草稿
+
+### `08-debug.md`
+- SQLite inspection
+- import verification
+- last-resort troubleshooting
+
+### `09-people-planned.md`
+- people future contract
+- 非当前可用能力
+
+### `00-installation.md`
+- 低频安装与 workspace prerequisite 说明
 
 ## 13.4 与 CLI 的关系
 
@@ -672,7 +692,7 @@ awiki-workflow-discovery
 
 ## 13.5 详细设计文档
 
-skill 的详细目录结构、manifest、template、workflow 边界与当前实现状态，以：
+skill 的详细目录结构、loading policy、workflow 边界与当前实现状态，以：
 
 - `docs/architecture/awiki-skill-architecture.md`
 
@@ -985,7 +1005,7 @@ v2 初期可先单仓，待命令树和 runtime 稳定后再拆。
 - discovery 显式化
 
 ## Phase 7：Skill 与文档体系
-- shared + domain skills
+- single entry + lazy-loaded references
 - docs / skill / help / schema 联动生成
 
 ## Phase 8：发布与切换
@@ -1021,7 +1041,7 @@ awiki v2 不是对现有 Python skill 仓的增量修补，而是一轮完整的
 
 - **以 Go 单二进制 CLI 为核心重建产品面**
 - **保留 awiki 的 DID / Handle / E2EE / 多 identity / heartbeat / local store 优势**
-- **吸收飞书的统一 CLI、shared skill、三层命令、自省与分发思路**
+- **吸收飞书的统一 CLI、两层 skill 装载、三层命令、自省与分发思路**
 - **避免飞书在文档依赖、profile 不一等、上下文过重方面暴露的问题**
 - **让 CLI、skill、runtime、文档、分发成为一个一致的系统，而不是脚本集合**
 
@@ -1033,17 +1053,21 @@ awiki v2 不是对现有 Python skill 仓的增量修补，而是一轮完整的
 
 ```text
 skills/
-  awiki-bundle/
-  awiki-shared/
-  awiki-id/
-  awiki-msg/
-  awiki-group/
-  awiki-runtime/
-  awiki-people/
-  awiki-page/
-  awiki-debug/
-  awiki-workflow-onboarding/
-  awiki-workflow-discovery/
+  SKILL.md
+  README.md
+  manifests/
+    skills.yaml
+  references/
+    00-installation.md
+    01-onboarding.md
+    02-identity.md
+    03-messaging.md
+    04-groups.md
+    05-runtime.md
+    06-pages.md
+    07-discovery.md
+    08-debug.md
+    09-people-planned.md
 ```
 
 ## 附录 B：建议的核心顶层命令
@@ -1073,7 +1097,7 @@ awiki-cli debug
 - JSON 为主的输出协议
 - `schema` / `doctor` / `--dry-run`
 - 命令分层
-- shared + domain 的 skill 思路
+- 单入口 + reference 懒加载的 skill 思路
 
 但已做出以下统一修正：
 

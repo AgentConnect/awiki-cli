@@ -67,7 +67,7 @@ INSERT INTO e2ee_sessions
 VALUES ('did:old', 'did:peer', 'sess-1', 1, 'send', 'recv', 0, 0, NULL, '2026-01-01T00:00:00Z', NULL, 0, 'default', '2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatalf("insert e2ee session error = %v", err)
 	}
-	if err := UpsertContact(ctx, db, ContactRecord{OwnerDID: "did:old", DID: "did:peer", Name: "Peer", Handle: "peer"}); err != nil {
+	if err := UpsertContact(ctx, db, ContactRecord{OwnerDID: "did:old", DID: "did:peer", Name: "Peer"}); err != nil {
 		t.Fatalf("UpsertContact() error = %v", err)
 	}
 	result, err := RebindOwnerDID(ctx, db, "did:old", "did:new")
@@ -77,71 +77,11 @@ VALUES ('did:old', 'did:peer', 'sess-1', 1, 'send', 'recv', 0, 0, NULL, '2026-01
 	if result["contacts"] != 1 {
 		t.Fatalf("unexpected rebind counts: %#v", result)
 	}
-	if result["contact_handle_bindings"] != 1 {
-		t.Fatalf("unexpected alias rebind counts: %#v", result)
-	}
 	cleared, err := ClearOwnerE2EEData(ctx, db, "did:old")
 	if err != nil {
 		t.Fatalf("ClearOwnerE2EEData() error = %v", err)
 	}
 	if cleared["e2ee_outbox"] != 1 || cleared["e2ee_sessions"] != 1 {
 		t.Fatalf("unexpected clear result: %#v", cleared)
-	}
-}
-
-func TestUpsertContactRebindsCurrentHandleAndPreservesHistory(t *testing.T) {
-	t.Parallel()
-
-	db := openTestDB(t)
-	ctx := context.Background()
-	if err := EnsureSchema(ctx, db); err != nil {
-		t.Fatalf("EnsureSchema() error = %v", err)
-	}
-	if err := UpsertContact(ctx, db, ContactRecord{
-		OwnerDID:       "did:owner",
-		DID:            "did:peer-old",
-		Handle:         "alice",
-		SourceType:     "listener.direct_incoming",
-		CredentialName: "default",
-	}); err != nil {
-		t.Fatalf("UpsertContact(old) error = %v", err)
-	}
-	if err := UpsertContact(ctx, db, ContactRecord{
-		OwnerDID:       "did:owner",
-		DID:            "did:peer-new",
-		Handle:         "alice",
-		SourceType:     "listener.direct_incoming",
-		CredentialName: "default",
-	}); err != nil {
-		t.Fatalf("UpsertContact(new) error = %v", err)
-	}
-
-	current, err := GetCurrentContactByHandle(ctx, db, "did:owner", "alice")
-	if err != nil {
-		t.Fatalf("GetCurrentContactByHandle() error = %v", err)
-	}
-	if current["did"] != "did:peer-new" {
-		t.Fatalf("current contact did = %#v, want did:peer-new", current["did"])
-	}
-	oldContact, err := GetContactByDID(ctx, db, "did:owner", "did:peer-old")
-	if err != nil {
-		t.Fatalf("GetContactByDID(old) error = %v", err)
-	}
-	if stringFromAny(oldContact["handle"]) != "" {
-		t.Fatalf("old contact handle = %#v, want cleared handle", oldContact["handle"])
-	}
-	handle, err := ResolveContactHandleByDID(ctx, db, "did:owner", "did:peer-old")
-	if err != nil {
-		t.Fatalf("ResolveContactHandleByDID(old) error = %v", err)
-	}
-	if handle != "alice" {
-		t.Fatalf("historical handle = %q, want alice", handle)
-	}
-	dids, err := ListDIDsByHandle(ctx, db, "did:owner", "alice")
-	if err != nil {
-		t.Fatalf("ListDIDsByHandle() error = %v", err)
-	}
-	if len(dids) != 2 || dids[0] != "did:peer-new" || dids[1] != "did:peer-old" {
-		t.Fatalf("ListDIDsByHandle() = %#v, want [did:peer-new did:peer-old]", dids)
 	}
 }

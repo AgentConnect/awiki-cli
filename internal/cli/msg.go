@@ -54,7 +54,6 @@ func (a *App) messageExit(err error, hint string) error {
 	case errors.Is(err, message.ErrTargetRequired),
 		errors.Is(err, message.ErrGroupRequired),
 		errors.Is(err, message.ErrMemberRequired),
-		errors.Is(err, message.ErrGroupOwnerCannotLeave),
 		errors.Is(err, message.ErrTextRequired),
 		errors.Is(err, message.ErrFilePathRequired),
 		errors.Is(err, message.ErrMimeTypeWithoutFile),
@@ -78,13 +77,6 @@ func (a *App) messageExit(err error, hint string) error {
 		var _ rpcCoder = err
 		return output.NewExitError("internal_error", 1, err.Error(), hint)
 	}
-}
-
-func (a *App) renderMessageResult(cmd *cobra.Command, format output.Format, result *message.CommandResult) error {
-	if result == nil {
-		return commandResultMissing(cmd.CommandPath())
-	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
@@ -169,7 +161,7 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Ensure the target exists, the active identity is valid, and runtime mode is configured correctly.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runMsgAttachmentDownload(cmd *cobra.Command, args []string) error {
@@ -207,7 +199,7 @@ func (a *App) runMsgAttachmentDownload(cmd *cobra.Command, args []string) error 
 	if err != nil {
 		return a.messageExit(err, "Make sure the message id, attachment id, and target context are correct.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
@@ -247,7 +239,7 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the active identity is valid and runtime mode is available.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runMsgHistory(cmd *cobra.Command, args []string) error {
@@ -279,7 +271,7 @@ func (a *App) runMsgHistory(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the peer exists and runtime mode is available.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runMsgMarkRead(cmd *cobra.Command, args []string) error {
@@ -307,7 +299,7 @@ func (a *App) runMsgMarkRead(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the message ids are valid and runtime mode is available.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func defaultString(value string, fallback string) string {

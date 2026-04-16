@@ -358,77 +358,11 @@ func compareVersions(a, b string) (int, bool) {
 	if bv.Pre == "" {
 		return -1, true
 	}
-	return comparePrerelease(av.Pre, bv.Pre), true
-}
-
-func comparePrerelease(a, b string) int {
-	left := strings.Split(a, ".")
-	right := strings.Split(b, ".")
-	limit := len(left)
-	if len(right) > limit {
-		limit = len(right)
+	if av.Pre > bv.Pre {
+		return 1, true
 	}
-	for i := 0; i < limit; i++ {
-		if i >= len(left) {
-			return -1
-		}
-		if i >= len(right) {
-			return 1
-		}
-		if left[i] == right[i] {
-			continue
-		}
-
-		leftNumeric := isNumericIdentifier(left[i])
-		rightNumeric := isNumericIdentifier(right[i])
-		switch {
-		case leftNumeric && rightNumeric:
-			return compareNumericIdentifiers(left[i], right[i])
-		case leftNumeric:
-			return -1
-		case rightNumeric:
-			return 1
-		case left[i] > right[i]:
-			return 1
-		default:
-			return -1
-		}
+	if av.Pre < bv.Pre {
+		return -1, true
 	}
-	return 0
-}
-
-func isNumericIdentifier(raw string) bool {
-	if raw == "" {
-		return false
-	}
-	for _, ch := range raw {
-		if ch < '0' || ch > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func compareNumericIdentifiers(a, b string) int {
-	a = strings.TrimLeft(a, "0")
-	b = strings.TrimLeft(b, "0")
-	if a == "" {
-		a = "0"
-	}
-	if b == "" {
-		b = "0"
-	}
-	if len(a) != len(b) {
-		if len(a) > len(b) {
-			return 1
-		}
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	if a < b {
-		return -1
-	}
-	return 0
+	return 0, true
 }

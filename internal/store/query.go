@@ -44,62 +44,6 @@ ORDER BY COALESCE(sent_at, stored_at) DESC
 LIMIT ?`, normalizeOwnerDID(ownerDID), threadID, limit)
 }
 
-func ListDirectMessagesByPeerDIDs(ctx context.Context, db *sql.DB, ownerDID string, peerDIDs []string, limit int, unreadOnly bool, inboxOnly bool) ([]map[string]any, error) {
-	if len(peerDIDs) == 0 {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 50
-	}
-	normalizedOwner := normalizeOwnerDID(ownerDID)
-	normalizedPeers := make([]string, 0, len(peerDIDs))
-	seen := make(map[string]struct{}, len(peerDIDs))
-	for _, did := range peerDIDs {
-		did = strings.TrimSpace(did)
-		if did == "" {
-			continue
-		}
-		if _, ok := seen[did]; ok {
-			continue
-		}
-		seen[did] = struct{}{}
-		normalizedPeers = append(normalizedPeers, did)
-	}
-	if len(normalizedPeers) == 0 {
-		return nil, nil
-	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(normalizedPeers)), ",")
-	query := `
-SELECT *
-FROM messages
-WHERE owner_did = ?
-  AND COALESCE(group_did, group_id) IS NULL`
-	args := make([]any, 0, 2+len(normalizedPeers)*2)
-	args = append(args, normalizedOwner)
-	if inboxOnly {
-		query += " AND direction = 0"
-	}
-	if unreadOnly {
-		query += " AND is_read = 0"
-	}
-	query += fmt.Sprintf(`
-  AND (
-        (sender_did IN (%s) AND receiver_did = ?)
-     OR (receiver_did IN (%s) AND sender_did = ?)
-  )
-ORDER BY COALESCE(sent_at, stored_at) DESC
-LIMIT ?`, placeholders, placeholders)
-	for _, did := range normalizedPeers {
-		args = append(args, did)
-	}
-	args = append(args, normalizedOwner)
-	for _, did := range normalizedPeers {
-		args = append(args, did)
-	}
-	args = append(args, normalizedOwner, limit)
-	return queryMaps(ctx, db, query, args...)
-}
-
 func ListGroupInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, groupID string, unreadOnly bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 20

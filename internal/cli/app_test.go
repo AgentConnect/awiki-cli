@@ -7,9 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentconnect/awiki-cli/internal/content"
 	"github.com/agentconnect/awiki-cli/internal/identity"
-	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -67,95 +65,6 @@ func TestIdentityGatingUsesFrozenErrorCode(t *testing.T) {
 		if exitErr.Code != 3 {
 			t.Fatalf("exitErr.Code = %d, want 3", exitErr.Code)
 		}
-	}
-}
-
-func TestRenderIdentityResultIgnoresTypedNilIdentityMeta(t *testing.T) {
-	app := &App{}
-	result := &identity.CommandResult{
-		Data: map[string]any{
-			"default_identity": (*identity.IdentitySummary)(nil),
-			"identities":       []identity.IdentitySummary{},
-		},
-		Summary: "Found 0 local identities",
-	}
-
-	rendered, err := captureStdout(func() error {
-		return app.renderIdentityResult(&cobra.Command{Use: "list"}, output.FormatJSON, result)
-	})
-	if err != nil {
-		t.Fatalf("captureStdout(renderIdentityResult) error = %v", err)
-	}
-	if strings.Contains(rendered, "\"identity\"") {
-		t.Fatalf("rendered output %q unexpectedly included identity meta", rendered)
-	}
-	if !strings.Contains(rendered, "Found 0 local identities") {
-		t.Fatalf("rendered output %q missing summary", rendered)
-	}
-}
-
-func TestRenderIdentityResultRejectsNilResult(t *testing.T) {
-	app := &App{}
-	err := app.renderIdentityResult(&cobra.Command{Use: "list"}, output.FormatJSON, nil)
-	assertMissingResultError(t, err, "list")
-}
-
-func TestRenderMessageResultRejectsNilResult(t *testing.T) {
-	app := &App{}
-	err := app.renderMessageResult(&cobra.Command{Use: "send"}, output.FormatJSON, nil)
-	assertMissingResultError(t, err, "send")
-}
-
-func TestRenderContentResultRejectsNilResult(t *testing.T) {
-	app := &App{}
-	err := app.renderContentResult(&cobra.Command{Use: "get"}, output.FormatJSON, nil)
-	assertMissingResultError(t, err, "get")
-}
-
-func TestRenderMessageResultRendersValidResult(t *testing.T) {
-	app := &App{}
-	rendered, err := captureStdout(func() error {
-		return app.renderMessageResult(&cobra.Command{Use: "send"}, output.FormatJSON, &message.CommandResult{
-			Data:    map[string]any{"ok": true},
-			Summary: "Sent",
-		})
-	})
-	if err != nil {
-		t.Fatalf("captureStdout(renderMessageResult) error = %v", err)
-	}
-	if !strings.Contains(rendered, "\"summary\": \"Sent\"") {
-		t.Fatalf("rendered output %q missing summary", rendered)
-	}
-}
-
-func TestRenderContentResultRendersValidResult(t *testing.T) {
-	app := &App{}
-	rendered, err := captureStdout(func() error {
-		return app.renderContentResult(&cobra.Command{Use: "get"}, output.FormatJSON, &content.CommandResult{
-			Data:    map[string]any{"slug": "hello"},
-			Summary: "Loaded page",
-		})
-	})
-	if err != nil {
-		t.Fatalf("captureStdout(renderContentResult) error = %v", err)
-	}
-	if !strings.Contains(rendered, "\"summary\": \"Loaded page\"") {
-		t.Fatalf("rendered output %q missing summary", rendered)
-	}
-}
-
-func assertMissingResultError(t *testing.T, err error, commandName string) {
-	t.Helper()
-
-	var exitErr *output.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("errors.As(%T, *output.ExitError) = false", err)
-	}
-	if exitErr.Detail.Code != "internal_error" {
-		t.Fatalf("exitErr.Detail.Code = %q, want internal_error", exitErr.Detail.Code)
-	}
-	if !strings.Contains(exitErr.Detail.Message, commandName) {
-		t.Fatalf("exitErr.Detail.Message = %q, want mention of %q", exitErr.Detail.Message, commandName)
 	}
 }
 

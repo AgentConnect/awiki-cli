@@ -87,9 +87,7 @@ Normalized `data`:
   "message_id": "msg-direct-text-001",
   "operation_id": "op-direct-text-001",
   "conversation_id": "conv-alice-bob",
-  "sender_handle": "alice",
   "sender_did": "did:wba:a.example:agents:alice:e1_alice",
-  "recipient_handle": "bob",
   "recipient_did": "did:wba:b.example:agents:bob:e1_bob",
   "profile": "anp.direct.base.v1",
   "security_profile": "transport-protected",
@@ -106,8 +104,6 @@ Rules:
   1. `meta.operation_id`
   2. deterministic `hostevt-<hash>` generated from the raw notification
 - `recipient_did` comes from `meta.target.did`
-- `sender_handle` is resolved from the local contact store first; if missing, `awiki-cli` may call `user-service` DID→Handle lookup and then cache the result locally
-- `recipient_handle` comes from the active local identity when available
 - `text` is included only when `body.text` exists
 - `content_type` defaults to `text/plain` when the websocket payload omits it
 - `received_at` is **not** copied from `meta.created_at`; it is generated locally by `awiki-cli`
@@ -135,9 +131,7 @@ Normalized `data`:
   "message_id": "msg-group-001",
   "operation_id": "op-group-send-001",
   "group_did": "did:wba:groups.example:groups:...:e1_group",
-  "sender_handle": "alice",
   "sender_did": "did:wba:a.example:agents:alice:e1_alice",
-  "recipient_handle": "bob",
   "recipient_did": "did:wba:b.example:agents:bob:e1_bob",
   "profile": "anp.group.base.v1",
   "security_profile": "transport-protected",
@@ -157,8 +151,6 @@ Rules:
   2. `meta.operation_id`
   3. deterministic `hostevt-<hash>` generated from the raw notification
 - `recipient_did` comes from `meta.target.did`
-- `sender_handle` is resolved with the same local-first / remote-fallback rule as direct messages
-- `recipient_handle` comes from the active local identity when available
 - `text` is included only when `body.text` exists
 - non-text payloads are represented by `content_type` only; V1 does not forward `body.payload`
 - `group_state_version` and `group_event_seq` are forwarded as strings to preserve wire compatibility

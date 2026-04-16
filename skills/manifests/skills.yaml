@@ -1,60 +1,62 @@
-version: 1
+version: 2
 current_binary: awiki-cli
-shared_skill: awiki-shared
+layout: single_entry_references
+entry:
+  name: awiki
+  path: skills/SKILL.md
+  type: entry
+  description: Unified entry skill for awiki-cli identity, messaging, group, runtime, page, onboarding, and debug tasks.
+  loading_mode: minimal
+  default_load:
+    - skills/SKILL.md
+  reference_dir: skills/references
 status_legend:
-  implemented: Skill content matches commands that are currently implemented in the repo.
-  partial: Skill mixes implemented read/write paths with commands or workflow branches that are still planned.
-  planned: Skill exists to reserve routing and contract shape, but the underlying commands are not implemented yet.
-skills:
-  - name: awiki-bundle
-    path: skills/awiki-bundle/SKILL.md
-    type: bundle
-    description: Route awiki-cli tasks to the correct shared, domain, workflow, or debug skill.
+  implemented: Reference content matches commands that are currently implemented in the repo.
+  partial: Reference mixes implemented behavior with related capabilities that are still planned or only partly available.
+  planned: Reference documents a reserved or future contract that is not implemented yet.
+source_of_truth:
+  command_contract: internal/cmdmeta/catalog.go
+  entry_docs:
+    - skills/SKILL.md
+  reference_docs: skills/references/*.md
+  manifest_role: structured index for routing, maintenance, and tooling; not a runtime dependency.
+references:
+  - name: installation
+    path: skills/references/00-installation.md
+    type: installation
     implemented_status: implemented
-    depends_on:
-      - awiki-shared
+    description: CLI install, skill install, workspace init, runtime setup, and OpenClaw host integration guidance.
+    keywords: [install, init, workspace, runtime, openclaw]
     covered_commands:
-      - status
-      - docs
-      - schema
-      - doctor
-      - config.show
-      - version
-      - completion
-      - completion.bash
-      - completion.zsh
-      - completion.fish
-      - completion.powershell
-    related_docs:
-      - docs/architecture/awiki-skill-architecture.md
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: route_only
-  - name: awiki-shared
-    path: skills/awiki-shared/SKILL.md
-    type: shared
-    description: Shared command contract, output rules, safety boundaries, and confirmation guidance.
+      - init
+      - runtime.setup
+      - runtime.listener.status
+      - runtime.listener.start
+      - runtime.host-notify.config.show
+      - runtime.host-notify.config.set
+      - runtime.host-notify.enable
+      - runtime.host-notify.openclaw.set
+      - runtime.host-notify.openclaw.set-token
+  - name: onboarding
+    path: skills/references/01-onboarding.md
+    type: workflow
     implemented_status: implemented
-    depends_on: []
+    description: First usable setup after installation: identity registration or recovery, then overall status validation.
+    keywords: [first-time, onboarding, register, recover, status]
     covered_commands:
+      - id.status
+      - id.list
+      - id.import-v1
+      - id.register
+      - id.recover
       - status
-      - docs
-      - schema
-      - doctor
-      - config.show
-      - version
-    related_docs:
-      - docs/architecture/awiki-skill-architecture.md
-      - docs/architecture/output-format.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-id
-    path: skills/awiki-id/SKILL.md
+      - runtime.status
+  - name: identity
+    path: skills/references/02-identity.md
     type: domain
-    description: DID, handle, contact binding, recovery, and profile management.
     implemented_status: implemented
-    depends_on:
-      - awiki-shared
+    description: DID, handle, bind, recover, profile, and local identity switching.
+    keywords: [identity, did, handle, recover, bind, profile]
     covered_commands:
       - id.status
       - id.list
@@ -67,43 +69,25 @@ skills:
       - id.profile.get
       - id.profile.set
       - id.import-v1
-    hidden_commands:
       - id.create
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-msg
-    path: skills/awiki-msg/SKILL.md
+  - name: messaging
+    path: skills/references/03-messaging.md
     type: domain
-    description: Direct and group message routing, inbox, history, read state, and secure-message contract.
     implemented_status: partial
-    depends_on:
-      - awiki-shared
+    description: Direct and group messaging, inbox, history, attachment send/download, and secure-message contract.
+    keywords: [msg, inbox, history, attachment, mark-read, secure]
     covered_commands:
       - msg.send
+      - msg.attachment.download
       - msg.inbox
       - msg.history
       - msg.mark-read
-    planned_commands:
-      - msg.secure.status
-      - msg.secure.init
-      - msg.secure.repair
-      - msg.secure.failed
-      - msg.secure.retry
-      - msg.secure.drop
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-      - docs/architecture/output-format.md
-    fallback_policy: canonical_first
-  - name: awiki-group
-    path: skills/awiki-group/SKILL.md
+  - name: groups
+    path: skills/references/04-groups.md
     type: domain
-    description: Group lifecycle, membership changes, policy updates, and group state inspection.
     implemented_status: implemented
-    depends_on:
-      - awiki-shared
+    description: Group lifecycle, member management, policy updates, and group message views.
+    keywords: [group, join, leave, member, policy]
     covered_commands:
       - group.create
       - group.get
@@ -114,19 +98,15 @@ skills:
       - group.update
       - group.members
       - group.messages
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-runtime
-    path: skills/awiki-runtime/SKILL.md
+  - name: runtime
+    path: skills/references/05-runtime.md
     type: domain
-    description: Runtime mode, websocket listener, daemon bridge, and heartbeat contract.
     implemented_status: partial
-    depends_on:
-      - awiki-shared
+    description: Runtime mode, listener lifecycle, host notify, and current heartbeat limitations.
+    keywords: [runtime, websocket, listener, host-notify, transport]
     covered_commands:
       - runtime.status
+      - runtime.apply
       - runtime.setup
       - runtime.mode.get
       - runtime.mode.set
@@ -136,23 +116,27 @@ skills:
       - runtime.listener.stop
       - runtime.listener.restart
       - runtime.listener.uninstall
-    hidden_commands:
-      - runtime.listener.run
+      - runtime.listener.config.show
+      - runtime.listener.config.set
+      - runtime.listener.enable
+      - runtime.listener.disable
+      - runtime.host-notify.config.show
+      - runtime.host-notify.config.set
+      - runtime.host-notify.enable
+      - runtime.host-notify.disable
+      - runtime.host-notify.openclaw.set
+      - runtime.host-notify.openclaw.set-token
+      - runtime.host-notify.openclaw.clear-token
     planned_commands:
       - runtime.heartbeat.status
       - runtime.heartbeat.install
       - runtime.heartbeat.run-once
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-page
-    path: skills/awiki-page/SKILL.md
+  - name: pages
+    path: skills/references/06-pages.md
     type: domain
-    description: Content page lifecycle and markdown publishing commands.
     implemented_status: implemented
-    depends_on:
-      - awiki-shared
+    description: Content page lifecycle, markdown publishing, slug changes, and visibility updates.
+    keywords: [page, slug, markdown, visibility]
     covered_commands:
       - page.create
       - page.list
@@ -160,18 +144,37 @@ skills:
       - page.update
       - page.rename
       - page.delete
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-people
-    path: skills/awiki-people/SKILL.md
-    type: domain
-    description: Relationship, follower, and local-contact contract.
+  - name: discovery
+    path: skills/references/07-discovery.md
+    type: workflow
+    implemented_status: partial
+    description: Review groups, inspect candidates, gather context, and draft manual introductions.
+    keywords: [discovery, group review, intro, candidate]
+    covered_commands:
+      - group.get
+      - group.members
+      - group.messages
+      - id.profile.get
+      - msg.history
+  - name: debug
+    path: skills/references/08-debug.md
+    type: debug
+    implemented_status: partial
+    description: Last-resort SQLite inspection and migration import checks.
+    keywords: [debug, sqlite, import-v1]
+    covered_commands:
+      - debug.db.query
+      - debug.db.import-v1
+    planned_commands:
+      - debug.raw.rpc
+      - debug.schema-cache
+      - debug.logs
+  - name: people_planned
+    path: skills/references/09-people-planned.md
+    type: appendix
     implemented_status: planned
-    depends_on:
-      - awiki-shared
-    covered_commands: []
+    description: Future people, relationship, and local-contact contract boundary.
+    keywords: [people, follow, contacts]
     planned_commands:
       - people.search
       - people.follow
@@ -181,81 +184,3 @@ skills:
       - people.following
       - people.contacts.list
       - people.contacts.save
-    related_docs:
-      - docs/architecture/awiki-v2-architecture.md
-      - docs/architecture/awiki-command-v2.md
-    fallback_policy: canonical_first
-  - name: awiki-debug
-    path: skills/awiki-debug/SKILL.md
-    type: debug
-    description: Debugging helpers for local SQLite, raw RPC, schema cache, and logs.
-    implemented_status: partial
-    depends_on:
-      - awiki-shared
-    covered_commands:
-      - debug.db.query
-      - debug.db.import-v1
-    planned_commands:
-      - debug.raw.rpc
-      - debug.schema-cache
-      - debug.logs
-    related_docs:
-      - docs/architecture/awiki-skill-architecture.md
-      - docs/plan/phase-0/implementation-constraints.md
-    fallback_policy: debug_last
-  - name: awiki-workflow-onboarding
-    path: skills/awiki-workflow-onboarding/SKILL.md
-    type: workflow
-    description: First-time setup, migration, registration, runtime bootstrap, and smoke-check workflow.
-    implemented_status: implemented
-    depends_on:
-      - awiki-shared
-      - awiki-id
-      - awiki-runtime
-    covered_commands:
-      - status
-      - doctor
-      - config.show
-      - id.list
-      - id.import-v1
-      - id.register
-      - id.bind
-      - id.current
-      - id.use
-      - id.profile.set
-      - runtime.setup
-      - runtime.listener.install
-      - runtime.listener.start
-      - runtime.listener.status
-      - msg.inbox
-      - msg.send
-    hidden_commands:
-      - id.create
-    related_docs:
-      - docs/architecture/awiki-skill-architecture.md
-      - docs/architecture/awiki-v2-architecture.md
-    fallback_policy: workflow_assist
-  - name: awiki-workflow-discovery
-    path: skills/awiki-workflow-discovery/SKILL.md
-    type: workflow
-    description: Group review, relationship discovery, and intro drafting workflow.
-    implemented_status: partial
-    depends_on:
-      - awiki-shared
-      - awiki-group
-      - awiki-msg
-      - awiki-id
-      - awiki-people
-    covered_commands:
-      - group.get
-      - group.members
-      - group.messages
-      - id.profile.get
-      - msg.history
-    planned_commands:
-      - people.search
-      - people.contacts.save
-    related_docs:
-      - docs/architecture/awiki-skill-architecture.md
-      - docs/architecture/awiki-v2-architecture.md
-    fallback_policy: workflow_assist

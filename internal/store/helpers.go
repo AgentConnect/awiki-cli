@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-type sqlQueryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
-
 var (
 	forbiddenPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`\bDROP\b`),
@@ -110,11 +106,7 @@ func metadataFromAny(value any) string {
 }
 
 func queryMaps(ctx context.Context, db *sql.DB, query string, args ...any) ([]map[string]any, error) {
-	return queryMapsWithQueryer(ctx, db, query, args...)
-}
-
-func queryMapsWithQueryer(ctx context.Context, queryer sqlQueryer, query string, args ...any) ([]map[string]any, error) {
-	rows, err := queryer.QueryContext(ctx, query, args...)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -143,11 +135,7 @@ func queryMapsWithQueryer(ctx context.Context, queryer sqlQueryer, query string,
 }
 
 func queryOneMap(ctx context.Context, db *sql.DB, query string, args ...any) (map[string]any, error) {
-	return queryOneMapWithQueryer(ctx, db, query, args...)
-}
-
-func queryOneMapWithQueryer(ctx context.Context, queryer sqlQueryer, query string, args ...any) (map[string]any, error) {
-	rows, err := queryMapsWithQueryer(ctx, queryer, query, args...)
+	rows, err := queryMaps(ctx, db, query, args...)
 	if err != nil {
 		return nil, err
 	}

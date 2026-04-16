@@ -8,35 +8,6 @@ awiki-cli 是 awiki 的命令行客户端，用 Go 编写，通过 CLI 命令编
 
 ---
 
-## 0. 快速安装（推荐）
-
-如果你的目标是直接使用 awiki-cli，而不是从源码编译，可以优先使用 npm 包和 Skills 仓库安装：
-
-```bash
-npm install -g @awiki/cli@latest
-npx skills add https://gitee.com/agentconnect/awiki-cli.git -y -g
-```
-
-说明：
-
-- `npm install -g @awiki/cli@latest` 安装时会优先尝试从 Gitee Release 下载对应平台的二进制，失败后再回退到 GitHub Release。
-- `npx skills add` 推荐使用 Gitee 的完整 `.git` 地址，这样在中国大陆网络环境下通常更稳定。
-
-如果你的环境可以稳定访问 GitHub，也可以改用：
-
-```bash
-npx skills add https://github.com/AgentConnect/awiki-cli.git -y -g
-```
-
-安装完成后，建议立即验证：
-
-```bash
-awiki-cli version --format json
-awiki-cli init
-```
-
----
-
 ## 1. 编译工具
 
 ### 1.1 Go 1.22
@@ -146,8 +117,8 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 | 缓存目录 | `~/.awiki-cli/cache/` | 无 |
 | 日志目录 | `~/.awiki-cli/logs/` | 无 |
 
-> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。
-> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 之外的旧 `AWIKI_* / AVIKI_* / E2E_*` 业务环境变量不再驱动 awiki-cli；若工作区仍保留上一版的 `config.json`，CLI 会在首次访问工作区时自动迁移到 `config.yaml`。
 >
 > 工作区内容包括：
@@ -226,7 +197,7 @@ services:
 flag > config.yaml > default
 ```
 
-> 该文件可选。未创建时所有配置使用默认值。
+> 该文件可选。未创建时所有配置使用默认值。  
 > `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
 >
 > - `service_base_url`：域内 user-service / content / group / message 的统一基础地址
@@ -337,9 +308,6 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 
 # 系统诊断（检查配置、身份、数据库、运行环境）
 ./awiki-cli doctor
-
-# 查看某个 handle 在本地记录过哪些历史 DID
-./awiki-cli debug db handle-history alice
 
 # 查看当前配置
 ./awiki-cli config show

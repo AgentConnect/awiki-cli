@@ -3,7 +3,7 @@ package store
 import "errors"
 
 const (
-	SchemaVersion = 12
+	SchemaVersion = 11
 )
 
 var (
@@ -73,20 +73,6 @@ type ContactRecord struct {
 	FirstSeenAt       string
 	LastSeenAt        string
 	Metadata          string
-	CredentialName    string
-}
-
-type ContactHandleBindingRecord struct {
-	OwnerDID       string
-	Handle         string
-	DID            string
-	IsCurrent      bool
-	FirstSeenAt    string
-	LastSeenAt     string
-	SourceType     string
-	SourceGroupID  string
-	Metadata       string
-	CredentialName string
 }
 
 type RelationshipEventRecord struct {

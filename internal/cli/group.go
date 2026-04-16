@@ -50,7 +50,7 @@ func (a *App) runGroupCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Ensure the active identity is registered and the message service is reachable.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupShow(cmd *cobra.Command, args []string) error {
@@ -67,7 +67,7 @@ func (a *App) runGroupShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access it.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupJoin(cmd *cobra.Command, args []string) error {
@@ -85,7 +85,7 @@ func (a *App) runGroupJoin(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and allows open join for the active identity.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupAdd(cmd *cobra.Command, args []string) error {
@@ -118,16 +118,13 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 	if err != nil {
 		return a.messageExit(err, "Make sure the group and member exist and the active identity has the required role.")
 	}
-	if result == nil {
-		return commandResultMissing(cmd.CommandPath())
-	}
 	switch publicAction {
 	case "add":
 		result.Summary = "Added member to group"
 	case "kick":
 		result.Summary = "Removed member from group"
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupLeave(cmd *cobra.Command, args []string) error {
@@ -144,7 +141,7 @@ func (a *App) runGroupLeave(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity is still a member.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupUpdate(cmd *cobra.Command, args []string) error {
@@ -190,7 +187,7 @@ func (a *App) runGroupUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the active identity has permission to update the target group.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupMembers(cmd *cobra.Command, args []string) error {
@@ -208,7 +205,7 @@ func (a *App) runGroupMembers(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access its member list.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func (a *App) runGroupMessages(cmd *cobra.Command, args []string) error {
@@ -227,7 +224,7 @@ func (a *App) runGroupMessages(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access its messages.")
 	}
-	return a.renderMessageResult(cmd, format, result)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
 }
 
 func boolFlagPtr(cmd *cobra.Command, name string) *bool {
