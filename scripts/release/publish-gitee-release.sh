@@ -32,10 +32,10 @@ Required environment variables:
 
 Optional environment variables:
   GITEE_USERNAME   Gitee login username for HTTPS git authentication
-  GITEE_OWNER      Gitee repository owner (default: bitaimeta_admin)
+  GITEE_OWNER      Gitee repository owner (default: agentconnect)
   GITEE_REPO       Gitee repository name (default: awiki-cli)
   GITEE_GIT_URL    Optional git remote URL for pushing tags to Gitee
-                   Example: git@gitee.com:bitaimeta_admin/awiki-cli.git
+                   Example: git@gitee.com:agentconnect/awiki-cli.git
   GITEE_API_PROXY  Optional proxy URL for Gitee API requests. By default,
                    Gitee API requests are sent directly.
   GITEE_API_NO_PROXY Optional no_proxy value for Gitee API requests
@@ -66,7 +66,7 @@ if [[ -z "${TAG}" ]]; then
   exit 1
 fi
 
-GITEE_OWNER="${GITEE_OWNER:-bitaimeta_admin}"
+GITEE_OWNER="${GITEE_OWNER:-agentconnect}"
 GITEE_REPO="${GITEE_REPO:-awiki-cli}"
 GITHUB_OWNER="${GITHUB_OWNER:-AgentConnect}"
 GITHUB_REPO="${GITHUB_REPO:-awiki-cli}"

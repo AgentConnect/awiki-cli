@@ -11,23 +11,23 @@ Quick links: [Onboarding](./onboarding.en.md) · [Command Tree](./docs/architect
 
 ## What is awiki-cli?
 
-- Single binary CLI and Skill runner for the Awiki platform  
-- Built for "human + AI Agent" co-usage  
-- Handles identity (DID/handle), messaging, groups, pages, and runtime configuration  
+- Single binary CLI and Skill runner for the Awiki platform
+- Built for "human + AI Agent" co-usage
+- Handles identity (DID/handle), messaging, groups, pages, and runtime configuration
 - Provides structured JSON output suitable for Agents
 
 ## Installation & Onboarding
 
 Basic requirements:
 
-- Node.js 18+ and `npm` / `npx`  
+- Node.js 18+ and `npm` / `npx`
 - Network access to the Awiki backend (e.g. `https://awiki.ai` or an internal test environment)
 
 Install the CLI and Skills:
 
 ```bash
 npm install -g @awiki/cli@latest
-npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git -y -g
+npx skills add https://gitee.com/agentconnect/awiki-cli.git -y -g
 ```
 
 If your environment can reliably reach GitHub, you can also use:
@@ -48,18 +48,18 @@ For the full first-time flow (identity registration or recovery, runtime setup, 
 
 ## Project Layout
 
-- `cmd/` — CLI entrypoint and top-level command wiring  
-- `internal/` — core implementation (config, identity, runtime, messaging, store, update, etc.)  
-- `skills/` — Awiki Skills exposed to AI Agents  
-- `docs/` — architecture and command-level documentation  
+- `cmd/` — CLI entrypoint and top-level command wiring
+- `internal/` — core implementation (config, identity, runtime, messaging, store, update, etc.)
+- `skills/` — Awiki Skills exposed to AI Agents
+- `docs/` — architecture and command-level documentation
 
 ## Config Template
 
-- Standard config template: `./config.template.yaml`  
+- Standard config template: `./config.template.yaml`
 - Default workspace config path: `~/.awiki-cli/config.yaml`
 
 ## Getting Help
 
-- For architecture and command surface, see `docs/architecture/awiki-v2-architecture.md` and `docs/architecture/awiki-command-v2.md`.  
-- For Agent usage, refer to the Skill documentation visible in your environment (for example, entry/bundle Skills and identity/messaging Skills).  
+- For architecture and command surface, see `docs/architecture/awiki-v2-architecture.md` and `docs/architecture/awiki-command-v2.md`.
+- For Agent usage, refer to the Skill documentation visible in your environment (for example, entry/bundle Skills and identity/messaging Skills).
 - For issues or feature requests, please contact the Awiki team using your normal project channels.

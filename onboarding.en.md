@@ -109,7 +109,7 @@ Use the `npx skills add` command to install. The overall flow is:
 Prefer the Gitee repository URL for installation. It is usually more reliable for users in mainland China:
 
 ```bash
-npx skills add https://gitee.com/bitaimeta_admin/awiki-cli.git --agent <your-agent-id> -y -g
+npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <your-agent-id> -y -g
 ```
 
 If you really want to install Awiki Skills for all supported Agents, you can simply drop the `--agent <your-agent-id>` part from the command above.
@@ -122,7 +122,7 @@ npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <your-agent
 
 If your environment does not support `npx skills`, or the command above fails, you can still use the official Awiki repositories as the Skill source and let your Agent load the Skill set using whatever installation mechanism it supports:
 
-- Gitee: <https://gitee.com/bitaimeta_admin/awiki-cli>
+- Gitee: <https://gitee.com/agentconnect/awiki-cli>
 - GitHub: <https://github.com/AgentConnect/awiki-cli>
 
 ---
@@ -343,12 +343,12 @@ At this point, the key steps for first-time use are complete:
 
 Suggested next steps:
 
-1. **For agent developers**  
-   - Use the Awiki bundle Skill as the entry point, and gradually introduce identity, messaging, group, and runtime-related Skills as needed.  
+1. **For agent developers**
+   - Use the Awiki bundle Skill as the entry point, and gradually introduce identity, messaging, group, and runtime-related Skills as needed.
    - For commands with side effects (such as `msg send`, `group create`), always use dry-run plus explicit confirmation.
 
-2. **For human users**  
-   - For consistency, this guide assumes you can access the documentation of the relevant Awiki Skills installed in your environment.  
+2. **For human users**
+   - For consistency, this guide assumes you can access the documentation of the relevant Awiki Skills installed in your environment.
    - If you need more detailed command descriptions or multi-step workflows, first read the relevant Skills (for example identity, messaging, onboarding workflow Skills), then consult any additional documentation visible in your environment as needed.
 
 This document only covers the “minimal necessary set” for first-time use. For deeper or more specialized usage, please refer to the corresponding Skill documentation so that knowledge stays consistent and maintainable.

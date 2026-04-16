@@ -36,7 +36,7 @@ function getDownloadSources(version, osName, arch) {
 
   const mirror = (process.env.AWIKI_CLI_DOWNLOAD_MIRROR || '').trim();
   const mirrorBase = mirror ? mirror.replace(/\/+$/, '') : '';
-  const giteeBase = 'https://gitee.com/bitaimeta_admin/awiki-cli/releases/download'.replace(/\/+$/, '');
+  const giteeBase = 'https://gitee.com/agentconnect/awiki-cli/releases/download'.replace(/\/+$/, '');
   const githubBase = 'https://github.com/AgentConnect/awiki-cli/releases/download'.replace(/\/+$/, '');
   const tag = `v${version}`;
 

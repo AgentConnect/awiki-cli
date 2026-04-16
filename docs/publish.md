@@ -114,7 +114,7 @@ scripts/release/publish-gitee-release.sh v0.2.0-beta.1
 
 支持的可选环境变量：
 
-- `GITEE_OWNER`：默认 `bitaimeta_admin`
+- `GITEE_OWNER`：默认 `agentconnect`
 - `GITEE_REPO`：默认 `awiki-cli`
 - `GITHUB_OWNER`：默认 `AgentConnect`
 - `GITHUB_REPO`：默认 `awiki-cli`
@@ -246,4 +246,4 @@ awiki-cli 内部通过 `internal/update` 模块和配置项：
 - 哪个版本是最小支持版本（minSupportedVersion）；
 - 何时对过旧版本执行强制升级拦截。
 
-一旦通过正式发布或预发布调整了 npm 上的 `version` 和 `awikiCli.minSupportedVersion`，客户端的版本策略会在缓存 TTL 过期或手动刷新后自动生效。坏版本被回滚或标记为 deprecated 后，也建议同步更新 `minSupportedVersion`，确保新版本的强制升级逻辑与发布状态一致。 
+一旦通过正式发布或预发布调整了 npm 上的 `version` 和 `awikiCli.minSupportedVersion`，客户端的版本策略会在缓存 TTL 过期或手动刷新后自动生效。坏版本被回滚或标记为 deprecated 后，也建议同步更新 `minSupportedVersion`，确保新版本的强制升级逻辑与发布状态一致。
