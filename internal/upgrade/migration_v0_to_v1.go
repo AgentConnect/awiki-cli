@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -15,6 +18,7 @@ import (
 )
 
 type workspaceV0ToV1Migration struct{}
+type workspaceV1ToV2Migration struct{}
 
 type legacySettingsFile struct {
 	UserServiceURL   string `json:"user_service_url"`
@@ -25,8 +29,27 @@ type legacySettingsFile struct {
 	} `json:"message_transport"`
 }
 
+const (
+	legacySkillInstallDirName     = "awiki-agent-id-message"
+	legacyHeartbeatSectionStart   = "<!-- awiki-heartbeat-start -->"
+	legacyHeartbeatSectionEnd     = "<!-- awiki-heartbeat-end -->"
+	legacyMacOSListenerLabel      = "com.awiki.ws-listener"
+	legacyLinuxListenerUnit       = "awiki-ws-listener.service"
+	legacyWindowsListenerTaskName = "awiki-ws-listener"
+)
+
+var (
+	legacyCleanupGOOS       = runtime.GOOS
+	legacyCleanupUserHome   = os.UserHomeDir
+	legacyCleanupRunCommand = runLegacyCleanupCommand
+)
+
 func newWorkspaceV0ToV1Migration() Migration {
 	return workspaceV0ToV1Migration{}
+}
+
+func newWorkspaceV1ToV2Migration() Migration {
+	return workspaceV1ToV2Migration{}
 }
 
 func (workspaceV0ToV1Migration) From() int { return 0 }
@@ -172,6 +195,34 @@ func (workspaceV0ToV1Migration) Validate(ctx context.Context, uc *Context) error
 			return fmt.Errorf("expected at least one imported identity after legacy upgrade")
 		}
 	}
+	return nil
+}
+
+func (workspaceV1ToV2Migration) From() int { return 1 }
+
+func (workspaceV1ToV2Migration) To() int { return 2 }
+
+func (workspaceV1ToV2Migration) Name() string {
+	return "workspace_1_to_2_remove_legacy_skill_and_listener"
+}
+
+func (workspaceV1ToV2Migration) IsDone(ctx context.Context, uc *Context) (bool, error) {
+	meta, err := LoadMeta(uc.Paths.MetaPath)
+	if err != nil {
+		return false, err
+	}
+	return meta != nil && meta.WorkspaceSchemaVersion >= 2, nil
+}
+
+func (workspaceV1ToV2Migration) Apply(ctx context.Context, uc *Context) error {
+	if uc == nil {
+		return fmt.Errorf("workspace upgrade context is required")
+	}
+	uc.Warnings = append(uc.Warnings, cleanupLegacySkillArtifacts(ctx)...)
+	return nil
+}
+
+func (workspaceV1ToV2Migration) Validate(ctx context.Context, uc *Context) error {
 	return nil
 }
 
@@ -378,4 +429,202 @@ func expectSQLiteNoRows(ctx context.Context, db *sql.DB, query string) error {
 		return fmt.Errorf("%s returned foreign key violations", query)
 	}
 	return nil
+}
+
+func cleanupLegacySkillArtifacts(ctx context.Context) []string {
+	homeDir, err := legacyCleanupUserHome()
+	if err != nil {
+		return []string{fmt.Sprintf("Legacy awiki skill cleanup skipped: resolve home directory failed: %v", err)}
+	}
+
+	warnings := make([]string, 0)
+	warnings = append(warnings, uninstallLegacyListenerService(ctx, homeDir)...)
+
+	for _, path := range legacySkillInstallDirs(homeDir) {
+		if !pathExists(path) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			warnings = append(
+				warnings,
+				fmt.Sprintf("Failed to remove legacy awiki skill path %s: %v", path, err),
+			)
+		}
+	}
+
+	if err := removeLegacyHeartbeatSection(homeDir); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to remove legacy awiki heartbeat section: %v", err),
+		)
+	}
+	return warnings
+}
+
+func legacySkillInstallDirs(homeDir string) []string {
+	return []string{
+		filepath.Join(homeDir, ".openclaw", "skills", legacySkillInstallDirName),
+		filepath.Join(homeDir, ".openclaw", "workspace", "skills", legacySkillInstallDirName),
+	}
+}
+
+func uninstallLegacyListenerService(ctx context.Context, homeDir string) []string {
+	switch legacyCleanupGOOS {
+	case "darwin":
+		return uninstallLegacyListenerServiceDarwin(ctx, homeDir)
+	case "linux":
+		return uninstallLegacyListenerServiceLinux(ctx, homeDir)
+	case "windows":
+		return uninstallLegacyListenerServiceWindows(ctx, homeDir)
+	default:
+		return nil
+	}
+}
+
+func uninstallLegacyListenerServiceDarwin(ctx context.Context, homeDir string) []string {
+	plistPath := filepath.Join(homeDir, "Library", "LaunchAgents", legacyMacOSListenerLabel+".plist")
+	if !fileExists(plistPath) {
+		return nil
+	}
+
+	warnings := make([]string, 0)
+	if err := legacyCleanupRunCommand(ctx, "launchctl", "unload", plistPath); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to stop legacy awiki listener LaunchAgent: %v", err),
+		)
+	}
+	if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to remove legacy awiki listener LaunchAgent plist %s: %v", plistPath, err),
+		)
+	}
+	return warnings
+}
+
+func uninstallLegacyListenerServiceLinux(ctx context.Context, homeDir string) []string {
+	unitPath := filepath.Join(legacyXDGConfigHome(homeDir), "systemd", "user", legacyLinuxListenerUnit)
+	if !fileExists(unitPath) {
+		return nil
+	}
+
+	warnings := make([]string, 0)
+	if err := legacyCleanupRunCommand(ctx, "systemctl", "--user", "disable", "--now", legacyLinuxListenerUnit); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to stop legacy awiki listener systemd user service: %v", err),
+		)
+	}
+	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to remove legacy awiki listener systemd unit %s: %v", unitPath, err),
+		)
+	}
+	if err := legacyCleanupRunCommand(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to reload systemd user units after legacy awiki listener cleanup: %v", err),
+		)
+	}
+	return warnings
+}
+
+func uninstallLegacyListenerServiceWindows(ctx context.Context, homeDir string) []string {
+	appDir := filepath.Join(legacyLocalAppData(homeDir), legacyWindowsListenerTaskName)
+	if !pathExists(appDir) {
+		return nil
+	}
+
+	warnings := make([]string, 0)
+	if err := legacyCleanupRunCommand(ctx, "schtasks", "/End", "/TN", legacyWindowsListenerTaskName); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to stop legacy awiki listener scheduled task: %v", err),
+		)
+	}
+	if err := legacyCleanupRunCommand(ctx, "schtasks", "/Delete", "/TN", legacyWindowsListenerTaskName, "/F"); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to remove legacy awiki listener scheduled task: %v", err),
+		)
+	}
+	if err := os.RemoveAll(appDir); err != nil {
+		warnings = append(
+			warnings,
+			fmt.Sprintf("Failed to remove legacy awiki listener app directory %s: %v", appDir, err),
+		)
+	}
+	return warnings
+}
+
+func removeLegacyHeartbeatSection(homeDir string) error {
+	workspaceDir := strings.TrimSpace(os.Getenv("OPENCLAW_WORKSPACE"))
+	if workspaceDir == "" {
+		workspaceDir = filepath.Join(homeDir, ".openclaw", "workspace")
+	}
+	heartbeatPath := filepath.Join(workspaceDir, "HEARTBEAT.md")
+	if !fileExists(heartbeatPath) {
+		return nil
+	}
+
+	contentBytes, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", heartbeatPath, err)
+	}
+	content := string(contentBytes)
+	startIndex := strings.Index(content, legacyHeartbeatSectionStart)
+	endIndex := strings.Index(content, legacyHeartbeatSectionEnd)
+	if startIndex < 0 || endIndex < startIndex {
+		return nil
+	}
+	endIndex += len(legacyHeartbeatSectionEnd)
+	section := content[startIndex:endIndex]
+	if !strings.Contains(section, legacySkillInstallDirName) {
+		return nil
+	}
+
+	updated := content[:startIndex] + content[endIndex:]
+	updated = collapseExtraBlankLines(strings.TrimLeft(updated, "\n"))
+
+	info, statErr := os.Stat(heartbeatPath)
+	if statErr != nil {
+		return fmt.Errorf("stat %s: %w", heartbeatPath, statErr)
+	}
+	return os.WriteFile(heartbeatPath, []byte(updated), info.Mode())
+}
+
+func collapseExtraBlankLines(content string) string {
+	for strings.Contains(content, "\n\n\n") {
+		content = strings.ReplaceAll(content, "\n\n\n", "\n\n")
+	}
+	return content
+}
+
+func legacyXDGConfigHome(homeDir string) string {
+	if value := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); value != "" {
+		return value
+	}
+	return filepath.Join(homeDir, ".config")
+}
+
+func legacyLocalAppData(homeDir string) string {
+	if value := strings.TrimSpace(os.Getenv("LOCALAPPDATA")); value != "" {
+		return value
+	}
+	return filepath.Join(homeDir, "AppData", "Local")
+}
+
+func runLegacyCleanupCommand(ctx context.Context, name string, args ...string) error {
+	command := exec.CommandContext(ctx, name, args...)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, message)
 }

@@ -9,11 +9,13 @@ import (
 )
 
 func NewDefaultUpgrader() *Upgrader {
-	migration := newWorkspaceV0ToV1Migration()
+	migrationV0ToV1 := newWorkspaceV0ToV1Migration()
+	migrationV1ToV2 := newWorkspaceV1ToV2Migration()
 	return &Upgrader{
 		latestVersion: LatestWorkspaceSchemaVersion,
 		migrations: map[int]Migration{
-			migration.From(): migration,
+			migrationV0ToV1.From(): migrationV0ToV1,
+			migrationV1ToV2.From(): migrationV1ToV2,
 		},
 	}
 }

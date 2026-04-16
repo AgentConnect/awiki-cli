@@ -33,13 +33,20 @@ awiki-cli 不再把本地状态升级拆散到 config、identity、SQLite 三套
 - 本地状态升级只看 `workspace_schema_version`，不关心用户中间装过哪些二进制版本。
 - 新二进制必须内置从历史 schema 到当前 schema 的全部迁移链。
 
-当前首版实现冻结：
+当前实现版本：
 
-- `latest workspace schema version = 1`
+- `latest workspace schema version = 2`
 - `workspace schema 0` 表示：
   - 已存在 awiki-cli 本地状态，但尚未接入统一升级元数据，或
   - 仅存在 Python v1 legacy source，或
   - 仅存在未显式版本化的早期 config / DB
+- `workspace schema 1` 表示：
+  - 已完成 config / identity store / SQLite 的统一升级编排
+- `workspace schema 2` 表示：
+  - 在 schema 1 基础上，已对旧 `awiki-agent-id-message` skill 做 best-effort 清理：
+    - 停止并卸载旧 websocket listener service
+    - 删除旧 skill 安装目录
+    - 清理旧 OpenClaw `HEARTBEAT.md` 里的 legacy awiki section
 
 ---
 
@@ -95,7 +102,7 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 
 ```json
 {
-  "workspace_schema_version": 1,
+  "workspace_schema_version": 2,
   "app_version": "1.8.0",
   "updated_at": "2026-04-10T10:00:00Z",
   "last_upgrade_id": "20260410T100000Z",
@@ -110,9 +117,9 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 ```json
 {
   "upgrade_id": "20260410T100000Z",
-  "from_version": 0,
-  "to_version": 1,
-  "current_step": "workspace_0_to_1_bootstrap_local_state_upgrade",
+  "from_version": 1,
+  "to_version": 2,
+  "current_step": "workspace_1_to_2_remove_legacy_skill_and_listener",
   "phase": "applying",
   "backup_dir": "/home/me/.awiki-cli/upgrade/backups/20260410T100000Z",
   "started_at": "2026-04-10T10:00:00Z",

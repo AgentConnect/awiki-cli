@@ -115,9 +115,11 @@ func TestLoadLegacySettingsRejectsSplitServiceURLs(t *testing.T) {
 }
 
 func TestUpgradeIfNeededImportsLegacyWorkspace(t *testing.T) {
-	t.Parallel()
-
 	resolved := testResolvedConfig(t)
+	homeDir := filepath.Dir(resolved.Paths.WorkspaceHomeDir)
+	commandCalls := installLegacyCleanupTestHooks(t, homeDir)
+	writeLegacySkillArtifacts(t, homeDir)
+
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/user-service/did-auth/rpc" {
@@ -211,6 +213,53 @@ func TestUpgradeIfNeededImportsLegacyWorkspace(t *testing.T) {
 	}
 	if fileExists(ResolvePaths(resolved).JournalPath) {
 		t.Fatalf("journal should be cleared after a successful upgrade")
+	}
+	assertLegacySkillArtifactsRemoved(t, homeDir)
+	if len(*commandCalls) == 0 {
+		t.Fatal("legacy cleanup did not invoke any listener stop/uninstall command")
+	}
+}
+
+func TestUpgradeIfNeededCleansLegacySkillArtifactsForExistingWorkspace(t *testing.T) {
+	resolved := testResolvedConfig(t)
+	homeDir := filepath.Dir(resolved.Paths.WorkspaceHomeDir)
+	commandCalls := installLegacyCleanupTestHooks(t, homeDir)
+
+	if err := os.MkdirAll(filepath.Dir(resolved.Paths.ConfigFile), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(resolved.Paths.ConfigFile, []byte("{\"runtime\":{\"mode\":\"websocket\"}}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	paths := ResolvePaths(resolved)
+	if err := os.MkdirAll(filepath.Dir(paths.MetaPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll(meta) error = %v", err)
+	}
+	if err := SaveMeta(paths.MetaPath, Meta{
+		WorkspaceSchemaVersion: 1,
+		AppVersion:             "1.9.0",
+		UpdatedAt:              "2026-04-16T00:00:00Z",
+		LastUpgradeID:          "20260416T000000Z",
+	}); err != nil {
+		t.Fatalf("SaveMeta() error = %v", err)
+	}
+
+	writeLegacySkillArtifacts(t, homeDir)
+
+	if err := UpgradeIfNeeded(context.Background(), resolved, "2.1.0"); err != nil {
+		t.Fatalf("UpgradeIfNeeded() error = %v", err)
+	}
+
+	meta, err := LoadMeta(paths.MetaPath)
+	if err != nil {
+		t.Fatalf("LoadMeta() error = %v", err)
+	}
+	if meta == nil || meta.WorkspaceSchemaVersion != LatestWorkspaceSchemaVersion {
+		t.Fatalf("unexpected workspace meta: %#v", meta)
+	}
+	assertLegacySkillArtifactsRemoved(t, homeDir)
+	if len(*commandCalls) == 0 {
+		t.Fatal("legacy cleanup did not invoke any listener stop/uninstall command")
 	}
 }
 
@@ -382,4 +431,101 @@ func didSuffixForTest(did string) string {
 		return did[lastIndex+1:]
 	}
 	return did
+}
+
+func installLegacyCleanupTestHooks(t *testing.T, homeDir string) *[]string {
+	t.Helper()
+
+	originalHome := legacyCleanupUserHome
+	originalRun := legacyCleanupRunCommand
+
+	commandCalls := make([]string, 0)
+	legacyCleanupUserHome = func() (string, error) {
+		return homeDir, nil
+	}
+	legacyCleanupRunCommand = func(_ context.Context, name string, args ...string) error {
+		commandCalls = append(commandCalls, strings.Join(append([]string{name}, args...), " "))
+		return nil
+	}
+	t.Cleanup(func() {
+		legacyCleanupUserHome = originalHome
+		legacyCleanupRunCommand = originalRun
+	})
+	return &commandCalls
+}
+
+func writeLegacySkillArtifacts(t *testing.T, homeDir string) {
+	t.Helper()
+
+	for _, path := range legacySkillInstallDirs(homeDir) {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", path, err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# legacy\n"), 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	servicePath := legacyServiceArtifactPath(homeDir)
+	if err := os.MkdirAll(filepath.Dir(servicePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll(service) error = %v", err)
+	}
+	if err := os.WriteFile(servicePath, []byte("legacy service\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(service) error = %v", err)
+	}
+
+	heartbeatPath := filepath.Join(homeDir, ".openclaw", "workspace", "HEARTBEAT.md")
+	if err := os.MkdirAll(filepath.Dir(heartbeatPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll(heartbeat) error = %v", err)
+	}
+	legacySkillDir := filepath.Join(homeDir, ".openclaw", "skills", legacySkillInstallDirName)
+	heartbeatContent := "# Heartbeat checklist\n\n" +
+		legacyHeartbeatSectionStart + "\n" +
+		"## awiki — DID messaging (every heartbeat)\n\n" +
+		"- Run: `cd " + legacySkillDir + " && python scripts/check_status.py`\n" +
+		legacyHeartbeatSectionEnd + "\n\n" +
+		"## Other checks\n\n- Keep this section.\n"
+	if err := os.WriteFile(heartbeatPath, []byte(heartbeatContent), 0o600); err != nil {
+		t.Fatalf("WriteFile(HEARTBEAT.md) error = %v", err)
+	}
+}
+
+func assertLegacySkillArtifactsRemoved(t *testing.T, homeDir string) {
+	t.Helper()
+
+	for _, path := range legacySkillInstallDirs(homeDir) {
+		if pathExists(path) {
+			t.Fatalf("legacy skill path still exists: %s", path)
+		}
+	}
+
+	if pathExists(legacyServiceArtifactPath(homeDir)) {
+		t.Fatalf("legacy listener service artifact still exists: %s", legacyServiceArtifactPath(homeDir))
+	}
+
+	heartbeatPath := filepath.Join(homeDir, ".openclaw", "workspace", "HEARTBEAT.md")
+	raw, err := os.ReadFile(heartbeatPath)
+	if err != nil {
+		t.Fatalf("ReadFile(HEARTBEAT.md) error = %v", err)
+	}
+	text := string(raw)
+	if strings.Contains(text, legacyHeartbeatSectionStart) || strings.Contains(text, legacySkillInstallDirName) {
+		t.Fatalf("legacy heartbeat section still present: %s", text)
+	}
+	if !strings.Contains(text, "## Other checks") {
+		t.Fatalf("heartbeat cleanup removed unrelated content: %s", text)
+	}
+}
+
+func legacyServiceArtifactPath(homeDir string) string {
+	switch legacyCleanupGOOS {
+	case "darwin":
+		return filepath.Join(homeDir, "Library", "LaunchAgents", legacyMacOSListenerLabel+".plist")
+	case "linux":
+		return filepath.Join(legacyXDGConfigHome(homeDir), "systemd", "user", legacyLinuxListenerUnit)
+	case "windows":
+		return filepath.Join(legacyLocalAppData(homeDir), legacyWindowsListenerTaskName, "run-listener.bat")
+	default:
+		return filepath.Join(homeDir, "legacy-listener-service")
+	}
 }

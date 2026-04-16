@@ -274,6 +274,8 @@ identities/
 
 当前 `awiki-cli` 的活跃身份规范为 `e1` / Ed25519 `key-1`。当你把 Python v1 `awiki-agent-id-message` 本地数据默认升级到 Go 版 workspace 时，CLI 会自动尝试把已导入的 handle `k1` DID 通过 `replace_did` 换绑为新的 `e1` DID，并同步重绑本地 SQLite 的 `owner_did`。若个别身份无法自动替换，升级会继续完成，但会把失败原因记录到 upgrade warning 与 `doctor` 输出中，后续需要手动处理。
 
+同一轮默认升级还会对旧 `awiki-agent-id-message` skill 做 best-effort 清理：停止并卸载旧 listener service，删除旧 skill 安装目录，并移除旧 OpenClaw `HEARTBEAT.md` 中引用 legacy skill 的 awiki section，避免新旧 skill 同时生效。
+
 ### 3.6 环境变量完整列表
 
 | 环境变量 | 用途 | 默认值 |
