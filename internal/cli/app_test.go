@@ -102,3 +102,23 @@ func captureStdout(run func() error) (string, error) {
 	}
 	return string(output), runErr
 }
+
+func TestIsUpdateExemptCommandAllowsUpgradeSubcommands(t *testing.T) {
+	t.Parallel()
+
+	root := &cobra.Command{Use: "awiki-cli"}
+	upgrade := &cobra.Command{Use: "upgrade"}
+	check := &cobra.Command{Use: "check"}
+	apply := &cobra.Command{Use: "apply"}
+	status := &cobra.Command{Use: "status"}
+	root.AddCommand(upgrade)
+	upgrade.AddCommand(check)
+	upgrade.AddCommand(apply)
+	upgrade.AddCommand(status)
+
+	for _, command := range []*cobra.Command{check, apply, status} {
+		if !isUpdateExemptCommand(command) {
+			t.Fatalf("isUpdateExemptCommand(%s) = false, want true", command.CommandPath())
+		}
+	}
+}

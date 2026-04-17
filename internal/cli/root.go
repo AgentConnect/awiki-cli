@@ -140,6 +140,12 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runInit
 	case "upgrade":
 		return a.runUpgrade
+	case "upgrade.check":
+		return a.runUpgradeCheck
+	case "upgrade.apply":
+		return a.runUpgradeApply
+	case "upgrade.status":
+		return a.runUpgradeStatus
 	case "status":
 		return a.runStatus
 	case "docs":
@@ -513,6 +519,9 @@ func isUpdateExemptCommand(cmd *cobra.Command) bool {
 		"awiki-cli help",
 		"awiki-cli version",
 		"awiki-cli upgrade",
+		"awiki-cli upgrade check",
+		"awiki-cli upgrade apply",
+		"awiki-cli upgrade status",
 		"awiki-cli init",
 		"awiki-cli docs",
 		"awiki-cli schema",
