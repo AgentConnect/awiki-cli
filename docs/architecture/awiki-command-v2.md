@@ -586,8 +586,6 @@ GoReleaser 官方把自己定位为“简化发布工程”，而 `goreleaser-ac
 ├── skills/
 │   ├── SKILL.md
 │   ├── README.md
-│   ├── manifests/
-│   │   └── skills.yaml
 │   └── references/
 │       ├── 00-installation.md
 │       ├── 01-onboarding.md
@@ -775,8 +773,6 @@ Go 版 listener 当前实现为：
 skills/
   SKILL.md
   README.md
-  manifests/
-    skills.yaml
   references/
     00-installation.md
     01-onboarding.md
