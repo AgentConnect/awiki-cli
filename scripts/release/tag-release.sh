@@ -64,3 +64,26 @@ echo "Pushing tag ${TAG} to origin..."
 git push origin "${TAG}"
 
 echo "Done. CI should pick up tag ${TAG} and run the release workflow."
+cat <<EOF
+
+Expected canonical release assets after the workflow finishes:
+- dist/update-metadata.json
+- dist/public-skill/awiki-cli/SKILL.md
+
+The external deploy system must then publish:
+- update metadata to the awiki update service
+- the root skill file to https://awiki.ai/skills/awiki-cli/SKILL.md
+
+EOF
+
+cat <<EOF
+
+After the tag-triggered workflow completes, verify that the canonical release assets were produced:
+- dist/update-metadata.json
+- dist/public-skill/awiki-cli/SKILL.md
+
+The external deploy system must then publish:
+- update metadata to the awiki update service
+- the root skill file to https://awiki.ai/skills/awiki-cli/SKILL.md
+
+EOF

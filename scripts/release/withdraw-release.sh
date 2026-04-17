@@ -42,6 +42,12 @@ echo "2) Adjust GitHub Release (requires GitHub CLI 'gh'):"
 echo "   gh release delete ${TAG} --yes || true"
 echo
 echo "3) Adjust npm registry state for @awiki/cli@${VERSION}:"
+echo
+echo "4) Update the awiki update metadata service and public root skill URL:"
+echo "   - Remove ${VERSION} from latest metadata if it was published there"
+echo "   - Adjust min_supported_version if the bad release must be hard-blocked"
+echo "   - Roll back https://awiki.ai/skills/awiki-cli/SKILL.md to the last stable version"
+echo
 echo "   # Option A: mark deprecated but keep the version:"
 echo "   npm deprecate @awiki/cli@${VERSION} \"Deprecated due to bad release; please upgrade.\""
 echo

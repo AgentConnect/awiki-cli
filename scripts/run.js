@@ -35,11 +35,15 @@ function run() {
 
   if (!fileExists(binPath)) {
     const version = getPackageVersion();
-    console.error(`[awiki-cli] Binary not found at ${binPath}.`);
-    console.error('[awiki-cli] Please download it first, for example:');
+    console.error(`[awiki-cli] Bootstrap binary not found at ${binPath}.`);
+    console.error('[awiki-cli] This npm package only provides the bootstrap installer and wrapper.');
+    console.error('[awiki-cli] Reinstall the packaged binary first, for example:');
     console.error('  npm run install-binary');
     console.error('');
-    console.error('If you installed this package globally, you may need to run the command with the same package manager (npm/pnpm/yarn).');
+    console.error('[awiki-cli] After the bootstrap binary is installed, runtime upgrades are managed by:');
+    console.error('  awiki-cli upgrade apply');
+    console.error('');
+    console.error('If you installed this package globally, rerun the same package manager command (npm/pnpm/yarn) in that environment.');
     console.error(`Current package version: ${version}`);
     process.exit(1);
   }

@@ -5,14 +5,12 @@
   "engines": {
     "node": ">=18"
   },
-  "awikiCli": {
-    "minSupportedVersion": "0.0.1-beta.10"
-  },
   "bin": {
     "awiki-cli": "scripts/run.js"
   },
   "scripts": {
     "install-binary": "node scripts/install.js",
-    "postinstall": "node scripts/install.js"
+    "postinstall": "node scripts/install.js",
+    "test:node": "node --test scripts/install.test.js scripts/release/generate-update-metadata.test.js"
   }
 }

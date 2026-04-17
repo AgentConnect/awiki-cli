@@ -78,9 +78,15 @@ Pre-release tag ${TAG} has been pushed.
 
 Next steps:
 - CI will build binaries and create a GitHub pre-release for ${TAG}.
+- CI must also generate these canonical release assets:
+  - dist/update-metadata.json
+  - dist/public-skill/awiki-cli/SKILL.md
 - To publish the npm pre-release package with dist-tag "${DIST_TAG}", run:
 
     NODE_AUTH_TOKEN=... npm publish --access public --tag ${DIST_TAG}
 
-EOF
+- The external deploy system must then decide whether to publish:
+  - prerelease update metadata
+  - prerelease public root skill content
 
+EOF
