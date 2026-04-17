@@ -26,3 +26,10 @@ services:
   anp_service_endpoint: https://awiki.ai/anp-im/rpc
   anp_service_did: did:wba:awiki.ai
   ca_bundle: ""
+update:
+  channel: stable
+  disable_strict_version: false
+  metadata_cache_ttl_seconds: 3600
+  auto_upgrade_enabled: true
+  auto_upgrade_mode: apply
+  allow_ws_push_trigger: true

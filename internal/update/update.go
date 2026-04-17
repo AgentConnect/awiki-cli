@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,19 +14,43 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
 const (
 	defaultMetadataCacheTTLSeconds = 3600
-	npmLatestURL                   = "https://registry.npmjs.org/@awiki%2Fcli/latest"
+	updateCheckEndpoint            = "/api/cli/updates/check"
+	defaultSkillFormatVersion      = "v1"
 )
+
+var newHTTPClient = func() *http.Client {
+	return &http.Client{Timeout: 3 * time.Second}
+}
+
+type Artifact struct {
+	Platform  string `json:"platform,omitempty"`
+	URL       string `json:"url,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+	Signature string `json:"signature,omitempty"`
+}
+
+type SkillBundle struct {
+	BundleVersion   string `json:"bundle_version,omitempty"`
+	BundleSHA256    string `json:"bundle_sha256,omitempty"`
+	RootSkillSHA256 string `json:"root_skill_sha256,omitempty"`
+}
 
 // Metadata captures the remote version strategy state that we cache locally.
 type Metadata struct {
-	LatestVersion       string    `json:"latest_version"`
-	MinSupportedVersion string    `json:"min_supported_version"`
-	RetrievedAt         time.Time `json:"retrieved_at"`
-	Source              string    `json:"source"` // "network" | "cache" | "cache_stale"
+	LatestVersion       string      `json:"latest_version"`
+	MinSupportedVersion string      `json:"min_supported_version"`
+	Channel             string      `json:"channel,omitempty"`
+	PublishedAt         string      `json:"published_at,omitempty"`
+	Artifact            Artifact    `json:"artifact,omitempty"`
+	SkillBundle         SkillBundle `json:"skill_bundle,omitempty"`
+	RetrievedAt         time.Time   `json:"retrieved_at"`
+	Source              string      `json:"source"` // "network" | "cache" | "cache_stale"
 }
 
 // Decision describes how the CLI should behave given the current / remote versions.
@@ -33,6 +58,16 @@ type Decision struct {
 	CurrentVersion      string `json:"current_version"`
 	LatestVersion       string `json:"latest_version"`
 	MinSupportedVersion string `json:"min_supported_version"`
+	Channel             string `json:"channel,omitempty"`
+	PublishedAt         string `json:"published_at,omitempty"`
+	Source              string `json:"source,omitempty"`
+
+	ArtifactAvailable  bool   `json:"artifact_available"`
+	ArtifactURL        string `json:"artifact_url,omitempty"`
+	ArtifactSHA256     string `json:"artifact_sha256,omitempty"`
+	SkillBundleVersion string `json:"skill_bundle_version,omitempty"`
+	SkillBundleSHA256  string `json:"skill_bundle_sha256,omitempty"`
+	RootSkillSHA256    string `json:"root_skill_sha256,omitempty"`
 
 	StrictDisabled  bool `json:"strict_disabled"`
 	DevBuild        bool `json:"dev_build"`
@@ -40,13 +75,37 @@ type Decision struct {
 	Blocked         bool `json:"blocked"`
 }
 
+type requestIdentity struct {
+	CurrentDID string
+	JWTToken   string
+}
+
+type updateCheckRequest struct {
+	SchemaVersion      int      `json:"schema_version"`
+	CurrentVersion     string   `json:"current_version"`
+	CurrentDID         string   `json:"current_did,omitempty"`
+	Channel            string   `json:"channel,omitempty"`
+	GOOS               string   `json:"goos"`
+	GOARCH             string   `json:"goarch"`
+	HostAgent          string   `json:"host_agent,omitempty"`
+	HostVersion        string   `json:"host_version,omitempty"`
+	HostCapabilities   []string `json:"host_capabilities,omitempty"`
+	SkillFormatVersion string   `json:"skill_format_version,omitempty"`
+}
+
+type updateCheckResponse struct {
+	SchemaVersion       int         `json:"schema_version"`
+	LatestVersion       string      `json:"latest_version"`
+	MinSupportedVersion string      `json:"min_supported_version"`
+	Channel             string      `json:"channel,omitempty"`
+	PublishedAt         string      `json:"published_at,omitempty"`
+	Artifact            Artifact    `json:"artifact,omitempty"`
+	SkillBundle         SkillBundle `json:"skill_bundle,omitempty"`
+}
+
 // Check resolves the effective version policy (including config + env overrides),
 // loads remote metadata with caching, and returns the decision for the current
 // awiki-cli binary.
-//
-// This function is intentionally tolerant:
-// - Network / cache errors never crash the CLI; callers can choose how hard to fail.
-// - When metadata is missing or unparsable, the Decision falls back to "no block".
 func Check(resolved *appconfig.Resolved) (Decision, error) {
 	current := strings.TrimSpace(buildinfo.Version)
 	if current == "" {
@@ -55,7 +114,6 @@ func Check(resolved *appconfig.Resolved) (Decision, error) {
 	devBuild := isDevVersion(current)
 
 	strictDisabled := resolved != nil && resolved.UpdateDisableStrictVersion
-	// AWIKI_CLI_DISABLE_STRICT_VERSION is a last-resort escape hatch for debugging.
 	if raw := strings.TrimSpace(os.Getenv("AWIKI_CLI_DISABLE_STRICT_VERSION")); raw != "" {
 		strictDisabled = parseBool(raw)
 	}
@@ -78,15 +136,21 @@ func Check(resolved *appconfig.Resolved) (Decision, error) {
 
 	meta, err := loadMetadata(resolved, ttlSeconds)
 	if err != nil {
-		// Propagate the error so callers can log or surface it, but keep the
-		// decision usable (no block by default).
 		return decision, err
 	}
 
 	decision.LatestVersion = meta.LatestVersion
 	decision.MinSupportedVersion = meta.MinSupportedVersion
+	decision.Channel = meta.Channel
+	decision.PublishedAt = meta.PublishedAt
+	decision.Source = meta.Source
+	decision.ArtifactURL = strings.TrimSpace(meta.Artifact.URL)
+	decision.ArtifactSHA256 = strings.TrimSpace(meta.Artifact.SHA256)
+	decision.ArtifactAvailable = decision.ArtifactURL != ""
+	decision.SkillBundleVersion = strings.TrimSpace(meta.SkillBundle.BundleVersion)
+	decision.SkillBundleSHA256 = strings.TrimSpace(meta.SkillBundle.BundleSHA256)
+	decision.RootSkillSHA256 = strings.TrimSpace(meta.SkillBundle.RootSkillSHA256)
 
-	// Dev builds should never be blocked, but they can still see "newer available".
 	if devBuild {
 		if newer, ok := compareVersions(meta.LatestVersion, current); ok && newer > 0 {
 			decision.HasNewerVersion = true
@@ -94,17 +158,14 @@ func Check(resolved *appconfig.Resolved) (Decision, error) {
 		return decision, nil
 	}
 
-	// Compute "has newer" and "blocked" flags based on semantic version ordering.
 	if newer, ok := compareVersions(meta.LatestVersion, current); ok && newer > 0 {
 		decision.HasNewerVersion = true
 	}
-
 	if !strictDisabled {
 		if cmp, ok := compareVersions(current, meta.MinSupportedVersion); ok && cmp < 0 {
 			decision.Blocked = true
 		}
 	}
-
 	return decision, nil
 }
 
@@ -148,19 +209,12 @@ func loadMetadata(resolved *appconfig.Resolved, ttlSeconds int) (Metadata, error
 			if ok {
 				return m, nil
 			}
-			// ok == false -> expired or empty cache; fall through to network,
-			// but remember the last good snapshot in case the network is down.
 			cached = m
-		} else {
-			// Any cache read error is treated as soft; we still try network.
-			cached = Metadata{}
 		}
 	}
 
-	network, err := fetchFromRegistry()
+	network, err := fetchFromService(resolved)
 	if err != nil {
-		// If we had a usable cached value (even if TTL expired), fall back to it
-		// rather than failing hard.
 		if cached.LatestVersion != "" {
 			cached.Source = "cache_stale"
 			return cached, nil
@@ -190,7 +244,7 @@ func readCache(path string, ttlSeconds int) (Metadata, bool, error) {
 		return meta, true, nil
 	}
 	if time.Since(meta.RetrievedAt) > time.Duration(ttlSeconds)*time.Second {
-		return Metadata{}, false, nil
+		return meta, false, nil
 	}
 	return meta, true, nil
 }
@@ -207,53 +261,134 @@ func writeCache(path string, meta Metadata) error {
 	return os.WriteFile(path, raw, 0o600)
 }
 
-func fetchFromRegistry() (Metadata, error) {
-	client := &http.Client{
-		Timeout: 3 * time.Second,
+func fetchFromService(resolved *appconfig.Resolved) (Metadata, error) {
+	if resolved == nil {
+		return Metadata{}, errors.New("config is nil")
 	}
-	req, err := http.NewRequest(http.MethodGet, npmLatestURL, nil)
+	requestURL := appconfig.JoinBaseURL(resolved.ServiceBaseURL, updateCheckEndpoint)
+	if strings.TrimSpace(requestURL) == "" {
+		return Metadata{}, errors.New("service base url is empty")
+	}
+	payload := buildRequestPayload(resolved)
+	identityContext, _ := loadRequestIdentity(resolved)
+	if identityContext != nil && strings.TrimSpace(identityContext.CurrentDID) != "" {
+		payload.CurrentDID = strings.TrimSpace(identityContext.CurrentDID)
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return Metadata{}, err
 	}
 
-	resp, err := client.Do(req)
+	headers := map[string]string{"Content-Type": "application/json"}
+	if identityContext != nil && strings.TrimSpace(identityContext.JWTToken) != "" {
+		headers["Authorization"] = "Bearer " + strings.TrimSpace(identityContext.JWTToken)
+	}
+
+	response, err := doJSONRequest(newHTTPClient(), requestURL, body, headers)
 	if err != nil {
 		return Metadata{}, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return Metadata{}, fmt.Errorf("npm registry responded with status %d", resp.StatusCode)
-	}
-
-	var body struct {
-		Version  string `json:"version"`
-		AwikiCli struct {
-			MinSupportedVersion string `json:"minSupportedVersion"`
-		} `json:"awikiCli"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return Metadata{}, err
-	}
-
-	latest := strings.TrimSpace(body.Version)
+	latest := strings.TrimSpace(response.LatestVersion)
 	if latest == "" {
-		return Metadata{}, errors.New("npm metadata missing version")
+		return Metadata{}, errors.New("update metadata missing latest_version")
 	}
-
-	minSupported := strings.TrimSpace(body.AwikiCli.MinSupportedVersion)
-	if minSupported == "" {
-		// If the manifest does not provide an explicit floor, default to "no floor".
-		// The decision logic will treat an empty min as "no block".
-		minSupported = ""
-	}
-
 	return Metadata{
 		LatestVersion:       latest,
-		MinSupportedVersion: minSupported,
+		MinSupportedVersion: strings.TrimSpace(response.MinSupportedVersion),
+		Channel:             strings.TrimSpace(response.Channel),
+		PublishedAt:         strings.TrimSpace(response.PublishedAt),
+		Artifact:            response.Artifact,
+		SkillBundle:         response.SkillBundle,
 		RetrievedAt:         time.Now().UTC(),
 		Source:              "network",
 	}, nil
+}
+
+func buildRequestPayload(resolved *appconfig.Resolved) updateCheckRequest {
+	info := buildinfo.Current()
+	channel := defaultChannel(resolved)
+	skillFormatVersion := strings.TrimSpace(info.SkillFormatVersion)
+	if skillFormatVersion == "" {
+		skillFormatVersion = defaultSkillFormatVersion
+	}
+	return updateCheckRequest{
+		SchemaVersion:      1,
+		CurrentVersion:     strings.TrimSpace(info.Version),
+		Channel:            channel,
+		GOOS:               strings.TrimSpace(info.GOOS),
+		GOARCH:             strings.TrimSpace(info.GOARCH),
+		HostAgent:          strings.TrimSpace(info.HostAgent),
+		HostVersion:        strings.TrimSpace(info.HostVersion),
+		HostCapabilities:   append([]string(nil), info.HostCapabilities...),
+		SkillFormatVersion: skillFormatVersion,
+	}
+}
+
+func defaultChannel(resolved *appconfig.Resolved) string {
+	if resolved == nil {
+		return "stable"
+	}
+	if channel := strings.TrimSpace(resolved.UpdateChannel); channel != "" {
+		return channel
+	}
+	return "stable"
+}
+
+func loadRequestIdentity(resolved *appconfig.Resolved) (*requestIdentity, error) {
+	if resolved == nil {
+		return nil, errors.New("config is nil")
+	}
+	manager := identity.NewManager(resolved.Paths)
+	identityName := strings.TrimSpace(resolved.ActiveIdentity)
+	if identityName == "" {
+		current, err := manager.Current()
+		if err != nil || current == nil {
+			return nil, nil
+		}
+		identityName = current.IdentityName
+	}
+	record, err := manager.Load(identityName)
+	if err != nil || record == nil {
+		return nil, nil
+	}
+	return &requestIdentity{
+		CurrentDID: strings.TrimSpace(record.DID),
+		JWTToken:   strings.TrimSpace(record.JWTToken),
+	}, nil
+}
+
+func doJSONRequest(client *http.Client, requestURL string, body []byte, headers map[string]string) (updateCheckResponse, error) {
+	if client == nil {
+		client = newHTTPClient()
+	}
+	request, err := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(body))
+	if err != nil {
+		return updateCheckResponse{}, err
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return updateCheckResponse{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 400 {
+		var errorBody struct {
+			Message string `json:"message"`
+		}
+		_ = json.NewDecoder(response.Body).Decode(&errorBody)
+		if strings.TrimSpace(errorBody.Message) != "" {
+			return updateCheckResponse{}, fmt.Errorf("update service responded with status %d: %s", response.StatusCode, strings.TrimSpace(errorBody.Message))
+		}
+		return updateCheckResponse{}, fmt.Errorf("update service responded with status %d", response.StatusCode)
+	}
+	var decoded updateCheckResponse
+	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+		return updateCheckResponse{}, err
+	}
+	return decoded, nil
 }
 
 type semVersion struct {
@@ -309,12 +444,7 @@ func parseSemVersion(raw string) (semVersion, bool) {
 			return semVersion{}, false
 		}
 	}
-	return semVersion{
-		Major: major,
-		Minor: minor,
-		Patch: patch,
-		Pre:   pre,
-	}, true
+	return semVersion{Major: major, Minor: minor, Patch: patch, Pre: pre}, true
 }
 
 // compareVersions returns:
@@ -348,7 +478,6 @@ func compareVersions(a, b string) (int, bool) {
 		}
 		return -1, true
 	}
-	// Pre-release comparison: empty pre means stable and is considered newer than pre-release.
 	if av.Pre == bv.Pre {
 		return 0, true
 	}

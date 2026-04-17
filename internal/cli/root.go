@@ -485,7 +485,7 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 			decision.CurrentVersion,
 			decision.MinSupportedVersion,
 		)
-		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` or `npm install -g @awiki/cli@latest`."
+		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` to inspect the current update status."
 		return output.NewExitError("version_unsupported", 3, summary, hint)
 	}
 

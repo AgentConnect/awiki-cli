@@ -33,6 +33,10 @@ const (
 	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
 	defaultOpenClawAgentID     = "main"
 	defaultOpenClawHookName    = "AWiki"
+	defaultUpdateChannel       = "stable"
+	defaultAutoUpgradeEnabled  = true
+	defaultAutoUpgradeMode     = "apply"
+	defaultAllowWSPushTrigger  = true
 
 	ConfigSchemaVersion = 1
 )
@@ -140,8 +144,12 @@ type FileConfig struct {
 		CABundle           string `json:"ca_bundle" yaml:"ca_bundle"`
 	} `json:"services" yaml:"services"`
 	Update struct {
-		DisableStrictVersion    bool `json:"disable_strict_version" yaml:"disable_strict_version"`
-		MetadataCacheTTLSeconds int  `json:"metadata_cache_ttl_seconds" yaml:"metadata_cache_ttl_seconds"`
+		DisableStrictVersion    bool   `json:"disable_strict_version" yaml:"disable_strict_version"`
+		MetadataCacheTTLSeconds int    `json:"metadata_cache_ttl_seconds" yaml:"metadata_cache_ttl_seconds"`
+		Channel                 string `json:"channel" yaml:"channel"`
+		AutoUpgradeEnabled      *bool  `json:"auto_upgrade_enabled" yaml:"auto_upgrade_enabled"`
+		AutoUpgradeMode         string `json:"auto_upgrade_mode" yaml:"auto_upgrade_mode"`
+		AllowWSPushTrigger      *bool  `json:"allow_ws_push_trigger" yaml:"allow_ws_push_trigger"`
 	} `json:"update" yaml:"update"`
 }
 
@@ -182,6 +190,10 @@ type Resolved struct {
 	CABundle                      string                 `json:"ca_bundle,omitempty"`
 	UpdateDisableStrictVersion    bool                   `json:"update_disable_strict_version"`
 	UpdateMetadataCacheTTLSeconds int                    `json:"update_metadata_cache_ttl_seconds"`
+	UpdateChannel                 string                 `json:"update_channel"`
+	UpdateAutoUpgradeEnabled      bool                   `json:"update_auto_upgrade_enabled"`
+	UpdateAutoUpgradeMode         string                 `json:"update_auto_upgrade_mode"`
+	UpdateAllowWSPushTrigger      bool                   `json:"update_allow_ws_push_trigger"`
 	ConfigExists                  bool                   `json:"config_exists"`
 	ConfigError                   string                 `json:"config_error,omitempty"`
 	EnvHits                       []EnvHit               `json:"env_hits,omitempty"`
@@ -411,6 +423,20 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		Source: "config_file_or_default",
 		Value:  fmt.Sprintf("%d", resolved.UpdateMetadataCacheTTLSeconds),
 	}
+	resolved.UpdateChannel, resolved.Sources["update_channel"] = chooseValue(
+		"",
+		false,
+		fileConfig.Update.Channel,
+		defaultUpdateChannel,
+	)
+	resolved.UpdateAutoUpgradeEnabled, resolved.Sources["update_auto_upgrade_enabled"] = chooseBool(fileConfig.Update.AutoUpgradeEnabled, defaultAutoUpgradeEnabled)
+	resolved.UpdateAutoUpgradeMode, resolved.Sources["update_auto_upgrade_mode"] = chooseValue(
+		"",
+		false,
+		fileConfig.Update.AutoUpgradeMode,
+		defaultAutoUpgradeMode,
+	)
+	resolved.UpdateAllowWSPushTrigger, resolved.Sources["update_allow_ws_push_trigger"] = chooseBool(fileConfig.Update.AllowWSPushTrigger, defaultAllowWSPushTrigger)
 
 	if resolved.OutputFormat == "" {
 		resolved.OutputFormat = defaultOutputFormat
@@ -446,6 +472,10 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"ca_bundle":                         resolved.CABundle,
 		"update_disable_strict_version":     resolved.UpdateDisableStrictVersion,
 		"update_metadata_cache_ttl_seconds": resolved.UpdateMetadataCacheTTLSeconds,
+		"update_channel":                    resolved.UpdateChannel,
+		"update_auto_upgrade_enabled":       resolved.UpdateAutoUpgradeEnabled,
+		"update_auto_upgrade_mode":          resolved.UpdateAutoUpgradeMode,
+		"update_allow_ws_push_trigger":      resolved.UpdateAllowWSPushTrigger,
 		"config_exists":                     resolved.ConfigExists,
 		"config_error":                      resolved.ConfigError,
 		"env_hits":                          resolved.EnvHits,

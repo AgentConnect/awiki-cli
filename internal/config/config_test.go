@@ -317,3 +317,46 @@ func TestResolveRejectsUnsupportedHostNotifySink(t *testing.T) {
 		t.Fatalf("Resolve() error = %q, want runtime.host_notify.sink", err.Error())
 	}
 }
+
+func TestResolveIncludesUpdateConfigDefaultsAndOverrides(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte(`update:
+  channel: prerelease
+  disable_strict_version: true
+  metadata_cache_ttl_seconds: 120
+  auto_upgrade_enabled: false
+  auto_upgrade_mode: notify
+  allow_ws_push_trigger: false
+`),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.UpdateChannel != "prerelease" {
+		t.Fatalf("resolved.UpdateChannel = %q, want prerelease", resolved.UpdateChannel)
+	}
+	if !resolved.UpdateDisableStrictVersion {
+		t.Fatal("resolved.UpdateDisableStrictVersion = false, want true")
+	}
+	if resolved.UpdateMetadataCacheTTLSeconds != 120 {
+		t.Fatalf("resolved.UpdateMetadataCacheTTLSeconds = %d, want 120", resolved.UpdateMetadataCacheTTLSeconds)
+	}
+	if resolved.UpdateAutoUpgradeEnabled {
+		t.Fatal("resolved.UpdateAutoUpgradeEnabled = true, want false")
+	}
+	if resolved.UpdateAutoUpgradeMode != "notify" {
+		t.Fatalf("resolved.UpdateAutoUpgradeMode = %q, want notify", resolved.UpdateAutoUpgradeMode)
+	}
+	if resolved.UpdateAllowWSPushTrigger {
+		t.Fatal("resolved.UpdateAllowWSPushTrigger = true, want false")
+	}
+}

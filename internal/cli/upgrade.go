@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/agentconnect/awiki-cli/internal/update"
@@ -22,32 +20,38 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 			"internal_error",
 			1,
 			err.Error(),
-			"Failed to check npm metadata for awiki-cli. Please ensure you have network access and try again.",
+			"Failed to check awiki update metadata. Please ensure the update service is reachable and try again.",
 		)
 	}
 
 	format := normalizedFormat(resolved.OutputFormat)
-
 	data := map[string]any{
 		"current_version":       decision.CurrentVersion,
 		"latest_version":        decision.LatestVersion,
 		"min_supported_version": decision.MinSupportedVersion,
+		"channel":               decision.Channel,
+		"published_at":          decision.PublishedAt,
+		"source":                decision.Source,
 		"strict_disabled":       decision.StrictDisabled,
 		"dev_build":             decision.DevBuild,
 		"has_newer_version":     decision.HasNewerVersion,
 		"blocked":               decision.Blocked,
-		"upgrade_hint":          "To upgrade awiki-cli, run: npm install -g @awiki/cli@latest",
+		"artifact_available":    decision.ArtifactAvailable,
+		"artifact_url":          decision.ArtifactURL,
+		"artifact_sha256":       decision.ArtifactSHA256,
+		"skill_bundle_version":  decision.SkillBundleVersion,
+		"skill_bundle_sha256":   decision.SkillBundleSHA256,
+		"root_skill_sha256":     decision.RootSkillSHA256,
+		"upgrade_hint":          "Inspect the current update status now. Automatic binary installation will be implemented in a later phase.",
+		"upgrade_attempted":     false,
 	}
-
-	upgradeAttempted := false
 
 	summary := "awiki-cli is up to date"
 	var warnings []string
-
 	if decision.Blocked {
 		summary = "awiki-cli version is below the minimum supported version"
 		warnings = append(warnings, fmt.Sprintf(
-			"awiki-cli %s is below the minimum supported version %s. Upgrading is required before using remote APIs.",
+			"awiki-cli %s is below the minimum supported version %s. An upgrade is required before using remote APIs.",
 			decision.CurrentVersion,
 			decision.MinSupportedVersion,
 		))
@@ -57,33 +61,8 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 		} else {
 			summary = "A newer awiki-cli version may be available"
 		}
-		warnings = append(warnings, "Upgrading is recommended to stay on a supported version.")
+		warnings = append(warnings, "Upgrade execution is not enabled in this phase. Use your current bootstrap install flow if you need to reinstall awiki-cli.")
 	}
-
-	// 自动执行 npm 全局升级：在存在新版本或已低于最小支持版本时触发。
-	// 若开启了全局 --dry-run，则只报告状态而不执行实际升级。
-	if !a.globals.DryRun && (decision.Blocked || decision.HasNewerVersion) {
-		upgradeAttempted = true
-		if err := runNpmGlobalInstall(cmd); err != nil {
-			hint := "Ensure npm is installed, your PATH is configured, and you have permission to install global packages, then retry `awiki-cli upgrade`."
-			return output.NewExitError("upgrade_failed", 1, err.Error(), hint)
-		}
-		warnings = append(warnings, "Attempted to upgrade via `npm install -g @awiki/cli@latest`. Open a new shell and run `awiki-cli version` to verify.")
-	}
-
-	data["upgrade_attempted"] = upgradeAttempted
 
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
-}
-
-// runNpmGlobalInstall runs `npm install -g @awiki/cli@latest` in the current environment,
-// streaming stdout/stderr directly to the caller's terminal.
-func runNpmGlobalInstall(cmd *cobra.Command) error {
-	npmCmd := exec.CommandContext(cmd.Context(), "npm", "install", "-g", "@awiki/cli@latest")
-	npmCmd.Stdout = os.Stdout
-	npmCmd.Stderr = os.Stderr
-	if err := npmCmd.Run(); err != nil {
-		return fmt.Errorf("failed to run `npm install -g @awiki/cli@latest`: %w", err)
-	}
-	return nil
 }
