@@ -16,18 +16,30 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 		return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
 	}
 
-	decision, err := update.Check(resolved)
-	if err != nil {
-		return output.NewExitError(
-			"internal_error",
-			1,
-			err.Error(),
-			"Failed to check npm metadata for awiki-cli. Please ensure you have network access and try again.",
-		)
-	}
+	decision, checkErr := update.Check(resolved)
 
 	format := normalizedFormat(resolved.OutputFormat)
 
+	data, summary, warnings := buildUpgradeStatus(decision, checkErr)
+	upgradeAttempted := false
+
+	// 自动执行 npm 全局升级：在存在新版本或已低于最小支持版本时触发。
+	// 若开启了全局 --dry-run，则只报告状态而不执行实际升级。
+	if checkErr == nil && !a.globals.DryRun && (decision.Blocked || decision.HasNewerVersion) {
+		upgradeAttempted = true
+		if err := runNpmGlobalInstall(cmd); err != nil {
+			hint := "Ensure npm is installed, your PATH is configured, and you have permission to install global packages, then retry `awiki-cli upgrade`."
+			return output.NewExitError("upgrade_failed", 1, err.Error(), hint)
+		}
+		warnings = append(warnings, "Attempted to upgrade via `npm install -g @awiki/cli@latest`. Open a new shell and run `awiki-cli version` to verify.")
+	}
+
+	data["upgrade_attempted"] = upgradeAttempted
+
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
+}
+
+func buildUpgradeStatus(decision update.Decision, checkErr error) (map[string]any, string, []string) {
 	data := map[string]any{
 		"current_version":       decision.CurrentVersion,
 		"latest_version":        decision.LatestVersion,
@@ -39,7 +51,18 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 		"upgrade_hint":          "To upgrade awiki-cli, run: npm install -g @awiki/cli@latest",
 	}
 
-	upgradeAttempted := false
+	if checkErr != nil {
+		data["update_check_status"] = "unavailable"
+		data["update_check_error"] = checkErr.Error()
+		return data,
+			"Unable to check for awiki-cli updates",
+			[]string{
+				fmt.Sprintf("Failed to fetch npm metadata for awiki-cli: %v", checkErr),
+				"Showing local version status only. Retry `awiki-cli upgrade` when network access is available.",
+			}
+	}
+
+	data["update_check_status"] = "ok"
 
 	summary := "awiki-cli is up to date"
 	var warnings []string
@@ -60,20 +83,7 @@ func (a *App) runUpgrade(cmd *cobra.Command, args []string) error {
 		warnings = append(warnings, "Upgrading is recommended to stay on a supported version.")
 	}
 
-	// 自动执行 npm 全局升级：在存在新版本或已低于最小支持版本时触发。
-	// 若开启了全局 --dry-run，则只报告状态而不执行实际升级。
-	if !a.globals.DryRun && (decision.Blocked || decision.HasNewerVersion) {
-		upgradeAttempted = true
-		if err := runNpmGlobalInstall(cmd); err != nil {
-			hint := "Ensure npm is installed, your PATH is configured, and you have permission to install global packages, then retry `awiki-cli upgrade`."
-			return output.NewExitError("upgrade_failed", 1, err.Error(), hint)
-		}
-		warnings = append(warnings, "Attempted to upgrade via `npm install -g @awiki/cli@latest`. Open a new shell and run `awiki-cli version` to verify.")
-	}
-
-	data["upgrade_attempted"] = upgradeAttempted
-
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
+	return data, summary, warnings
 }
 
 // runNpmGlobalInstall runs `npm install -g @awiki/cli@latest` in the current environment,

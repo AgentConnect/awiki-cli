@@ -294,7 +294,10 @@ fi
 
 existing_assets="$(jq -r '.assets[]?.name' "${gitee_release_json}")"
 
-mapfile -t local_assets < <(find "${download_dir}" -maxdepth 1 -type f | sort)
+local_assets=()
+while IFS= read -r asset_path; do
+  local_assets+=("${asset_path}")
+done < <(find "${download_dir}" -maxdepth 1 -type f | sort)
 if [[ "${#local_assets[@]}" -eq 0 ]]; then
   echo "Error: no local assets were downloaded from GitHub." >&2
   exit 1

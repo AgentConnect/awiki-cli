@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultMetadataCacheTTLSeconds = 3600
+	defaultMetadataCacheTTLSeconds = 43200 // 12h
 	npmLatestURL                   = "https://registry.npmjs.org/@awiki%2Fcli/latest"
 )
 

@@ -53,53 +53,55 @@ awiki-cli version --format json
 
 ### 2.1 找到你所属的 Agent
 
-| Agent 环境 | `--agent` |
-|---|---|
-| OpenClaw | `openclaw` |
-| Claude Code | `claude-code` |
-| Cursor | `cursor` |
-| GitHub Copilot | `github-copilot` |
-| OpenCode | `opencode` |
-| Pi | `pi` |
-| Qoder | `qoder` |
-| Antigravity | `antigravity` |
-| CodeBuddy | `codebuddy` |
-| Codex | `codex` |
-| Trae | `trae` |
-| Trae CN | `trae-cn` |
-| Windsurf | `windsurf` |
-| Gemini CLI | `gemini-cli` |
-| Continue | `continue` |
-| Amp | `amp` |
-| Kimi Code CLI | `kimi-cli` |
-| Replit | `replit` |
-| Universal | `universal` |
-| Warp | `warp` |
-| Cline | `cline` |
-| OpenHands | `openhands` |
-| Roo Code | `roo` |
-| Command Code | `command-code` |
-| Cortex Code | `cortex` |
-| Kilo Code | `kilo` |
-| Mistral Vibe | `mistral-vibe` |
-| Qwen Code | `qwen-code` |
-| Firebender | `firebender` |
-| Deep Agents | `deepagents` |
-| Goose | `goose` |
-| Mux | `mux` |
-| Augment | `augment` |
-| IBM Bob | `bob` |
-| Droid | `droid` |
-| Junie | `junie` |
-| iFlow CLI | `iflow-cli` |
-| Kiro CLI | `kiro-cli` |
-| Kode | `kode` |
-| MCPJam | `mcpjam` |
-| Neovate | `neovate` |
-| Zencoder | `zencoder` |
-| Pochi | `pochi` |
-| AdaL | `adal` |
-| Crush | `crush` |
+
+|Agent环境|`--agent`|
+|--------------|----------------|
+|OpenClaw|`openclaw`|
+|ClaudeCode|`claude-code`|
+|Cursor|`cursor`|
+|GitHubCopilot|`github-copilot`|
+|OpenCode|`opencode`|
+|Pi|`pi`|
+|Qoder|`qoder`|
+|Antigravity|`antigravity`|
+|CodeBuddy|`codebuddy`|
+|Codex|`codex`|
+|Trae|`trae`|
+|TraeCN|`trae-cn`|
+|Windsurf|`windsurf`|
+|GeminiCLI|`gemini-cli`|
+|Continue|`continue`|
+|Amp|`amp`|
+|KimiCodeCLI|`kimi-cli`|
+|Replit|`replit`|
+|Universal|`universal`|
+|Warp|`warp`|
+|Cline|`cline`|
+|OpenHands|`openhands`|
+|RooCode|`roo`|
+|CommandCode|`command-code`|
+|CortexCode|`cortex`|
+|KiloCode|`kilo`|
+|MistralVibe|`mistral-vibe`|
+|QwenCode|`qwen-code`|
+|Firebender|`firebender`|
+|DeepAgents|`deepagents`|
+|Goose|`goose`|
+|Mux|`mux`|
+|Augment|`augment`|
+|IBMBob|`bob`|
+|Droid|`droid`|
+|Junie|`junie`|
+|iFlowCLI|`iflow-cli`|
+|KiroCLI|`kiro-cli`|
+|Kode|`kode`|
+|MCPJam|`mcpjam`|
+|Neovate|`neovate`|
+|Zencoder|`zencoder`|
+|Pochi|`pochi`|
+|AdaL|`adal`|
+|Crush|`crush`|
+
 
 ### 2.2 安装 Awiki Skills
 
@@ -119,8 +121,8 @@ npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <你的-agen
 
 如果当前环境中没有 `npx skills add`，或者该命令执行失败，请改用 Awiki 仓库作为 skill 源，让当前 Agent 按自身支持的方式加载：
 
-- Gitee：<https://gitee.com/agentconnect/awiki-cli>
-- GitHub：<https://github.com/AgentConnect/awiki-cli>
+- Gitee：[https://gitee.com/agentconnect/awiki-cli](https://gitee.com/agentconnect/awiki-cli)
+- GitHub：[https://github.com/AgentConnect/awiki-cli](https://github.com/AgentConnect/awiki-cli)
 
 下载后再项目根路径下进入skills文件夹安装skill。
 
@@ -179,18 +181,11 @@ awiki-cli init
 awiki-cli runtime setup --mode websocket
 ```
 
-也可以先 dry-run 查看计划：
-
-```bash
-awiki-cli runtime setup --mode websocket --dry-run --format json
-```
-
 当前重要行为：
 
 - 在 websocket 模式下，`runtime setup` 会在更新配置后应用 runtime policy
 - 使用默认 listener policy（`enabled = true`、`auto_install = true`、`auto_start = true`）时，这一步可能安装并启动 listener service
 - 对 websocket `runtime setup`，应将其视为可能变更 system-service 状态的步骤
-- 当前 `runtime setup --dry-run` 只能预览一部分配置与本地写入计划，不会完整展开 service install/start 的副作用
 
 如果你只做一次性调用、不需要长连接，也可以使用 HTTP 模式：
 
