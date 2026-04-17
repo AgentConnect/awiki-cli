@@ -216,6 +216,7 @@ func defaultSpecs() []CommandSpec {
 		{Name: "page.delete", Use: "delete", Short: "Delete a content page", Phase: "phase8", Implemented: true, Handler: "page.delete", SideEffect: true, Outputs: []string{"json", "pretty"}, Flags: []FlagSpec{{Name: "slug", Type: "string", Usage: "Page slug", Required: true}}},
 		{Name: "debug", Use: "debug", Short: "Debugging and raw inspection commands", Phase: "phase1", Implemented: true},
 		{Name: "debug.db", Use: "db", Short: "Database inspection helpers", Phase: "phase4", Implemented: true},
+		{Name: "debug.db.handle-history", Use: "handle-history <HANDLE>", Short: "Show the local DID history recorded for one handle", Phase: "phase5", Implemented: true, Handler: "debug.db.handle-history", Outputs: []string{"json", "pretty", "table"}},
 		{Name: "debug.db.query", Use: "query <SQL>", Short: "Execute a local SQLite query", Phase: "phase4", Implemented: true, Handler: "debug.db.query", Outputs: []string{"json", "pretty", "table"}},
 		{Name: "debug.db.import-v1", Use: "import-v1", Short: "Import a legacy v1 local SQLite database", Phase: "phase4", Implemented: true, Handler: "debug.db.import-v1", SideEffect: true, Outputs: []string{"json", "pretty"}, Flags: []FlagSpec{{Name: "path", Type: "string", Usage: "Explicit legacy database path override"}}},
 		{Name: "debug.raw", Use: "raw", Short: "Raw RPC helpers", Phase: "phase1", Implemented: false},

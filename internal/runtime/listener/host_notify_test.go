@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -187,7 +189,16 @@ func TestNormalizeHostNotificationGroupStateChangedInfersEventType(t *testing.T)
 func TestHandleNotificationDispatchesHostNotificationToSink(t *testing.T) {
 	t.Parallel()
 
-	resolved := testResolvedConfig(t, "https://awiki.test")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/handle/rpc" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"handle":"bob","did":"did:wba:example.com:user:bob:e1_bob","domain":"awiki.ai","status":"active","full_handle":"bob.awiki.ai"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	resolved := testResolvedConfig(t, server.URL)
 	supervisor, err := NewSupervisor(resolved)
 	if err != nil {
 		t.Fatalf("NewSupervisor() error = %v", err)
@@ -201,7 +212,7 @@ func TestHandleNotificationDispatchesHostNotificationToSink(t *testing.T) {
 	supervisor.status.HostNotify.Sink = "capture"
 	supervisor.statusMu.Unlock()
 
-	session := &session{record: &identity.StoredIdentity{IdentityName: "alice", DID: "did:wba:awiki.ai:user:alice:e1_alice"}}
+	session := &session{record: &identity.StoredIdentity{IdentityName: "alice", DID: "did:wba:awiki.ai:user:alice:e1_alice", Handle: "alice"}}
 	supervisor.handleNotification(context.Background(), session, map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "direct.incoming",
@@ -226,6 +237,16 @@ func TestHandleNotificationDispatchesHostNotificationToSink(t *testing.T) {
 	}
 	if capturing.events[0].Topic != "im.message.received" {
 		t.Fatalf("capturing.events[0].Topic = %q, want im.message.received", capturing.events[0].Topic)
+	}
+	data, ok := capturing.events[0].Data.(DirectMessageNotificationData)
+	if !ok {
+		t.Fatalf("capturing.events[0].Data type = %T, want DirectMessageNotificationData", capturing.events[0].Data)
+	}
+	if data.SenderHandle != "bob" {
+		t.Fatalf("data.SenderHandle = %q, want bob", data.SenderHandle)
+	}
+	if data.RecipientHandle != "alice" {
+		t.Fatalf("data.RecipientHandle = %q, want alice", data.RecipientHandle)
 	}
 }
 

@@ -274,6 +274,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyOpenClawRouteRemove
 	case "debug.db.query":
 		return a.runDebugDBQuery
+	case "debug.db.handle-history":
+		return a.runDebugDBHandleHistory
 	case "debug.db.import-v1":
 		return a.runDebugDBImportV1
 	case "completion.bash":
@@ -304,6 +306,9 @@ func (a *App) runStatus(cmd *cobra.Command, args []string) error {
 	result, err := service.Status()
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the local identity store.")
+	}
+	if result == nil {
+		return commandResultMissing(cmd.CommandPath())
 	}
 	data := map[string]any{
 		"cli": map[string]any{

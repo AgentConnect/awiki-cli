@@ -25,6 +25,7 @@ import (
 type Supervisor struct {
 	resolved *appconfig.Resolved
 	manager  *identity.Manager
+	remote   *identity.RemoteClient
 	statusMu sync.Mutex
 	status   Status
 
@@ -78,9 +79,16 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	remote, err := identity.NewRemoteClient(resolved)
+	if err != nil {
+		_ = db.Close()
+		_ = hostNotifySink.Close()
+		return nil, err
+	}
 	return &Supervisor{
 		resolved: resolved,
 		manager:  identity.NewManager(resolved.Paths),
+		remote:   remote,
 		status: Status{
 			Mode:       runtime.Resolve(resolved).Mode,
 			Installed:  runningInListenerServiceMode(),
@@ -465,11 +473,15 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 	receivedAt := time.Now().UTC()
 	event, shouldNotify := NormalizeHostNotification(notification, receivedAt)
 	if record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName); ok {
+		senderHandle, _ := s.syncIncomingContact(ctx, session, record.SenderDID, "direct.incoming", "")
+		ApplyHostNotificationHandles(event, senderHandle, normalizeListenerHandle(session.record.Handle))
 		_ = store.StoreMessage(ctx, s.db, record)
 		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return
 	}
 	if record, ok := messageRecordFromGroupIncoming(notification, session.record.IdentityName); ok {
+		senderHandle, _ := s.syncIncomingContact(ctx, session, record.SenderDID, "group.incoming", record.GroupDID)
+		ApplyHostNotificationHandles(event, senderHandle, normalizeListenerHandle(session.record.Handle))
 		_ = store.StoreMessage(ctx, s.db, record)
 		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return

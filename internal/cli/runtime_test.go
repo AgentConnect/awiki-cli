@@ -52,8 +52,6 @@ func TestHostNotifyConfigViewRedactsOpenClawTokenValue(t *testing.T) {
 }
 
 func TestRefreshListenerForHostNotifyChangeRestartsRunningListener(t *testing.T) {
-	t.Parallel()
-
 	originalStatusFor := listenerStatusForFunc
 	originalStop := listenerStopFunc
 	originalBootstrap := runtimeBootstrapFunc
@@ -104,8 +102,6 @@ func TestRefreshListenerForHostNotifyChangeRestartsRunningListener(t *testing.T)
 }
 
 func TestRefreshListenerForHostNotifyChangeWarnsWhenListenerIsStopped(t *testing.T) {
-	t.Parallel()
-
 	originalStatusFor := listenerStatusForFunc
 	originalStop := listenerStopFunc
 	originalBootstrap := runtimeBootstrapFunc

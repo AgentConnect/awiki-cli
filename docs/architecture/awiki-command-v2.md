@@ -185,6 +185,7 @@ awiki-cli discovery recommend --group GROUP_ID
 awiki-cli discovery draft-intro --group GROUP_ID
 awiki-cli discovery draft-dm --group GROUP_ID --member DID
 
+awiki-cli debug db handle-history alice
 awiki-cli debug db query "SELECT ..."
 awiki-cli debug raw rpc ...
 awiki-cli debug schema-cache

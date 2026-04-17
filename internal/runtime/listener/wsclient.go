@@ -20,6 +20,7 @@ import (
 
 type WSClient struct {
 	requestURL    string
+	didAuthURL    string
 	websocketURL  string
 	httpClient    *http.Client
 	auth          *authsdk.Session
@@ -53,8 +54,10 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		return nil, fmt.Errorf("service base url is required for websocket mode")
 	}
 	targetWSURL := appconfig.DeriveWebSocketURL(resolved.ServiceBaseURL, message.MessageWSEndpoint)
+	didAuthURL := appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
 	return &WSClient{
 		requestURL:    targetHTTPURL,
+		didAuthURL:    didAuthURL,
 		websocketURL:  targetWSURL,
 		httpClient:    &http.Client{},
 		auth:          auth,
@@ -64,50 +67,35 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 }
 
 func (c *WSClient) Connect(ctx context.Context) error {
-	if token := strings.TrimSpace(c.auth.CurrentJWT()); token != "" {
-		conn, response, err := c.dial(ctx, map[string]string{
-			"Authorization": "Bearer " + token,
-		})
+	token := strings.TrimSpace(c.auth.CurrentJWT())
+	if token != "" {
+		conn, response, err := c.dialBearer(ctx, token)
 		if err == nil {
-			if response != nil {
-				c.auth.CaptureToken(c.requestURL, response.Header)
-			}
-			c.conn = conn
-			go c.readLoop()
+			c.attach(conn, response)
 			return nil
 		}
 		if response == nil || response.StatusCode != http.StatusUnauthorized {
 			return formatDialError(err, response)
 		}
 	}
-	headers, err := c.auth.Headers(c.requestURL, http.MethodGet, nil, false)
-	if err != nil {
+	// /im/ws currently relies on a bearer session in practice, so after a 401
+	// we refresh the JWT via did-auth and retry bearer instead of falling back
+	// to HTTP-signature websocket upgrade auth.
+	if err := c.refreshBearer(ctx); err != nil {
+		if token != "" {
+			return fmt.Errorf("refresh websocket session JWT: %w", err)
+		}
 		return err
 	}
-	conn, response, err := c.dial(ctx, headers)
+	refreshedToken := strings.TrimSpace(c.auth.CurrentJWT())
+	if refreshedToken == "" {
+		return fmt.Errorf("did-auth did not return a websocket bearer token")
+	}
+	conn, response, err := c.dialBearer(ctx, refreshedToken)
 	if err != nil {
-		if response != nil && response.StatusCode == http.StatusUnauthorized {
-			var retryHeaders map[string]string
-			if c.auth.ShouldRetryAfter401(response.Header) {
-				retryHeaders, err = c.auth.ChallengeHeaders(c.requestURL, response.Header, http.MethodGet, nil)
-			} else {
-				c.auth.ClearToken(c.requestURL)
-				retryHeaders, err = c.auth.Headers(c.requestURL, http.MethodGet, nil, true)
-			}
-			if err != nil {
-				return err
-			}
-			conn, response, err = c.dial(ctx, retryHeaders)
-		}
-		if err != nil {
-			return formatDialError(err, response)
-		}
+		return formatDialError(err, response)
 	}
-	if response != nil {
-		c.auth.CaptureToken(c.requestURL, response.Header)
-	}
-	c.conn = conn
-	go c.readLoop()
+	c.attach(conn, response)
 	return nil
 }
 
@@ -121,6 +109,33 @@ func (c *WSClient) dial(ctx context.Context, headers map[string]string) (*websoc
 		HTTPHeader:      httpHeaders,
 		CompressionMode: websocket.CompressionDisabled,
 	})
+}
+
+func (c *WSClient) dialBearer(ctx context.Context, token string) (*websocket.Conn, *http.Response, error) {
+	return c.dial(ctx, map[string]string{
+		"Authorization": "Bearer " + strings.TrimSpace(token),
+	})
+}
+
+func (c *WSClient) refreshBearer(ctx context.Context) error {
+	if c == nil || c.auth == nil {
+		return fmt.Errorf("auth session is required for websocket mode")
+	}
+	if strings.TrimSpace(c.didAuthURL) == "" {
+		return fmt.Errorf("did-auth rpc url is required for websocket mode")
+	}
+	if _, err := c.auth.EnsureJWT(ctx, c.httpClient, c.didAuthURL); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *WSClient) attach(conn *websocket.Conn, response *http.Response) {
+	if response != nil {
+		c.auth.CaptureToken(c.requestURL, response.Header)
+	}
+	c.conn = conn
+	go c.readLoop()
 }
 
 func formatDialError(err error, response *http.Response) error {

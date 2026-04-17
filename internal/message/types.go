@@ -14,6 +14,7 @@ var (
 	ErrTargetRequired         = errors.New("direct message target is required")
 	ErrGroupRequired          = errors.New("group target is required")
 	ErrMemberRequired         = errors.New("group member target is required")
+	ErrGroupOwnerCannotLeave  = errors.New("group owner cannot leave the group")
 	ErrTextRequired           = errors.New("message text is required")
 	ErrFilePathRequired       = errors.New("attachment file path is required")
 	ErrMimeTypeWithoutFile    = errors.New("mime_type requires an attachment file")

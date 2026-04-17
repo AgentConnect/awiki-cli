@@ -175,11 +175,28 @@ func (s *Session) DoJSONRPC(ctx context.Context, client *http.Client, requestURL
 }
 
 func (s *Session) EnsureJWT(ctx context.Context, client *http.Client, requestURL string) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("auth session is not configured")
+	}
+	if scope := authScope(requestURL); scope != "" {
+		s.persistent[scope] = struct{}{}
+	}
 	var result map[string]any
 	if err := s.DoJSONRPC(ctx, client, requestURL, http.MethodPost, "get_me", map[string]any{}, &result); err != nil {
 		return "", err
 	}
-	return s.jwtToken, nil
+	if token, _ := result["access_token"].(string); strings.TrimSpace(token) != "" {
+		s.SetBearer(requestURL, token)
+		s.jwtToken = strings.TrimSpace(token)
+		if s.persistToken != nil {
+			_ = s.persistToken(s.jwtToken)
+		}
+		return s.jwtToken, nil
+	}
+	if token := strings.TrimSpace(s.jwtToken); token != "" {
+		return token, nil
+	}
+	return "", fmt.Errorf("did-auth get_me succeeded but no access token was returned")
 }
 
 func (s *Session) DoJSON(ctx context.Context, client *http.Client, method string, requestURL string, payload any, out any) error {

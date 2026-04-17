@@ -261,8 +261,6 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 }
 
 func TestNewSupervisorMarksInstalledWhenRunningAsService(t *testing.T) {
-	t.Parallel()
-
 	t.Setenv(listenerServiceModeEnv, "1")
 
 	resolved := testResolvedConfig(t, "https://awiki.test")

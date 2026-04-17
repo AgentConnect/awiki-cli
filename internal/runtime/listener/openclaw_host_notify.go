@@ -89,12 +89,12 @@ func buildOpenClawHookRequest(event HostNotificationEvent, hookName string, chan
 }
 
 func buildOpenClawAgentHookMessage(event HostNotificationEvent) (string, error) {
-	messageType, groupID, senderDID, receiverDID, content := openClawEventPromptParts(event)
+	messageType, groupID, senderHandle, senderDID, receiverHandle, receiverDID, content := openClawEventPromptParts(event)
 	lines := []string{
 		"You received a new im message from awiki.",
-		"Sender handle: unknown",
+		fmt.Sprintf("Sender handle: %s", fallbackString(senderHandle, "unknown")),
 		fmt.Sprintf("Sender DID: %s", fallbackString(senderDID, "unknown")),
-		"Receiver handle: unknown",
+		fmt.Sprintf("Receiver handle: %s", fallbackString(receiverHandle, "unknown")),
 		fmt.Sprintf("Receiver DID: %s", fallbackString(receiverDID, "unknown")),
 		fmt.Sprintf("Message type: %s", messageType),
 		fmt.Sprintf("Group ID: %s", groupID),
@@ -105,12 +105,79 @@ func buildOpenClawAgentHookMessage(event HostNotificationEvent) (string, error) 
 	return strings.Join(lines, "\n"), nil
 }
 
-func openClawEventPromptParts(event HostNotificationEvent) (messageType string, groupID string, senderDID string, receiverDID string, content string) {
+func buildOpenClawEventText(event HostNotificationEvent) string {
+	header, metadata, content := openClawEventTextParts(event)
+	lines := []string{header}
+	lines = append(lines, metadata...)
+	lines = append(lines, "", content)
+	return strings.Join(lines, "\n")
+}
+
+func openClawEventTextParts(event HostNotificationEvent) (string, []string, string) {
 	switch data := event.Data.(type) {
 	case DirectMessageNotificationData:
-		return "private", "N/A", data.SenderDID, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+		lines := []string{}
+		if strings.TrimSpace(data.SenderHandle) != "" {
+			lines = append(lines, "sender_handle: "+data.SenderHandle)
+		}
+		if strings.TrimSpace(data.SenderDID) != "" {
+			lines = append(lines, "sender_did: "+data.SenderDID)
+		}
+		if strings.TrimSpace(data.RecipientHandle) != "" {
+			lines = append(lines, "recipient_handle: "+data.RecipientHandle)
+		}
+		if strings.TrimSpace(data.CreatedAt) != "" {
+			lines = append(lines, "sent_at: "+data.CreatedAt)
+		}
+		return "[Awiki New Direct Message]", lines, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
 	case GroupMessageNotificationData:
-		return "group", fallbackString(data.GroupDID, "N/A"), data.SenderDID, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+		lines := []string{}
+		if strings.TrimSpace(data.SenderHandle) != "" {
+			lines = append(lines, "sender_handle: "+data.SenderHandle)
+		}
+		if strings.TrimSpace(data.SenderDID) != "" {
+			lines = append(lines, "sender_did: "+data.SenderDID)
+		}
+		if strings.TrimSpace(data.RecipientHandle) != "" {
+			lines = append(lines, "recipient_handle: "+data.RecipientHandle)
+		}
+		if strings.TrimSpace(data.GroupDID) != "" {
+			lines = append(lines, "group_did: "+data.GroupDID)
+		}
+		if strings.TrimSpace(data.AcceptedAt) != "" {
+			lines = append(lines, "sent_at: "+data.AcceptedAt)
+		}
+		return "[Awiki New Group Message]", lines, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+	case GroupStateChangedNotificationData:
+		lines := []string{}
+		if strings.TrimSpace(data.ActorDID) != "" {
+			lines = append(lines, "actor_did: "+data.ActorDID)
+		}
+		if strings.TrimSpace(data.GroupDID) != "" {
+			lines = append(lines, "group_did: "+data.GroupDID)
+		}
+		if strings.TrimSpace(data.ChangedAt) != "" {
+			lines = append(lines, "sent_at: "+data.ChangedAt)
+		}
+		content := strings.TrimSpace(strings.Join([]string{
+			"event_type=" + fallbackString(data.EventType, "unknown"),
+			"subject_method=" + fallbackString(data.SubjectMethod, "unknown"),
+			"subject_did=" + fallbackString(data.SubjectDID, "unknown"),
+			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
+		}, " "))
+		return "[Awiki Group State Changed]", lines, content
+	default:
+		raw, _ := json.Marshal(event)
+		return "[Awiki Notification]", nil, string(raw)
+	}
+}
+
+func openClawEventPromptParts(event HostNotificationEvent) (messageType string, groupID string, senderHandle string, senderDID string, receiverHandle string, receiverDID string, content string) {
+	switch data := event.Data.(type) {
+	case DirectMessageNotificationData:
+		return "private", "N/A", data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+	case GroupMessageNotificationData:
+		return "group", fallbackString(data.GroupDID, "N/A"), data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
 	case GroupStateChangedNotificationData:
 		content = strings.TrimSpace(strings.Join([]string{
 			"Group state changed.",
@@ -119,9 +186,9 @@ func openClawEventPromptParts(event HostNotificationEvent) (messageType string, 
 			"subject_did=" + fallbackString(data.SubjectDID, "unknown"),
 			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
 		}, " "))
-		return "group", fallbackString(data.GroupDID, "N/A"), data.ActorDID, data.RecipientDID, content
+		return "group", fallbackString(data.GroupDID, "N/A"), "", data.ActorDID, "", data.RecipientDID, content
 	default:
 		raw, _ := json.Marshal(event)
-		return "notification", "N/A", "unknown", "unknown", string(raw)
+		return "notification", "N/A", "unknown", "unknown", "unknown", "unknown", string(raw)
 	}
 }

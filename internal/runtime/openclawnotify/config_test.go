@@ -9,8 +9,6 @@ import (
 )
 
 func TestProbeGatewayPortReadsEnvBeforeConfig(t *testing.T) {
-	t.Parallel()
-
 	t.Setenv(GatewayPortEnv, "25307")
 	probe := ProbeGatewayPort(DefaultGatewayPort)
 	if probe.Port != 25307 {
@@ -22,8 +20,6 @@ func TestProbeGatewayPortReadsEnvBeforeConfig(t *testing.T) {
 }
 
 func TestProbeGatewayPortReadsOpenClawConfig(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	configPath := filepath.Join(root, "openclaw.json")
 	if err := os.WriteFile(configPath, []byte(`{"gateway":{"port":25307},"hooks":{"path":"/custom-hooks","token":"hook-token"}}`), 0o600); err != nil {
@@ -52,8 +48,6 @@ func TestProbeGatewayPortReadsOpenClawConfig(t *testing.T) {
 }
 
 func TestResolveSettingsUsesAutoDetectedHookURLWhenConfigHookURLUnset(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(configPath, []byte("runtime:\n  host_notify:\n    sink: openclaw\n"), 0o600); err != nil {
@@ -105,8 +99,6 @@ func TestResolveSettingsUsesAutoDetectedHookURLWhenConfigHookURLUnset(t *testing
 }
 
 func TestResolveSettingsPrefersConfigTokenOverEnvironmentAndOpenClawConfig(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(configPath, []byte("runtime:\n  host_notify:\n    sink: openclaw\n    openclaw:\n      token: config-token\n"), 0o600); err != nil {
@@ -141,8 +133,6 @@ func TestResolveSettingsPrefersConfigTokenOverEnvironmentAndOpenClawConfig(t *te
 }
 
 func TestResolveSettingsPrefersEnvironmentTokenOverOpenClawConfig(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
 	configPath := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(configPath, []byte("runtime:\n  host_notify:\n    sink: openclaw\n"), 0o600); err != nil {
