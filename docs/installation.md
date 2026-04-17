@@ -179,8 +179,8 @@ services:
 - `runtime.host_notify.enabled` 默认是 `true`
 - `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
 - `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
-- `runtime.host_notify.openclaw.hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 自动推导有效的 webhook URL
-- `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供
+- `runtime.host_notify.openclaw.hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 和 `hooks.path` 自动推导有效的 webhook URL
+- `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供；两者都未设置时，awiki-cli 会回退读取 `~/.openclaw/openclaw.json` 中的 `hooks.token`
 - `output.format` 默认是 `json`
 - `services.service_base_url` 默认是 `https://awiki.ai`
 - `services.did_domain` 默认是 `awiki.ai`

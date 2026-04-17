@@ -125,7 +125,7 @@
 1. `awiki-cli runtime host-notify config show`
 2. `awiki-cli runtime host-notify config set --sink openclaw --dry-run`
 3. `awiki-cli runtime host-notify config set --sink openclaw`
-4. 如果 OpenClaw hooks 启用了 token：`awiki-cli runtime host-notify openclaw set-token --value <token>`
+4. 如果 OpenClaw hooks 启用了 token，但你不想依赖 `~/.openclaw/openclaw.json` 中的 `hooks.token` 自动探测：`awiki-cli runtime host-notify openclaw set-token --value <token>`
 5. 由宿主 agent 执行：
    - `awiki-cli runtime host-notify openclaw route add --session-key <session-key>`
    - 或 `awiki-cli runtime host-notify openclaw route add --channel <channel> --to <target>`

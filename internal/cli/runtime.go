@@ -573,10 +573,12 @@ func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string)
 	}
 	data := map[string]any{
 		"openclaw": map[string]any{
-			"hook_url":                settings.HookURL,
-			"hook_url_source":         settings.HookURLSource,
-			"detected_webhook_port":   settings.DetectedWebhookPort,
-			"detected_webhook_source": settings.DetectedWebhookPortInfo.Source,
+			"hook_url":                     settings.HookURL,
+			"hook_url_source":              settings.HookURLSource,
+			"detected_webhook_port":        settings.DetectedWebhookPort,
+			"detected_webhook_source":      settings.DetectedWebhookPortInfo.Source,
+			"detected_webhook_path":        settings.DetectedWebhookPath,
+			"detected_webhook_path_source": settings.DetectedWebhookPathInfo.Source,
 		},
 	}
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw host notify config updated", nil, identityMetaFromResolved(resolved))
@@ -644,12 +646,14 @@ func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) 
 		"route_registry_path": openclawnotify.RoutesPath(resolved.Paths),
 		"routes":              routes,
 		"openclaw": map[string]any{
-			"hook_url":                settings.HookURL,
-			"hook_url_source":         settings.HookURLSource,
-			"detected_webhook_port":   settings.DetectedWebhookPort,
-			"detected_webhook_source": settings.DetectedWebhookPortInfo.Source,
-			"token_configured":        settings.TokenConfigured,
-			"token_source":            settings.TokenSource,
+			"hook_url":                     settings.HookURL,
+			"hook_url_source":              settings.HookURLSource,
+			"detected_webhook_port":        settings.DetectedWebhookPort,
+			"detected_webhook_source":      settings.DetectedWebhookPortInfo.Source,
+			"detected_webhook_path":        settings.DetectedWebhookPath,
+			"detected_webhook_path_source": settings.DetectedWebhookPathInfo.Source,
+			"token_configured":             settings.TokenConfigured,
+			"token_source":                 settings.TokenSource,
 		},
 	}, nil
 }

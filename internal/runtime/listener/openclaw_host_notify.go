@@ -11,8 +11,8 @@ import (
 )
 
 type openClawHostNotifySink struct {
-	webhook  *openclawnotify.WebhookClient
 	paths    appconfig.Paths
+	resolved *appconfig.Resolved
 	hookName string
 }
 
@@ -21,18 +21,26 @@ func newOpenClawHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, er
 	if err != nil {
 		return nil, err
 	}
-	webhook, err := openclawnotify.NewWebhookClient(settings.HookURL, settings.Token)
-	if err != nil {
+	if _, err := openclawnotify.NewWebhookClient(settings.HookURL, settings.Token); err != nil {
 		return nil, err
 	}
 	return &openClawHostNotifySink{
-		webhook:  webhook,
 		paths:    resolved.Paths,
+		resolved: resolved,
 		hookName: openclawnotify.FixedHookName,
 	}, nil
 }
 
 func (s *openClawHostNotifySink) Notify(ctx context.Context, event HostNotificationEvent) error {
+	settings, err := openclawnotify.ResolveSettings(s.resolved)
+	if err != nil {
+		return fmt.Errorf("openclaw notify failed: resolve settings: %w", err)
+	}
+	webhook, err := openclawnotify.NewWebhookClient(settings.HookURL, settings.Token)
+	if err != nil {
+		return fmt.Errorf("openclaw notify failed: prepare webhook client: %w", err)
+	}
+
 	routes, err := openclawnotify.LoadRoutes(s.paths)
 	if err != nil {
 		return fmt.Errorf("openclaw notify failed: load routes: %w", err)
@@ -49,7 +57,7 @@ func (s *openClawHostNotifySink) Notify(ctx context.Context, event HostNotificat
 			failures = append(failures, fmt.Sprintf("channel=%s to=%s: %v", route.Channel, route.To, err))
 			continue
 		}
-		if _, err := s.webhook.Send(ctx, request); err != nil {
+		if _, err := webhook.Send(ctx, request); err != nil {
 			failures = append(failures, fmt.Sprintf("channel=%s to=%s: %v", route.Channel, route.To, err))
 			continue
 		}

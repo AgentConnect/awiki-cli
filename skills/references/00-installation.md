@@ -237,11 +237,11 @@ awiki-cli runtime listener status --format json
 
 重点说明：
 
-- `path` 建议保持 `/hooks`，这样 awiki-cli 才能按 `http://127.0.0.1:<gateway-port>/hooks/agent` 自动推导 webhook URL
+- `path` 建议保持 `/hooks`；如果你改成别的值，awiki-cli 也会按 `gateway.port + hooks.path + /agent` 自动推导 webhook URL
 - `allowRequestSessionKey` 可以保持 `false`
 - token 是否启用由 OpenClaw 配置决定；如果启用了，就需要在 awiki-cli 里写入同一个 token
 
-也就是说，**Webhook 要先改 OpenClaw 配置里的 hooks 和 agent id，再回到 awiki-cli 启用 openclaw sink 并注册 route**。
+也就是说，**Webhook 要先改 OpenClaw 配置里的 hooks，再回到 awiki-cli 启用 openclaw sink 并注册 route**。
 
 建议命令顺序：
 
@@ -257,8 +257,12 @@ awiki-cli runtime host-notify config show
 说明：
 
 - `runtime host-notify` 默认是启用的，但默认 `sink` 是 `log`；如果要通知宿主智能体，需要把 `sink` 改成 `openclaw`
-- `hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port`，自动推导出有效的 `http://127.0.0.1:<port>/hooks/agent`
-- 如果 OpenClaw hooks 启用了 token 校验，需要使用 `runtime host-notify openclaw set-token --value <token>` 写入 token
+- `hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 和 `hooks.path`，自动推导出有效的 webhook URL
+- 如果 OpenClaw hooks 启用了 token 校验，awiki-cli 会按以下顺序解析 token：
+  - `runtime.host_notify.openclaw.token`
+  - `OPENCLAW_HOOK_TOKEN`
+  - `~/.openclaw/openclaw.json` 中的 `hooks.token`
+- 如果你希望显式覆盖自动探测到的 token，仍然可以使用 `runtime host-notify openclaw set-token --value <token>` 写入 token
 - `runtime host-notify config show` 会显示 token 是否已配置，但不会暴露 token 内容
 - `route add` 支持两种输入方式：
   - 显式指定 `--channel <channel> --to <target>`
