@@ -454,6 +454,9 @@ func (s *Supervisor) consumeNotifications(ctx context.Context, session *session,
 }
 
 func (s *Supervisor) handleNotification(ctx context.Context, session *session, notification map[string]any) {
+	if s.handleUpgradeNotification(session, notification) {
+		return
+	}
 	receivedAt := time.Now().UTC()
 	event, shouldNotify := NormalizeHostNotification(notification, receivedAt)
 	if record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName); ok {

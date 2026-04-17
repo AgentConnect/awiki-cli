@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
+	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/coder/websocket"
@@ -23,6 +24,7 @@ type WSClient struct {
 	websocketURL  string
 	httpClient    *http.Client
 	auth          *authsdk.Session
+	updateChannel string
 	conn          *websocket.Conn
 	nextID        int64
 	pendingMu     sync.Mutex
@@ -58,6 +60,7 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		websocketURL:  targetWSURL,
 		httpClient:    &http.Client{},
 		auth:          auth,
+		updateChannel: strings.TrimSpace(resolved.UpdateChannel),
 		pending:       map[string]chan map[string]any{},
 		notifications: make(chan map[string]any, 128),
 	}, nil
@@ -65,9 +68,9 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 
 func (c *WSClient) Connect(ctx context.Context) error {
 	if token := strings.TrimSpace(c.auth.CurrentJWT()); token != "" {
-		conn, response, err := c.dial(ctx, map[string]string{
+		conn, response, err := c.dial(ctx, c.buildDialHeaders(map[string]string{
 			"Authorization": "Bearer " + token,
-		})
+		}))
 		if err == nil {
 			if response != nil {
 				c.auth.CaptureToken(c.requestURL, response.Header)
@@ -84,7 +87,7 @@ func (c *WSClient) Connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	conn, response, err := c.dial(ctx, headers)
+	conn, response, err := c.dial(ctx, c.buildDialHeaders(headers))
 	if err != nil {
 		if response != nil && response.StatusCode == http.StatusUnauthorized {
 			var retryHeaders map[string]string
@@ -97,7 +100,7 @@ func (c *WSClient) Connect(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			conn, response, err = c.dial(ctx, retryHeaders)
+			conn, response, err = c.dial(ctx, c.buildDialHeaders(retryHeaders))
 		}
 		if err != nil {
 			return formatDialError(err, response)
@@ -109,6 +112,21 @@ func (c *WSClient) Connect(ctx context.Context) error {
 	c.conn = conn
 	go c.readLoop()
 	return nil
+}
+
+func (c *WSClient) buildDialHeaders(headers map[string]string) map[string]string {
+	result := map[string]string{}
+	for key, value := range headers {
+		result[key] = value
+	}
+	info := buildinfo.Current()
+	result["X-Awiki-CLI-Version"] = strings.TrimSpace(info.Version)
+	result["X-Awiki-CLI-Channel"] = strings.TrimSpace(c.updateChannel)
+	result["X-Awiki-Host-Agent"] = strings.TrimSpace(info.HostAgent)
+	result["X-Awiki-Host-Version"] = strings.TrimSpace(info.HostVersion)
+	result["X-Awiki-Host-Capabilities"] = strings.Join(info.HostCapabilities, ",")
+	result["X-Awiki-Skill-Format-Version"] = strings.TrimSpace(info.SkillFormatVersion)
+	return result
 }
 
 func (c *WSClient) dial(ctx context.Context, headers map[string]string) (*websocket.Conn, *http.Response, error) {

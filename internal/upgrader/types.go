@@ -23,6 +23,7 @@ type ReleaseState struct {
 	Channel               string         `json:"channel,omitempty"`
 	LastCheckedAt         string         `json:"last_checked_at,omitempty"`
 	LastCheckSource       string         `json:"last_check_source,omitempty"`
+	LastWSUpgradeEventAt  string         `json:"last_ws_upgrade_event_at,omitempty"`
 	PendingUpdate         *PendingUpdate `json:"pending_update,omitempty"`
 	LastAppliedVersion    string         `json:"last_applied_version,omitempty"`
 	LastFailedUpdate      *FailedUpdate  `json:"last_failed_update,omitempty"`

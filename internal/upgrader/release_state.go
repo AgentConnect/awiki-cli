@@ -74,6 +74,64 @@ func RecordCheck(path string, decision update.Decision) (*ReleaseState, error) {
 	return state, nil
 }
 
+func RecordWSPush(path string, decision update.Decision) (*ReleaseState, error) {
+	return recordWSPush(path, decision, true)
+}
+
+func RecordWSPushObservation(path string, decision update.Decision) (*ReleaseState, error) {
+	return recordWSPush(path, decision, false)
+}
+
+func recordWSPush(path string, decision update.Decision, trackPending bool) (*ReleaseState, error) {
+	state, err := LoadReleaseState(path)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		state = &ReleaseState{SchemaVersion: releaseStateSchemaVersion}
+	}
+	now := nowUTC().Format(time.RFC3339)
+	state.Channel = decision.Channel
+	state.LastWSUpgradeEventAt = now
+	state.LastCheckSource = normalizeCheckSource("ws_push")
+	if trackPending && shouldTrackPending(decision) {
+		state.PendingUpdate = &PendingUpdate{
+			Version:        decision.LatestVersion,
+			ArtifactURL:    decision.ArtifactURL,
+			ArtifactSHA256: decision.ArtifactSHA256,
+			RecordedAt:     now,
+		}
+	}
+	if err := SaveReleaseState(path, *state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func RecordPredownload(path string, decision update.Decision) (*ReleaseState, error) {
+	state, err := LoadReleaseState(path)
+	if err != nil {
+		return nil, err
+	}
+	if state == nil {
+		state = &ReleaseState{SchemaVersion: releaseStateSchemaVersion}
+	}
+	now := nowUTC().Format(time.RFC3339)
+	state.Channel = decision.Channel
+	state.LastWSUpgradeEventAt = now
+	state.LastCheckSource = normalizeCheckSource("ws_push")
+	state.PendingUpdate = &PendingUpdate{
+		Version:        decision.LatestVersion,
+		ArtifactURL:    decision.ArtifactURL,
+		ArtifactSHA256: decision.ArtifactSHA256,
+		RecordedAt:     now,
+	}
+	if err := SaveReleaseState(path, *state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
 func RecordFailure(path string, version string, stage string, message string) (*ReleaseState, error) {
 	state, err := LoadReleaseState(path)
 	if err != nil {

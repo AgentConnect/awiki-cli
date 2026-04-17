@@ -39,6 +39,60 @@ func (m *Manager) RecordCheck(decision update.Decision) (*ReleaseState, error) {
 	return RecordCheck(m.paths.ReleaseStatePath, decision)
 }
 
+func (m *Manager) RecordWSPush(decision update.Decision) (*ReleaseState, error) {
+	return RecordWSPush(m.paths.ReleaseStatePath, decision)
+}
+
+func (m *Manager) RecordWSPushObservation(decision update.Decision) (*ReleaseState, error) {
+	return RecordWSPushObservation(m.paths.ReleaseStatePath, decision)
+}
+
+func (m *Manager) Predownload(ctx context.Context, decision update.Decision) (*ReleaseState, error) {
+	version := strings.TrimSpace(decision.LatestVersion)
+	if version == "" {
+		return nil, fmt.Errorf("latest version is empty")
+	}
+	if !decision.ArtifactAvailable || strings.TrimSpace(decision.ArtifactURL) == "" {
+		_, _ = RecordFailure(m.paths.ReleaseStatePath, version, "predownload", "no installable artifact is available")
+		return nil, fmt.Errorf("no installable artifact is available for version %s", version)
+	}
+	if strings.TrimSpace(decision.ArtifactSHA256) == "" {
+		_, _ = RecordFailure(m.paths.ReleaseStatePath, version, "predownload", "artifact sha256 is missing")
+		return nil, fmt.Errorf("artifact sha256 is missing for version %s", version)
+	}
+	if err := os.MkdirAll(m.paths.StagingDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create staging dir: %w", err)
+	}
+	if err := os.MkdirAll(m.paths.StateDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create state dir: %w", err)
+	}
+	unlock, err := AcquireLock(m.paths.LockFile, version)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
+
+	artifactPath := stagingArtifactPath(m.paths, version, decision.ArtifactURL)
+	if fileExists(artifactPath) {
+		if err := VerifySHA256(artifactPath, decision.ArtifactSHA256); err == nil {
+			return RecordPredownload(m.paths.ReleaseStatePath, decision)
+		}
+		_ = os.Remove(artifactPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create predownload dir: %w", err)
+	}
+	if err := DownloadArtifact(ctx, m.client, decision.ArtifactURL, artifactPath); err != nil {
+		_, _ = RecordFailure(m.paths.ReleaseStatePath, version, "download", err.Error())
+		return nil, err
+	}
+	if err := VerifySHA256(artifactPath, decision.ArtifactSHA256); err != nil {
+		_, _ = RecordFailure(m.paths.ReleaseStatePath, version, "verify", err.Error())
+		return nil, err
+	}
+	return RecordPredownload(m.paths.ReleaseStatePath, decision)
+}
+
 func (m *Manager) Apply(ctx context.Context, decision update.Decision) (*ApplyResult, error) {
 	version := strings.TrimSpace(decision.LatestVersion)
 	if version == "" {

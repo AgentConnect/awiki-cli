@@ -1,19 +1,26 @@
 package listener
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/upgrader"
 	"github.com/coder/websocket"
 )
 
@@ -163,7 +170,8 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 	t.Parallel()
 
 	var connectionCount atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/im/ws" {
 			http.NotFound(w, r)
 			return
@@ -260,6 +268,172 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 	}
 }
 
+func TestUpgradeNotificationApplyInstallsManagedBinary(t *testing.T) {
+	t.Parallel()
+
+	originalVersion := buildinfo.Version
+	defer func() { buildinfo.Version = originalVersion }()
+	buildinfo.Version = "1.8.0"
+
+	archivePath := filepath.Join(t.TempDir(), "awiki-cli.tar.gz")
+	if err := writeServerTestTarGZ(archivePath, filepath.Join("release", "awiki-cli"), []byte("#!/bin/sh\necho upgraded\n")); err != nil {
+		t.Fatalf("writeServerTestTarGZ() error = %v", err)
+	}
+	archiveSHA := checksumFile(t, archivePath)
+
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/im/ws":
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				t.Errorf("websocket.Accept() error = %v", err)
+				return
+			}
+			defer conn.Close(websocket.StatusNormalClosure, "done")
+			payload := map[string]any{
+				"jsonrpc": "2.0",
+				"method":  upgradeMethodAvailable,
+				"params": map[string]any{
+					"latest_version":        "1.8.1",
+					"min_supported_version": "1.8.0",
+					"channel":               "stable",
+					"artifact": map[string]any{
+						"url":    server.URL + "/artifacts/awiki-cli.tar.gz",
+						"sha256": archiveSHA,
+					},
+					"skill_bundle": map[string]any{
+						"bundle_version":    "2026.04.17",
+						"bundle_sha256":     "bundle-sha",
+						"root_skill_sha256": "root-sha",
+					},
+				},
+			}
+			raw, _ := json.Marshal(payload)
+			if err := conn.Write(r.Context(), websocket.MessageText, raw); err != nil {
+				t.Errorf("conn.Write() error = %v", err)
+			}
+		case "/artifacts/awiki-cli.tar.gz":
+			http.ServeFile(w, r, archivePath)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	resolved := testResolvedConfig(t, server.URL)
+	resolved.UpdateAutoUpgradeEnabled = true
+	resolved.UpdateAutoUpgradeMode = "apply"
+	resolved.UpdateAllowWSPushTrigger = true
+
+	supervisor, err := NewSupervisor(resolved)
+	if err != nil {
+		t.Fatalf("NewSupervisor() error = %v", err)
+	}
+	defer supervisor.Close()
+
+	if _, err := supervisor.ensureSession("alice"); err != nil {
+		t.Fatalf("ensureSession() error = %v", err)
+	}
+	manager, err := upgrader.NewManager(resolved)
+	if err != nil {
+		t.Fatalf("upgrader.NewManager() error = %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		state, loadErr := manager.LoadReleaseState()
+		if loadErr != nil {
+			t.Fatalf("LoadReleaseState() error = %v", loadErr)
+		}
+		if state != nil && state.CurrentVersion == "1.8.1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("release state did not record applied upgrade before timeout")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	target := upgrader.ResolveCurrentTarget(manager.Paths().CurrentBinaryPath)
+	if !strings.HasSuffix(target, filepath.Join("versions", "1.8.1", "awiki-cli")) {
+		t.Fatalf("managed binary target = %q, want versions/1.8.1/awiki-cli suffix", target)
+	}
+}
+
+func TestUpgradeNotificationNotifyOnlyRecordsPendingUpdate(t *testing.T) {
+	t.Parallel()
+
+	originalVersion := buildinfo.Version
+	defer func() { buildinfo.Version = originalVersion }()
+	buildinfo.Version = "1.8.0"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/im/ws" {
+			http.NotFound(w, r)
+			return
+		}
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Errorf("websocket.Accept() error = %v", err)
+			return
+		}
+		defer conn.Close(websocket.StatusNormalClosure, "done")
+		payload := map[string]any{
+			"jsonrpc": "2.0",
+			"method":  upgradeMethodAvailable,
+			"params": map[string]any{
+				"latest_version":        "1.8.1",
+				"min_supported_version": "1.8.0",
+				"channel":               "stable",
+				"artifact": map[string]any{
+					"url":    "https://downloads.example.com/awiki-cli.tar.gz",
+					"sha256": "abc123",
+				},
+			},
+		}
+		raw, _ := json.Marshal(payload)
+		if err := conn.Write(r.Context(), websocket.MessageText, raw); err != nil {
+			t.Errorf("conn.Write() error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	resolved := testResolvedConfig(t, server.URL)
+	resolved.UpdateAutoUpgradeEnabled = false
+	resolved.UpdateAutoUpgradeMode = "notify"
+	resolved.UpdateAllowWSPushTrigger = true
+
+	supervisor, err := NewSupervisor(resolved)
+	if err != nil {
+		t.Fatalf("NewSupervisor() error = %v", err)
+	}
+	defer supervisor.Close()
+
+	if _, err := supervisor.ensureSession("alice"); err != nil {
+		t.Fatalf("ensureSession() error = %v", err)
+	}
+	manager, err := upgrader.NewManager(resolved)
+	if err != nil {
+		t.Fatalf("upgrader.NewManager() error = %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		state, loadErr := manager.LoadReleaseState()
+		if loadErr != nil {
+			t.Fatalf("LoadReleaseState() error = %v", loadErr)
+		}
+		if state != nil && state.PendingUpdate != nil && state.LastWSUpgradeEventAt != "" {
+			if state.CurrentVersion != "" {
+				t.Fatalf("state.CurrentVersion = %q, want empty string in notify mode", state.CurrentVersion)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("release state did not record pending update before timeout")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resolved {
 	t.Helper()
 
@@ -316,4 +490,36 @@ func createTestIdentity(t *testing.T, manager *identity.Manager, input identity.
 	if _, err := manager.Save(input); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
+}
+
+func writeServerTestTarGZ(archivePath string, binaryPath string, content []byte) error {
+	file, err := os.Create(archivePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	gzipWriter := gzip.NewWriter(file)
+	defer gzipWriter.Close()
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+	header := &tar.Header{
+		Name: binaryPath,
+		Mode: 0o755,
+		Size: int64(len(content)),
+	}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = tarWriter.Write(content)
+	return err
+}
+
+func checksumFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
