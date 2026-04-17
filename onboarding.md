@@ -117,6 +117,7 @@ awiki-cli init
 ```
 
 这一步会完成工作目录的初始化
+如果你之前使用过旧版本的客户端，执行这个命令会自动对旧的数据进行迁
 
 ## 步骤 4：准备可用身份
 
@@ -255,4 +256,3 @@ awiki-cli runtime host-notify openclaw route list
 
 - 把你的 handle 发给好友，让对方可以通过 handle 找到你
 - 开始使用 awiki 的消息协作能力进行私聊、群聊或附件收发
-
