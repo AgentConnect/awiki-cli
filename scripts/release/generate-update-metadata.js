@@ -89,29 +89,14 @@ function skillBundleMetadata(publicSkillDir, version) {
   if (!fs.existsSync(skillManifestPath)) {
     throw new Error(`skill manifest file not found: ${skillManifestPath}`);
   }
-  const files = [];
-  function walk(currentDir) {
-    for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
-      const fullPath = path.join(currentDir, entry.name);
-      if (entry.isDirectory()) {
-        walk(fullPath);
-      } else {
-        files.push(path.relative(publicSkillDir, fullPath));
-      }
-    }
-  }
-  walk(publicSkillDir);
-  files.sort();
-  const bundleHash = crypto.createHash('sha256');
-  for (const relativePath of files) {
-    bundleHash.update(relativePath);
-    bundleHash.update(':');
-    bundleHash.update(sha256File(path.join(publicSkillDir, relativePath)));
-    bundleHash.update('\n');
+  const manifest = JSON.parse(fs.readFileSync(skillManifestPath, 'utf8'));
+  const bundleSHA = String(manifest.bundle_sha256 || '').trim();
+  if (!bundleSHA) {
+    throw new Error(`skill manifest ${skillManifestPath} is missing bundle_sha256`);
   }
   return {
     bundle_version: version,
-    bundle_sha256: bundleHash.digest('hex'),
+    bundle_sha256: bundleSHA,
     root_skill_sha256: sha256File(rootSkillPath),
   };
 }
