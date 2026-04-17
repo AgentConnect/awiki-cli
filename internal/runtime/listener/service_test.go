@@ -37,6 +37,7 @@ func TestWaitForServiceStatusWithWaitsForBridgeAvailability(t *testing.T) {
 		},
 		true,
 		true,
+		"",
 		100*time.Millisecond,
 		time.Millisecond,
 	)
@@ -51,6 +52,51 @@ func TestWaitForServiceStatusWithWaitsForBridgeAvailability(t *testing.T) {
 	}
 }
 
+func TestWaitForServiceStatusWithWaitsForExpectedBootID(t *testing.T) {
+	t.Parallel()
+
+	statuses := []Status{
+		{
+			Installed:       true,
+			Running:         true,
+			BridgeAvailable: true,
+			BootID:          "boot-old",
+		},
+		{
+			Installed:       true,
+			Running:         true,
+			BridgeAvailable: true,
+			BootID:          "boot-new",
+		},
+	}
+	callCount := 0
+
+	status, err := waitForServiceStatusWith(
+		func() (Status, error) {
+			current := statuses[len(statuses)-1]
+			if callCount < len(statuses) {
+				current = statuses[callCount]
+			}
+			callCount++
+			return current, nil
+		},
+		true,
+		true,
+		"boot-new",
+		100*time.Millisecond,
+		time.Millisecond,
+	)
+	if err != nil {
+		t.Fatalf("waitForServiceStatusWith() error = %v", err)
+	}
+	if status.BootID != "boot-new" {
+		t.Fatalf("waitForServiceStatusWith() boot_id = %q, want boot-new", status.BootID)
+	}
+	if callCount < 2 {
+		t.Fatalf("waitForServiceStatusWith() callCount = %d, want at least 2", callCount)
+	}
+}
+
 func TestStartServiceAutoInstallsWhenMissing(t *testing.T) {
 	resolved := &appconfig.Resolved{RuntimeMode: "websocket"}
 	fakeSvc := &fakeService{}
@@ -58,11 +104,13 @@ func TestStartServiceAutoInstallsWhenMissing(t *testing.T) {
 	originalServiceStatusForFunc := serviceStatusForFunc
 	originalEnsureInstalledFunc := ensureInstalledFunc
 	originalStatusForFunc := statusForFunc
+	originalPrepareBootIDFunc := prepareBootIDFunc
 	t.Cleanup(func() {
 		newServiceFunc = originalNewServiceFunc
 		serviceStatusForFunc = originalServiceStatusForFunc
 		ensureInstalledFunc = originalEnsureInstalledFunc
 		statusForFunc = originalStatusForFunc
+		prepareBootIDFunc = originalPrepareBootIDFunc
 	})
 
 	newServiceFunc = func(*appconfig.Resolved, servicepkg.Interface) (servicepkg.Service, error) {
@@ -83,11 +131,15 @@ func TestStartServiceAutoInstallsWhenMissing(t *testing.T) {
 		autoInstallCalled = true
 		return Status{Installed: true}, nil
 	}
+	prepareBootIDFunc = func(*appconfig.Resolved) (string, error) {
+		return "boot-new", nil
+	}
 	statusForFunc = func(*appconfig.Resolved) (Status, error) {
 		return Status{
 			Installed:       true,
 			Running:         true,
 			BridgeAvailable: true,
+			BootID:          "boot-new",
 		}, nil
 	}
 
@@ -103,6 +155,9 @@ func TestStartServiceAutoInstallsWhenMissing(t *testing.T) {
 	}
 	if !status.Installed || !status.Running || !status.BridgeAvailable {
 		t.Fatalf("StartService() status = %#v, want installed/running/bridge_available true", status)
+	}
+	if status.BootID != "boot-new" {
+		t.Fatalf("StartService() boot_id = %q, want boot-new", status.BootID)
 	}
 }
 

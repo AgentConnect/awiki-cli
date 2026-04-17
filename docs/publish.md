@@ -2,6 +2,12 @@
 
 本文档描述 awiki-cli 的发布主链路、预发布/回滚脚本，以及在出现坏版本时的处理建议。目标是让日常发版在几条标准命令内完成，并且可以安全地撤回。
 
+当前发布只使用以下三个脚本：
+
+- `scripts/release/release-tag-stable.sh`
+- `scripts/release/release-tag-prerelease.sh`
+- `scripts/release/publish-gitee-release.sh`
+
 ## 1. 版本号与 Tag 约定
 
 - 单一版本真相：仓库根目录的 `package.json.version`，npm 包名为 `@awiki/cli`。
@@ -29,12 +35,19 @@
 
    - `NPM_TOKEN`：具有发布 `@awiki/cli` 的权限。
 
+4. 添加 secrets 的位置：
+
+   - 打开 GitHub 仓库页面。
+   - 进入 `Settings`。
+   - 进入 `Secrets and variables` -> `Actions`。
+   - 点击 `New repository secret`，创建 `NPM_TOKEN`。
+
 ### 2.2 创建并推送 Tag
 
 在 awiki-cli 仓库根目录执行：
 
 ```bash
-scripts/release/tag-release.sh
+scripts/release/release-tag-stable.sh
 ```
 
 该脚本会：
@@ -43,6 +56,8 @@ scripts/release/tag-release.sh
 - 要求工作区干净、当前分支已设置 upstream 且完全 push；
 - 检查本地和远端是否已有同名 Tag；
 - 创建 `vX.Y.Z` 的 annotated tag 并 push 到 origin。
+
+这是正式版唯一入口脚本。
 
 ### 2.3 CI 行为
 
@@ -63,6 +78,55 @@ npm view @awiki/cli version
 
 确认 registry 上的版本号与刚刚发布的一致。
 
+### 2.4 在本地同步 Gitee Release
+
+> Gitee Release 产物同步不再放在 GitHub hosted runner 上执行，避免跨境上传导致的长时间阻塞。
+> 推荐在你自己的 Mac 或国内网络环境更稳定的机器上执行以下脚本。
+
+先准备本地环境变量：
+
+```bash
+export GITEE_USERNAME=<你的 Gitee 登录用户名>
+export GITEE_TOKEN=<你的 Gitee 个人访问令牌>
+```
+
+然后执行：
+
+```bash
+scripts/release/publish-gitee-release.sh vX.Y.Z
+```
+
+示例：
+
+```bash
+scripts/release/publish-gitee-release.sh v0.1.0
+scripts/release/publish-gitee-release.sh v0.2.0-beta.1
+```
+
+脚本会：
+
+- 从 GitHub Release 按 tag 拉取 release 元数据和已构建好的附件；
+- 确保同名 tag 已推送到 Gitee；
+- 在 Gitee 上创建或复用同名 Release；
+- 将 GitHub Release 附件上传到 Gitee Release。
+
+脚本路径：`scripts/release/publish-gitee-release.sh`
+
+支持的可选环境变量：
+
+- `GITEE_OWNER`：默认 `agentconnect`
+- `GITEE_REPO`：默认 `awiki-cli`
+- `GITHUB_OWNER`：默认 `AgentConnect`
+- `GITHUB_REPO`：默认 `awiki-cli`
+- `GITHUB_TOKEN`：可选；公开仓库通常不需要，遇到 GitHub API rate limit 时可配置
+
+正式版的最小操作顺序就是：
+
+1. 修改 `package.json.version` 为稳定版版本号并提交。
+2. 运行 `scripts/release/release-tag-stable.sh`。
+3. 等 GitHub Actions 完成 GitHub Release 和 npm 发布。
+4. 在本地运行 `scripts/release/publish-gitee-release.sh vX.Y.Z`。
+
 ## 3. 预发布版本（beta/rc）
 
 > 预发布用于内测 / 灰度，不会自动覆盖 npm 的 `latest`，而是挂在指定 dist-tag（例如 `beta`）。
@@ -81,13 +145,13 @@ npm view @awiki/cli version
 运行：
 
 ```bash
-scripts/release/release-prerelease.sh <dist-tag>
+scripts/release/release-tag-prerelease.sh <dist-tag>
 ```
 
 示例：
 
 ```bash
-scripts/release/release-prerelease.sh beta
+scripts/release/release-tag-prerelease.sh beta
 ```
 
 脚本行为：
@@ -97,13 +161,29 @@ scripts/release/release-prerelease.sh beta
 - 创建并推送 Tag：`v<package.json.version>`（例如 `v0.2.0-beta.1`）；
 - 打印后续建议，包括如何发布带 dist-tag 的 npm 预发布包。
 
-当前版本的 CI release workflow 只对稳定 Tag 自动执行 `npm publish`。预发布包的 npm 发布建议手动执行：
+当前版本的 CI release workflow 只对稳定 Tag 自动执行 `npm publish`。预发布包的 npm 发布需要你在本地手动执行：
 
 ```bash
 NODE_AUTH_TOKEN=... npm publish --access public --tag <dist-tag>
 ```
 
-后续可以根据需要将这一流程收敛到单独的预发布 workflow。
+```bash
+export GITEE_USERNAME=<你的 Gitee 登录用户名>
+export GITEE_TOKEN=<你的 Gitee 个人访问令牌>
+scripts/release/publish-gitee-release.sh vX.Y.Z-<pre>
+```
+
+预发布的最小操作顺序就是：
+
+1. 修改 `package.json.version` 为预发布版本并提交。
+2. 运行 `scripts/release/release-tag-prerelease.sh <dist-tag>`。
+3. 等 GitHub Actions 完成 GitHub pre-release。
+4. 在本地运行 `NODE_AUTH_TOKEN=... npm publish --access public --tag <dist-tag>`。
+5. 如需同步 Gitee Release，再运行：
+
+```bash
+scripts/release/publish-gitee-release.sh vX.Y.Z-<pre>
+```
 
 ## 4. 回滚/撤回发布
 

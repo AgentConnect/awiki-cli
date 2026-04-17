@@ -63,6 +63,11 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	bootID, err := resolveRuntimeBootID(resolved)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	pidFile, logFile, statusFile, socketPath, err := paths(resolved)
 	if err != nil {
 		_ = db.Close()
@@ -78,6 +83,8 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 		manager:  identity.NewManager(resolved.Paths),
 		status: Status{
 			Mode:       runtime.Resolve(resolved).Mode,
+			Installed:  runningInListenerServiceMode(),
+			BootID:     bootID,
 			PIDFile:    pidFile,
 			LogFile:    logFile,
 			StatusFile: statusFile,
@@ -141,6 +148,7 @@ func (s *Supervisor) startSocket() error {
 		return err
 	}
 	s.listener = listener
+	s.setBridgeAvailable(true)
 	go s.acceptLoop()
 	return nil
 }
@@ -683,6 +691,18 @@ func (s *Supervisor) recordSessionError(identityName string, did string, err err
 func (s *Supervisor) writeStatus() error {
 	s.refreshStatus()
 	return nil
+}
+
+func (s *Supervisor) setBridgeAvailable(available bool) {
+	s.statusMu.Lock()
+	changed := s.status.BridgeAvailable != available
+	s.status.BridgeAvailable = available
+	statusFile := s.status.StatusFile
+	status := s.status
+	s.statusMu.Unlock()
+	if changed {
+		_ = writeStatus(statusFile, status)
+	}
 }
 
 func (s *Supervisor) setHostNotifyError(lastError string) {

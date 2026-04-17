@@ -2,6 +2,7 @@ package listener
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -21,6 +22,7 @@ import (
 const (
 	serviceNamePrefix        = "awiki-cli-listener"
 	serviceDisplayNamePrefix = "awiki-cli Listener"
+	listenerServiceModeEnv   = "AWIKI_LISTENER_SERVICE_MODE"
 )
 
 type serviceProgram struct {
@@ -89,6 +91,7 @@ var (
 	serviceStatusForFunc = serviceStatusFor
 	ensureInstalledFunc  = EnsureInstalled
 	statusForFunc        = StatusFor
+	prepareBootIDFunc    = prepareExpectedBootID
 )
 
 func serviceNameFor(resolved *appconfig.Resolved) string {
@@ -135,6 +138,7 @@ func newService(resolved *appconfig.Resolved, program servicepkg.Interface) (ser
 		},
 		EnvVars: map[string]string{
 			"AWIKI_CLI_WORKSPACE_HOME_DIR": resolved.Paths.WorkspaceHomeDir,
+			listenerServiceModeEnv:         "1",
 		},
 	}
 	if runtime.GOOS == "windows" {
@@ -209,10 +213,14 @@ func StartService(resolved *appconfig.Resolved) (Status, error) {
 	if running {
 		return statusForFunc(resolved)
 	}
+	expectedBootID, err := prepareBootIDFunc(resolved)
+	if err != nil {
+		return Status{}, err
+	}
 	if err := svc.Start(); err != nil {
 		return Status{}, err
 	}
-	return waitForServiceStatus(resolved, true)
+	return waitForServiceStatus(resolved, true, expectedBootID)
 }
 
 func StopService(resolved *appconfig.Resolved) (Status, error) {
@@ -233,7 +241,7 @@ func StopService(resolved *appconfig.Resolved) (Status, error) {
 		}
 	}
 	cleanupRuntimeArtifacts(resolved)
-	return waitForServiceStatus(resolved, false)
+	return waitForServiceStatus(resolved, false, "")
 }
 
 func RestartService(resolved *appconfig.Resolved) (Status, error) {
@@ -248,10 +256,14 @@ func RestartService(resolved *appconfig.Resolved) (Status, error) {
 	if !installed {
 		return Status{}, fmt.Errorf("listener service is not installed")
 	}
+	expectedBootID, err := prepareBootIDFunc(resolved)
+	if err != nil {
+		return Status{}, err
+	}
 	if err := svc.Restart(); err != nil {
 		return Status{}, err
 	}
-	return waitForServiceStatus(resolved, true)
+	return waitForServiceStatus(resolved, true, expectedBootID)
 }
 
 func Uninstall(resolved *appconfig.Resolved) (Status, error) {
@@ -316,7 +328,7 @@ func ApplyRuntimePolicy(resolved *appconfig.Resolved) (Status, error) {
 	return StatusFor(resolved)
 }
 
-func waitForServiceStatus(resolved *appconfig.Resolved, wantRunning bool) (Status, error) {
+func waitForServiceStatus(resolved *appconfig.Resolved, wantRunning bool, expectedBootID string) (Status, error) {
 	runtimeResolved := runtimecfg.Resolve(resolved)
 	waitForBridge := wantRunning &&
 		runtimeResolved.Mode == runtimecfg.ModeWebSocket &&
@@ -327,6 +339,7 @@ func waitForServiceStatus(resolved *appconfig.Resolved, wantRunning bool) (Statu
 		},
 		wantRunning,
 		waitForBridge,
+		expectedBootID,
 		15*time.Second,
 		250*time.Millisecond,
 	)
@@ -336,6 +349,7 @@ func waitForServiceStatusWith(
 	statusFn func() (Status, error),
 	wantRunning bool,
 	waitForBridge bool,
+	expectedBootID string,
 	timeout time.Duration,
 	interval time.Duration,
 ) (Status, error) {
@@ -346,7 +360,7 @@ func waitForServiceStatusWith(
 		status, err := statusFn()
 		if err == nil {
 			lastStatus = status
-			if serviceStatusReady(status, wantRunning, waitForBridge) {
+			if serviceStatusReady(status, wantRunning, waitForBridge, expectedBootID) {
 				return status, nil
 			}
 		} else {
@@ -362,12 +376,15 @@ func waitForServiceStatusWith(
 	}
 }
 
-func serviceStatusReady(status Status, wantRunning bool, waitForBridge bool) bool {
+func serviceStatusReady(status Status, wantRunning bool, waitForBridge bool, expectedBootID string) bool {
 	if wantRunning {
 		if !status.Installed || !status.Running {
 			return false
 		}
 		if waitForBridge && !status.BridgeAvailable {
+			return false
+		}
+		if strings.TrimSpace(expectedBootID) != "" && strings.TrimSpace(status.BootID) != strings.TrimSpace(expectedBootID) {
 			return false
 		}
 		return true
@@ -386,4 +403,55 @@ func cleanupRuntimeArtifacts(resolved *appconfig.Resolved) {
 	_ = os.Remove(pidFile)
 	_ = os.Remove(statusFile)
 	_ = os.Remove(socketPath)
+	if bootIDFile, bootErr := bootIDPath(resolved); bootErr == nil {
+		_ = os.Remove(bootIDFile)
+	}
+}
+
+func runningInListenerServiceMode() bool {
+	value := strings.TrimSpace(os.Getenv(listenerServiceModeEnv))
+	if value == "1" || strings.EqualFold(value, "true") {
+		return true
+	}
+	if len(os.Args) < 4 {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Args[1]), "runtime") &&
+		strings.EqualFold(strings.TrimSpace(os.Args[2]), "listener") &&
+		strings.EqualFold(strings.TrimSpace(os.Args[3]), "service-run")
+}
+
+func generateBootID() string {
+	var randomSuffix [4]byte
+	if _, err := rand.Read(randomSuffix[:]); err != nil {
+		return fmt.Sprintf("boot-%d", time.Now().UTC().UnixNano())
+	}
+	return fmt.Sprintf("boot-%d-%s", time.Now().UTC().UnixNano(), hex.EncodeToString(randomSuffix[:]))
+}
+
+func prepareExpectedBootID(resolved *appconfig.Resolved) (string, error) {
+	path, err := bootIDPath(resolved)
+	if err != nil {
+		return "", err
+	}
+	bootID := generateBootID()
+	if err := writeExpectedBootID(path, bootID); err != nil {
+		return "", fmt.Errorf("write expected listener boot id: %w", err)
+	}
+	return bootID, nil
+}
+
+func resolveRuntimeBootID(resolved *appconfig.Resolved) (string, error) {
+	path, err := bootIDPath(resolved)
+	if err != nil {
+		return "", err
+	}
+	bootID, err := readExpectedBootID(path)
+	if err == nil && strings.TrimSpace(bootID) != "" {
+		return strings.TrimSpace(bootID), nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read expected listener boot id: %w", err)
+	}
+	return generateBootID(), nil
 }

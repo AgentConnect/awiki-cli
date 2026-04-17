@@ -16,6 +16,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	listenerStatusForFunc = listenerrt.StatusFor
+	listenerStopFunc      = listenerrt.Stop
+	runtimeBootstrapFunc  = func(app *App, resolved *appconfig.Resolved) (listenerrt.Status, error) {
+		return app.ensureRuntimeBootstrap(resolved)
+	}
+)
+
 func runtimeFormat(resolved *appconfig.Resolved) string {
 	if resolved == nil || strings.TrimSpace(resolved.OutputFormat) == "" {
 		return "json"
@@ -51,6 +59,29 @@ func (a *App) runtimeExit(err error, hint string) error {
 	default:
 		return output.NewExitError("internal_error", 1, err.Error(), hint)
 	}
+}
+
+func (a *App) refreshListenerForHostNotifyChange(resolved *appconfig.Resolved) (*listenerrt.Status, []string, error) {
+	status, err := listenerStatusForFunc(resolved)
+	if err != nil {
+		return nil, nil, err
+	}
+	runtimeResolved := runtimecfg.Resolve(resolved)
+	if runtimeResolved.Mode != runtimecfg.ModeWebSocket || !runtimeResolved.Listener.Enabled {
+		return &status, []string{"Host notify changes will apply the next time the websocket listener is enabled."}, nil
+	}
+	if !status.Running {
+		return &status, []string{"Host notify changes will apply the next time the listener starts."}, nil
+	}
+	if _, err := listenerStopFunc(resolved); err != nil {
+		return nil, nil, fmt.Errorf("stop listener to apply host notify config: %w", err)
+	}
+	restarted, err := runtimeBootstrapFunc(a, resolved)
+	if err != nil {
+		return nil, nil, fmt.Errorf("restart listener to apply host notify config: %w", err)
+	}
+	warnings := append([]string{"Listener restarted to apply host notify configuration."}, restarted.Warnings...)
+	return &restarted, warnings, nil
 }
 
 func (a *App) runRuntimeStatus(cmd *cobra.Command, args []string) error {
@@ -485,6 +516,10 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Host notify config was updated, but the listener could not be restarted to apply it.")
+	}
 	view, err := hostNotifyConfigView(resolved)
 	if err != nil {
 		return a.runtimeExit(err, "Check OpenClaw route registry and host notify configuration.")
@@ -492,7 +527,10 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 	data := map[string]any{
 		"host_notify": view,
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config updated", nil, identityMetaFromResolved(resolved))
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config updated", warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyEnable(cmd *cobra.Command, args []string) error {
@@ -524,6 +562,10 @@ func (a *App) setRuntimeHostNotifyEnabled(cmd *cobra.Command, enabled bool) erro
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Host notify setting was updated, but the listener could not be restarted to apply it.")
+	}
 	view, err := hostNotifyConfigView(resolved)
 	if err != nil {
 		return a.runtimeExit(err, "Check OpenClaw route registry and host notify configuration.")
@@ -531,11 +573,14 @@ func (a *App) setRuntimeHostNotifyEnabled(cmd *cobra.Command, enabled bool) erro
 	data := map[string]any{
 		"host_notify": view,
 	}
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
 	summary := "Host notify enabled"
 	if !enabled {
 		summary = "Host notify disabled"
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, nil, identityMetaFromResolved(resolved))
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string) error {
@@ -567,6 +612,10 @@ func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string)
 	if err != nil {
 		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
 	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "OpenClaw host notify config was updated, but the listener could not be restarted to apply it.")
+	}
 	settings, err := openclawnotify.ResolveSettings(resolved)
 	if err != nil {
 		return a.runtimeExit(err, "Check the OpenClaw hook URL configuration.")
@@ -581,7 +630,10 @@ func (a *App) runRuntimeHostNotifyOpenClawSet(cmd *cobra.Command, args []string)
 			"detected_webhook_path_source": settings.DetectedWebhookPathInfo.Source,
 		},
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw host notify config updated", nil, identityMetaFromResolved(resolved))
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw host notify config updated", warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyOpenClawSetToken(cmd *cobra.Command, args []string) error {
@@ -605,8 +657,19 @@ func (a *App) runRuntimeHostNotifyOpenClawSetToken(cmd *cobra.Command, args []st
 	if err := appconfig.SetOpenClawToken(resolved.Paths, value); err != nil {
 		return a.runtimeExit(err, "Check write permissions for config.yaml.")
 	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "OpenClaw token was updated, but the listener could not be restarted to apply it.")
+	}
 	data := map[string]any{"openclaw": map[string]any{"token_configured": true}}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token updated", nil, identityMetaFromResolved(resolved))
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token updated", warnings, identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyOpenClawClearToken(cmd *cobra.Command, args []string) error {
@@ -625,8 +688,19 @@ func (a *App) runRuntimeHostNotifyOpenClawClearToken(cmd *cobra.Command, args []
 	if err := appconfig.ClearOpenClawToken(resolved.Paths); err != nil {
 		return a.runtimeExit(err, "Check write permissions for config.yaml.")
 	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "OpenClaw token was cleared, but the listener could not be restarted to apply it.")
+	}
 	data := map[string]any{"openclaw": map[string]any{"token_configured": false}}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token cleared", nil, identityMetaFromResolved(resolved))
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token cleared", warnings, identityMetaFromResolved(resolved))
 }
 
 func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) {

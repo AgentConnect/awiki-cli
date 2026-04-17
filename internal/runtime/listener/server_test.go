@@ -260,6 +260,47 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 	}
 }
 
+func TestNewSupervisorMarksInstalledWhenRunningAsService(t *testing.T) {
+	t.Parallel()
+
+	t.Setenv(listenerServiceModeEnv, "1")
+
+	resolved := testResolvedConfig(t, "https://awiki.test")
+	supervisor, err := NewSupervisor(resolved)
+	if err != nil {
+		t.Fatalf("NewSupervisor() error = %v", err)
+	}
+	defer supervisor.Close()
+
+	if !supervisor.status.Installed {
+		t.Fatal("supervisor.status.Installed = false, want true in service mode")
+	}
+}
+
+func TestStartSocketPersistsBridgeAvailability(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t, "https://awiki.test")
+	supervisor, err := NewSupervisor(resolved)
+	if err != nil {
+		t.Fatalf("NewSupervisor() error = %v", err)
+	}
+	defer supervisor.Close()
+	defer cleanupRuntimeArtifacts(resolved)
+
+	if err := supervisor.startSocket(); err != nil {
+		t.Fatalf("startSocket() error = %v", err)
+	}
+
+	status, err := readStatus(supervisor.status.StatusFile)
+	if err != nil {
+		t.Fatalf("readStatus() error = %v", err)
+	}
+	if !status.BridgeAvailable {
+		t.Fatalf("status.BridgeAvailable = false, want true")
+	}
+}
+
 func testResolvedConfig(t *testing.T, messageServiceURL string) *appconfig.Resolved {
 	t.Helper()
 

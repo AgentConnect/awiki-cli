@@ -12,6 +12,8 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/runtime"
 )
 
+const expectedBootIDFileName = "listener.expected-boot-id"
+
 func paths(resolved *appconfig.Resolved) (pidFile string, logFile string, statusFile string, socketPath string, err error) {
 	bridge := runtime.Resolve(resolved)
 	stateRoot := strings.TrimSpace(resolved.Paths.StateDir)
@@ -33,6 +35,23 @@ func paths(resolved *appconfig.Resolved) (pidFile string, logFile string, status
 		filepath.Join(stateRoot, "listener.status.json"),
 		bridge.SocketPath,
 		nil
+}
+
+func bootIDPath(resolved *appconfig.Resolved) (string, error) {
+	stateRoot := ""
+	if resolved != nil {
+		stateRoot = strings.TrimSpace(resolved.Paths.StateDir)
+		if stateRoot == "" {
+			stateRoot = filepath.Join(resolved.Paths.WorkspaceHomeDir, "runtime")
+		}
+	}
+	if stateRoot == "" {
+		return "", fmt.Errorf("listener runtime state dir is required")
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		return "", fmt.Errorf("create runtime state dir: %w", err)
+	}
+	return filepath.Join(stateRoot, expectedBootIDFileName), nil
 }
 
 func writePID(path string, pid int) error {
@@ -65,4 +84,16 @@ func readStatus(path string) (Status, error) {
 		return Status{}, err
 	}
 	return status, nil
+}
+
+func writeExpectedBootID(path string, bootID string) error {
+	return os.WriteFile(path, []byte(strings.TrimSpace(bootID)), 0o600)
+}
+
+func readExpectedBootID(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
 }

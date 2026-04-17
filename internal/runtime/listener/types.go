@@ -19,6 +19,7 @@ type Status struct {
 	Mode            string           `json:"mode"`
 	Installed       bool             `json:"installed"`
 	Running         bool             `json:"running"`
+	BootID          string           `json:"boot_id,omitempty"`
 	PID             int              `json:"pid,omitempty"`
 	PIDFile         string           `json:"pid_file,omitempty"`
 	SocketPath      string           `json:"socket_path,omitempty"`

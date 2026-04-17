@@ -2,6 +2,7 @@ package listener
 
 import (
 	"fmt"
+	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
@@ -45,14 +46,11 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 		status.ServicePlatform = platform
 		status.ServiceName = serviceName
 	}
-	if saved, err := readStatus(statusFile); err == nil {
-		status.StartedAt = saved.StartedAt
-		status.Sessions = saved.Sessions
-		status.PID = saved.PID
-		status.HostNotify.LastError = saved.HostNotify.LastError
-	}
 	if pid, err := readPID(pidFile); err == nil {
 		status.PID = pid
+	}
+	if saved, err := readStatus(statusFile); err == nil {
+		mergeSavedRuntimeStatus(&status, saved)
 	}
 	if runtimeResolved.Listener.Enabled && !status.Installed {
 		status.Warnings = append(status.Warnings, "listener service is not installed")
@@ -70,6 +68,33 @@ func StatusFor(resolved *appconfig.Resolved) (Status, error) {
 		status.Warnings = append(status.Warnings, "listener is disabled by configuration")
 	}
 	return status, nil
+}
+
+func mergeSavedRuntimeStatus(status *Status, saved Status) {
+	if status == nil {
+		return
+	}
+	if status.PID != 0 && saved.PID != 0 && saved.PID != status.PID {
+		return
+	}
+	status.StartedAt = saved.StartedAt
+	status.Sessions = saved.Sessions
+	if status.PID == 0 {
+		status.PID = saved.PID
+	}
+	status.BootID = saved.BootID
+	status.HostNotify.LastError = saved.HostNotify.LastError
+	if !status.Running {
+		return
+	}
+	status.HostNotify.Enabled = saved.HostNotify.Enabled
+	if sink := strings.TrimSpace(saved.HostNotify.Sink); sink != "" {
+		status.HostNotify.Sink = sink
+	}
+	status.HostNotify.FilePath = saved.HostNotify.FilePath
+	if hookURL := strings.TrimSpace(saved.HostNotify.HookURL); hookURL != "" {
+		status.HostNotify.HookURL = hookURL
+	}
 }
 
 func Start(resolved *appconfig.Resolved) (Status, error) {
