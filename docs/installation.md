@@ -155,6 +155,9 @@ runtime:
     openclaw:
       hook_url: ""
       token: ""
+    hermes:
+      notify_url: http://127.0.0.1:8765/notify/host-event
+      secret: ""
 output:
   format: json
   no_color: false
@@ -177,10 +180,14 @@ services:
 - `runtime.listener.auto_start` 默认是 `true`
 - 在默认 websocket 模式下，`awiki-cli init` 和 `awiki-cli runtime setup` 会自动安装并启动 listener 系统服务
 - `runtime.host_notify.enabled` 默认是 `true`
-- `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw`
+- `runtime.host_notify.sink` 在启用后默认是 `log`，可选 `noop | log | file | openclaw | hermes`（兼容旧值 `webhook`）
 - `runtime.host_notify.file_path` 只在 `sink = file` 时生效；未填写时默认是 `<workspace>/runtime/host-notify.events.jsonl`
 - `runtime.host_notify.openclaw.hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 和 `hooks.path` 自动推导有效的 webhook URL
 - `runtime.host_notify.openclaw.token` 可直接写入 `config.yaml`，也可通过 `OPENCLAW_HOOK_TOKEN` 环境变量提供；两者都未设置时，awiki-cli 会回退读取 `~/.openclaw/openclaw.json` 中的 `hooks.token`
+- `runtime.host_notify.hermes.notify_url` 默认是 `http://127.0.0.1:8765/notify/host-event`
+- `runtime.host_notify.hermes.secret` 可直接写入 `config.yaml`，也可通过 `AWIKI_HOST_NOTIFY_HERMES_SECRET` 环境变量提供（兼容旧变量 `AWIKI_HOST_NOTIFY_WEBHOOK_SECRET`）
+- 当 `runtime.host_notify.sink = hermes` 时，awiki-cli 只负责把通知转发给 Hermes adapter；最终投递目标由 Hermes 自己配置，不在 awiki-cli 中管理
+- 如果 Hermes 最终要投递到 Feishu，推荐在 Hermes 中使用 `FEISHU_HOME_CHANNEL` 或 `/sethome` / `/set-home` 管理默认会话，而不是在 route 里硬编码 `deliver_extra.chat_id`
 - `output.format` 默认是 `json`
 - `services.service_base_url` 默认是 `https://awiki.ai`
 - `services.did_domain` 默认是 `awiki.ai`
@@ -221,6 +228,8 @@ runtime:
     sink: log
     openclaw:
       hook_url: ""
+    hermes:
+      notify_url: http://127.0.0.1:8765/notify/host-event
 services:
   service_base_url: https://awiki.test
   did_domain: awiki.test
@@ -415,7 +424,24 @@ gofmt -w $(find cmd internal -name '*.go')
 ./awiki-cli runtime host-notify openclaw route add --session-key <session-key>
 ./awiki-cli runtime host-notify openclaw route list
 ./awiki-cli runtime host-notify openclaw route remove --session-key <session-key>
+./awiki-cli runtime host-notify config set --sink hermes
+./awiki-cli runtime host-notify hermes guide
+./awiki-cli runtime host-notify hermes setup
+./awiki-cli runtime host-notify hermes status
+./awiki-cli runtime host-notify hermes set --notify-url http://127.0.0.1:8765/notify/host-event
+./awiki-cli runtime host-notify hermes set-secret --value <secret>
+./awiki-cli runtime host-notify hermes clear-secret
 ```
+
+说明：
+
+- `openclaw route add/list/remove` 只适用于 OpenClaw sink
+- Hermes sink 不需要在 awiki-cli 中配置 route；awiki-cli 只负责把事件送到 Hermes adapter
+- `runtime host-notify hermes guide` 会输出一份可直接复用的 Hermes route、adapter 启动命令和目标平台投递建议
+- `runtime host-notify hermes setup` 会一次性完成 awiki-cli host-notify 配置、本地 `~/.hermes/config.yaml` 的 notify route 合并，以及本地 Hermes bridge 的安装/启动
+- `runtime host-notify hermes status` 会检查 awiki-cli 配置、Hermes notify route、对应平台的 home channel 和 bridge 健康状态
+- 如果要把 Hermes 通知转发到别的平台，可以在 `runtime host-notify hermes setup --deliver <platform>` 时直接指定，例如 `--deliver telegram`
+- 只有在你明确想把通知永久固定到某个会话时，才建议在 Hermes route 中手工写 `deliver_extra.chat_id`
 
 系统服务形态：
 

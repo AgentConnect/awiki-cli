@@ -1,0 +1,127 @@
+import importlib.util
+import pathlib
+import sys
+import unittest
+
+
+MODULE_PATH = pathlib.Path(__file__).with_name("hermes_notify_adapter.py")
+MODULE_SPEC = importlib.util.spec_from_file_location("hermes_notify_adapter", MODULE_PATH)
+if MODULE_SPEC is None or MODULE_SPEC.loader is None:
+    raise RuntimeError(f"failed to load module spec from {MODULE_PATH}")
+hermes_notify_adapter = importlib.util.module_from_spec(MODULE_SPEC)
+sys.modules[MODULE_SPEC.name] = hermes_notify_adapter
+MODULE_SPEC.loader.exec_module(hermes_notify_adapter)
+
+
+class HermesNotifyAdapterValidationTests(unittest.TestCase):
+    def test_validate_notification_surface_accepts_valid_payload(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "ntf_msg_probe_001",
+            "kind": "message",
+            "topic": "im.message.received",
+            "time": "2026-04-12T10:30:00Z",
+            "binding_key": "awiki:direct:did:wba:test:bob:conv-probe-001",
+            "source": {
+                "network": "awiki",
+                "account_id": "did:wba:test:bob",
+                "conversation_id": "conv-probe-001",
+                "thread_id": "msg-probe-001",
+            },
+            "data": {
+                "sender_did": "did:wba:test:alice",
+                "recipient_did": "did:wba:test:bob",
+            },
+        }
+
+        validated = hermes_notify_adapter.validate_notification_surface(payload)
+
+        self.assertEqual(validated["id"], "ntf_msg_probe_001")
+        self.assertEqual(validated["topic"], "im.message.received")
+
+    def test_validate_notification_surface_rejects_unexpected_top_level_field(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "ntf_msg_probe_001",
+            "kind": "message",
+            "topic": "im.message.received",
+            "time": "2026-04-12T10:30:00Z",
+            "binding_key": "awiki:direct:test",
+            "source": {
+                "network": "awiki",
+                "account_id": "did:wba:test:bob",
+                "conversation_id": "conv-probe-001",
+                "thread_id": "msg-probe-001",
+            },
+            "data": {},
+            "extra": "not-allowed",
+        }
+
+        with self.assertRaisesRegex(ValueError, "unexpected fields: extra"):
+            hermes_notify_adapter.validate_notification_surface(payload)
+
+    def test_validate_notification_surface_rejects_invalid_topic_and_time(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "ntf_msg_probe_001",
+            "kind": "message",
+            "topic": "IM_MESSAGE_RECEIVED",
+            "time": "2026/04/12 10:30:00",
+            "binding_key": "awiki:direct:test",
+            "source": {
+                "network": "awiki",
+                "account_id": "did:wba:test:bob",
+                "conversation_id": "conv-probe-001",
+                "thread_id": "msg-probe-001",
+            },
+            "data": {},
+        }
+
+        with self.assertRaisesRegex(ValueError, "topic has invalid format"):
+            hermes_notify_adapter.validate_notification_surface(payload)
+
+        payload["topic"] = "im.message.received"
+        with self.assertRaisesRegex(ValueError, "time must be RFC3339 date-time"):
+            hermes_notify_adapter.validate_notification_surface(payload)
+
+    def test_convert_host_event_to_surface_normalizes_and_validates(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "msg/probe/001",
+            "topic": "im.message.received",
+            "received_at": "2026-04-12T10:30:00Z",
+            "data": {
+                "message_id": "msg-probe-001",
+                "conversation_id": "conv-probe-001",
+                "sender_did": "did:wba:test:alice",
+                "recipient_did": "did:wba:test:bob",
+                "content_type": "text/plain",
+                "text": "hello",
+            },
+        }
+
+        surface = hermes_notify_adapter.convert_host_event_to_surface(payload)
+
+        self.assertEqual(surface["id"], "ntf_msg_probe_001")
+        self.assertEqual(surface["kind"], "message")
+        self.assertEqual(surface["source"]["conversation_id"], "conv-probe-001")
+
+    def test_convert_host_event_to_surface_rejects_invalid_received_at(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "msg-probe-001",
+            "topic": "im.message.received",
+            "received_at": "not-a-time",
+            "data": {
+                "message_id": "msg-probe-001",
+                "sender_did": "did:wba:test:alice",
+                "recipient_did": "did:wba:test:bob",
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "host event received_at must be RFC3339 date-time"):
+            hermes_notify_adapter.convert_host_event_to_surface(payload)
+
+
+if __name__ == "__main__":
+    unittest.main()

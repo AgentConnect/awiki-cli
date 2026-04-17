@@ -266,6 +266,72 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 }
 
+func TestResolveIncludesHermesHostNotifyConfig(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: hermes\n    hermes:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifySink != "hermes" {
+		t.Fatalf("resolved.HostNotifySink = %q, want hermes", resolved.HostNotifySink)
+	}
+	if resolved.HostNotifyHermesNotifyURL != "http://127.0.0.1:8765/notify/host-event" {
+		t.Fatalf("resolved.HostNotifyHermesNotifyURL = %q", resolved.HostNotifyHermesNotifyURL)
+	}
+	if resolved.HostNotifyHermesDeliver != "feishu" {
+		t.Fatalf("resolved.HostNotifyHermesDeliver = %q, want feishu", resolved.HostNotifyHermesDeliver)
+	}
+}
+
+func TestResolveIncludesHermesDeliverTarget(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: hermes\n    hermes:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n      deliver: telegram\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifyHermesDeliver != "telegram" {
+		t.Fatalf("resolved.HostNotifyHermesDeliver = %q, want telegram", resolved.HostNotifyHermesDeliver)
+	}
+}
+
+func TestResolveAcceptsLegacyWebhookSinkAlias(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: webhook\n    webhook:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifySink != "hermes" {
+		t.Fatalf("resolved.HostNotifySink = %q, want hermes", resolved.HostNotifySink)
+	}
+}
+
 func TestResolveHonorsRuntimeListenerConfigFromFile(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(

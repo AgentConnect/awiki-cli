@@ -31,6 +31,10 @@ const (
 	defaultHostNotifySink      = "log"
 	defaultHostNotifyFile      = "host-notify.events.jsonl"
 	defaultOpenClawHookURL     = "http://127.0.0.1:18789/hooks/agent"
+	defaultOpenClawAgentID     = "main"
+	defaultOpenClawHookName    = "AWiki"
+	defaultHermesNotifyURL     = "http://127.0.0.1:8765/notify/host-event"
+	defaultHermesDeliverTarget = "feishu"
 
 	ConfigSchemaVersion = 1
 )
@@ -119,9 +123,20 @@ type FileConfig struct {
 			Sink     string `json:"sink" yaml:"sink"`
 			FilePath string `json:"file_path" yaml:"file_path"`
 			OpenClaw struct {
-				HookURL string `json:"hook_url" yaml:"hook_url"`
-				Token   string `json:"token" yaml:"token"`
+				HookURL  string `json:"hook_url" yaml:"hook_url"`
+				AgentID  string `json:"agent_id" yaml:"agent_id"`
+				HookName string `json:"hook_name" yaml:"hook_name"`
+				Token    string `json:"token" yaml:"token"`
 			} `json:"openclaw" yaml:"openclaw"`
+			Hermes struct {
+				NotifyURL string `json:"notify_url" yaml:"notify_url"`
+				Deliver   string `json:"deliver" yaml:"deliver"`
+				Secret    string `json:"secret" yaml:"secret"`
+			} `json:"hermes" yaml:"hermes"`
+			LegacyWebhook struct {
+				NotifyURL string `json:"notify_url" yaml:"notify_url"`
+				Secret    string `json:"secret" yaml:"secret"`
+			} `json:"webhook" yaml:"webhook"`
 		} `json:"host_notify" yaml:"host_notify"`
 	} `json:"runtime" yaml:"runtime"`
 	Output struct {
@@ -167,6 +182,10 @@ type Resolved struct {
 	HostNotifySink                string                 `json:"host_notify_sink"`
 	HostNotifyFilePath            string                 `json:"host_notify_file_path,omitempty"`
 	HostNotifyOpenClawHookURL     string                 `json:"host_notify_openclaw_hook_url,omitempty"`
+	HostNotifyOpenClawAgentID     string                 `json:"host_notify_openclaw_agent_id,omitempty"`
+	HostNotifyOpenClawHookName    string                 `json:"host_notify_openclaw_hook_name,omitempty"`
+	HostNotifyHermesNotifyURL     string                 `json:"host_notify_hermes_notify_url,omitempty"`
+	HostNotifyHermesDeliver       string                 `json:"host_notify_hermes_deliver,omitempty"`
 	OutputFormat                  string                 `json:"output_format"`
 	NoColor                       bool                   `json:"no_color"`
 	ServiceBaseURL                string                 `json:"service_base_url"`
@@ -281,6 +300,14 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		defaultHostNotifySink,
 	)
 	resolved.HostNotifySink = strings.ToLower(strings.TrimSpace(resolved.HostNotifySink))
+	if resolved.HostNotifySink == "webhook" {
+		resolved.HostNotifySink = "hermes"
+		resolved.Sources["host_notify_sink"] = ValueSource{
+			Source: "legacy_alias",
+			Key:    "runtime.host_notify.sink",
+			Value:  "hermes",
+		}
+	}
 	if err := validateHostNotifySink(resolved.HostNotifySink); err != nil {
 		return nil, err
 	}
@@ -314,9 +341,49 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 			fileConfig.Runtime.HostNotify.OpenClaw.HookURL,
 			defaultOpenClawHookURL,
 		)
+		resolved.HostNotifyOpenClawAgentID, resolved.Sources["host_notify_openclaw_agent_id"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.AgentID,
+			defaultOpenClawAgentID,
+		)
+		resolved.HostNotifyOpenClawHookName, resolved.Sources["host_notify_openclaw_hook_name"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.OpenClaw.HookName,
+			defaultOpenClawHookName,
+		)
 	} else {
 		resolved.HostNotifyOpenClawHookURL = ""
 		resolved.Sources["host_notify_openclaw_hook_url"] = ValueSource{Source: "default", Value: ""}
+		resolved.HostNotifyOpenClawAgentID = ""
+		resolved.Sources["host_notify_openclaw_agent_id"] = ValueSource{Source: "default", Value: ""}
+		resolved.HostNotifyOpenClawHookName = ""
+		resolved.Sources["host_notify_openclaw_hook_name"] = ValueSource{Source: "default", Value: ""}
+	}
+	hermesNotifyURL := strings.TrimSpace(fileConfig.Runtime.HostNotify.Hermes.NotifyURL)
+	if hermesNotifyURL == "" {
+		hermesNotifyURL = strings.TrimSpace(fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL)
+	}
+	if resolved.HostNotifySink == "hermes" {
+		resolved.HostNotifyHermesNotifyURL, resolved.Sources["host_notify_hermes_notify_url"] = chooseValue(
+			"",
+			false,
+			hermesNotifyURL,
+			defaultHermesNotifyURL,
+		)
+		resolved.HostNotifyHermesDeliver, resolved.Sources["host_notify_hermes_deliver"] = chooseValue(
+			"",
+			false,
+			fileConfig.Runtime.HostNotify.Hermes.Deliver,
+			defaultHermesDeliverTarget,
+		)
+		resolved.HostNotifyHermesDeliver = strings.ToLower(strings.TrimSpace(resolved.HostNotifyHermesDeliver))
+	} else {
+		resolved.HostNotifyHermesNotifyURL = ""
+		resolved.Sources["host_notify_hermes_notify_url"] = ValueSource{Source: "default", Value: ""}
+		resolved.HostNotifyHermesDeliver = ""
+		resolved.Sources["host_notify_hermes_deliver"] = ValueSource{Source: "default", Value: ""}
 	}
 	resolved.OutputFormat, resolved.Sources["output_format"] = chooseValue(
 		overrides.Format,
@@ -413,6 +480,10 @@ func Snapshot(resolved *Resolved) map[string]any {
 		"host_notify_sink":                  resolved.HostNotifySink,
 		"host_notify_file_path":             resolved.HostNotifyFilePath,
 		"host_notify_openclaw_hook_url":     resolved.HostNotifyOpenClawHookURL,
+		"host_notify_openclaw_agent_id":     resolved.HostNotifyOpenClawAgentID,
+		"host_notify_openclaw_hook_name":    resolved.HostNotifyOpenClawHookName,
+		"host_notify_hermes_notify_url":     resolved.HostNotifyHermesNotifyURL,
+		"host_notify_hermes_deliver":        resolved.HostNotifyHermesDeliver,
 		"output_format":                     resolved.OutputFormat,
 		"no_color":                          resolved.NoColor,
 		"service_base_url":                  resolved.ServiceBaseURL,
@@ -643,12 +714,12 @@ func collectDeprecatedConfigFields(path string) ([]string, error) {
 
 func validateHostNotifySink(value string) error {
 	switch value {
-	case "", "noop", "log", "file", "openclaw":
+	case "", "noop", "log", "file", "openclaw", "hermes", "webhook":
 		return nil
 	default:
 		return &PolicyError{
 			Message: fmt.Sprintf("unsupported runtime.host_notify.sink %q", value),
-			Hint:    "Use runtime.host_notify.sink = noop, log, file, or openclaw in config.yaml.",
+			Hint:    "Use runtime.host_notify.sink = noop, log, file, openclaw, or hermes in config.yaml.",
 		}
 	}
 }
