@@ -146,6 +146,14 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runUpgradeApply
 	case "upgrade.status":
 		return a.runUpgradeStatus
+	case "skill.index":
+		return a.runSkillIndex
+	case "skill.get":
+		return a.runSkillGet
+	case "skill.sync":
+		return a.runSkillSync
+	case "skill.export":
+		return a.runSkillExport
 	case "status":
 		return a.runStatus
 	case "docs":

@@ -2,7 +2,7 @@ version: 2
 current_binary: awiki-cli
 layout: single_entry_references
 entry:
-  name: awiki
+  name: awiki-cli
   path: skills/SKILL.md
   type: entry
   description: Unified entry skill for awiki-cli identity, messaging, group, runtime, page, onboarding, and debug tasks.
@@ -41,7 +41,7 @@ references:
     path: skills/references/01-onboarding.md
     type: workflow
     implemented_status: implemented
-    description: First usable setup after installation: identity registration or recovery, then overall status validation.
+    description: "First usable setup after installation: identity registration or recovery, then overall status validation."
     keywords: [first-time, onboarding, register, recover, status]
     covered_commands:
       - id.status

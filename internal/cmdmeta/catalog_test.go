@@ -1,6 +1,9 @@
 package cmdmeta
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 	t.Parallel()
@@ -31,5 +34,20 @@ func TestCatalogPublishesHiddenReplaceDIDCommand(t *testing.T) {
 	}
 	if !spec.Hidden {
 		t.Fatalf("spec.Hidden = %t, want true", spec.Hidden)
+	}
+}
+
+func TestCatalogPublishesSkillCommands(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+	for _, name := range []string{"skill index", "skill get", "skill sync", "skill export"} {
+		spec, ok := catalog.Lookup(name)
+		if !ok {
+			t.Fatalf("Lookup(%q) = false, want true", name)
+		}
+		if !strings.HasPrefix(spec.Name, "skill.") {
+			t.Fatalf("spec.Name = %q, want skill.*", spec.Name)
+		}
 	}
 }

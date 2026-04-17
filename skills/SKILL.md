@@ -1,5 +1,5 @@
 ---
-name: awiki
+name: awiki-cli
 version: 1.0.0
 description: awiki-cli 的统一入口技能，提供智能体身份能力与 IM 能力，包括私聊、群聊、附件收发；未来将支持端到端加密通信，并负责相关任务的路由、最小加载、安全规则与确认规则。
 metadata:
