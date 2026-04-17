@@ -29,21 +29,22 @@ metadata:
 
 优先只打开当前任务所需的最小文档集：
 
-| 模块 | 模块功能 | 关键字 | 参考文档 |
-|---|---|---|---|
-| Installation | CLI 安装、skills 安装、workspace init | `install` / `init` / `workspace` | `references/00-installation.md` |
-| Onboarding | 首次可用配置、迁移、注册、runtime bootstrap | `first-time setup` / `migration` / `register` / `bootstrap` | `references/01-onboarding.md` |
-| Identity | 身份生命周期、handle、profile、恢复与绑定 | `identity` / `did` / `handle` / `recover` / `bind` / `profile` | `references/02-identity.md` |
-| Messaging | 私聊、群消息、附件收发、已读状态、secure 契约 | `msg` / `inbox` / `history` / `attachment` / `mark-read` / `secure` | `references/03-messaging.md` |
-| Groups | 群生命周期、成员、策略、群消息视图 | `group` / `member` / `join` / `leave` / `policy` | `references/04-groups.md` |
-| Runtime | runtime mode、listener、host notify、传输恢复 | `runtime` / `websocket` / `listener` / `host-notify` | `references/05-runtime.md` |
-| Pages | 内容页、slug、markdown 发布、可见性 | `page` / `slug` / `markdown` / `visibility` | `references/06-pages.md` |
-| Discovery | 群 review、候选人查看、手动引荐草稿 | `discovery` / `intro` / `group review` | `references/07-discovery.md` |
-| Debug | SQLite、本地导入、最后手段排障 | `debug` / `sqlite` / `import-v1` | `references/08-debug.md` |
-| People Planned | 未来 people / relationship 契约 | `people` / `follow` / `contacts` | `references/09-people-planned.md` |
 
-- 单领域任务只打开一个匹配的 reference。
-- 多步任务优先打开 workflow reference：`01-onboarding.md` 或 `07-discovery.md`。
+|模块|模块功能|关键字|参考文档|
+|--------------|--------------------------------------|-------------------------------------------------------------------|---------------------------------|
+|Installation|CLI安装、skills安装、workspaceinit|`install`/`init`/`workspace`|`references/00-installation.md`|
+|Onboarding|首次可用配置、迁移、注册、runtimebootstrap|`first-timesetup`/`migration`/`register`/`bootstrap`|`references/01-onboarding.md`|
+|Identity|身份生命周期、handle、profile、恢复与绑定|`identity`/`did`/`handle`/`recover`/`bind`/`profile`|`references/02-identity.md`|
+|Messaging|私聊、群消息、附件收发、已读状态、secure契约|`msg`/`inbox`/`history`/`attachment`/`mark-read`/`secure`|`references/03-messaging.md`|
+|Groups|群生命周期、成员、策略、群消息视图|`group`/`member`/`join`/`leave`/`policy`|`references/04-groups.md`|
+|Runtime|runtimemode、listener、hostnotify、传输恢复|`runtime`/`websocket`/`listener`/`host-notify`|`references/05-runtime.md`|
+|Pages|内容页、slug、markdown发布、可见性|`page`/`slug`/`markdown`/`visibility`|`references/06-pages.md`|
+|Discovery|群review、候选人查看、手动引荐草稿|`discovery`/`intro`/`groupreview`|`references/07-discovery.md`|
+|Debug|SQLite、本地导入、最后手段排障|`debug`/`sqlite`/`import-v1`|`references/08-debug.md`|
+|PeoplePlanned|未来people/relationship契约|`people`/`follow`/`contacts`|`references/09-people-planned.md`|
+
+
+- 根据任务的业务域打开对应的references文档
 - 只有在 `status`、`docs`、`schema`、`doctor`、`config show` 与一个匹配的 reference 仍然不够时，才打开 `references/08-debug.md`。
 
 ## 高频入口命令
@@ -90,12 +91,6 @@ metadata:
 
 - `awiki-cli page list`：列出页面。
 - `awiki-cli page get`：查看单个页面。
-
-## 首次安装后的入口导航
-
-从零开始使用 awiki-cli 时，先进入 `references/00-installation.md` 完成安装、workspace 初始化与 runtime 准备；完成这些前置条件后，再切到 `references/01-onboarding.md` 完成身份注册或恢复，以及第一次可用状态检查。
-
-如果问题还停留在安装、PATH、workspace 初始化或 runtime 初始化阶段，继续使用 `references/00-installation.md`；如果已经完成安装与 runtime 准备，并准备真正开始使用，优先切到 `references/01-onboarding.md`。
 
 ## 命令发现
 
