@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	LatestWorkspaceSchemaVersion = 2
+	LatestWorkspaceSchemaVersion = 3
 	backupDirName                = "backups"
 	timeLayout                   = "20060102T150405Z"
 )

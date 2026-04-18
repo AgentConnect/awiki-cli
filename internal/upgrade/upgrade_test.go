@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -16,6 +17,13 @@ import (
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
 )
+
+type legacyIdentityFixture struct {
+	name        string
+	handle      string
+	displayName string
+	token       string
+}
 
 func TestUpgradeIfNeededSkipsEmptyWorkspace(t *testing.T) {
 	t.Parallel()
@@ -220,6 +228,273 @@ func TestUpgradeIfNeededImportsLegacyWorkspace(t *testing.T) {
 	}
 }
 
+func TestUpgradeIfNeededReplacesAllImportedLegacyK1Handles(t *testing.T) {
+	resolved := testResolvedConfig(t)
+	homeDir := filepath.Dir(resolved.Paths.WorkspaceHomeDir)
+	installLegacyCleanupTestHooks(t, homeDir)
+
+	legacyIdentities := []legacyIdentityFixture{
+		{name: "default", handle: "legacy-default", displayName: "Legacy Default", token: "legacy-token-default"},
+		{name: "alice", handle: "legacy-alice", displayName: "Legacy Alice", token: "legacy-token-alice"},
+		{name: "bob", handle: "legacy-bob", displayName: "Legacy Bob", token: "legacy-token-bob"},
+	}
+
+	replaceServer := startReplaceDIDTestServer(t, writeLegacyIdentityFixtures(t, resolved, legacyIdentities))
+
+	writeLegacySettings(t, resolved.Paths.LegacyDataDir, replaceServer.URL(), "awiki.test")
+
+	if err := UpgradeIfNeeded(context.Background(), resolved, "2.0.0"); err != nil {
+		t.Fatalf("UpgradeIfNeeded() error = %v", err)
+	}
+
+	meta, err := LoadMeta(ResolvePaths(resolved).MetaPath)
+	if err != nil {
+		t.Fatalf("LoadMeta() error = %v", err)
+	}
+	if len(meta.Warnings) != 0 {
+		t.Fatalf("meta.Warnings = %#v, want none", meta.Warnings)
+	}
+	replaceServer.assertCalls(t, legacyIdentities, "imported")
+
+	manager := identity.NewManager(resolved.Paths)
+	identities, err := manager.List()
+	if err != nil {
+		t.Fatalf("manager.List() error = %v", err)
+	}
+	if len(identities) != len(legacyIdentities) {
+		t.Fatalf("len(identities) = %d, want %d: %#v", len(identities), len(legacyIdentities), identities)
+	}
+	assertStoredIdentitiesReplaced(t, manager, legacyIdentities)
+	assertReplaceDIDBackupsForFixtures(t, resolved, legacyIdentities)
+}
+
+func TestUpgradeIfNeededReplacesExistingWorkspaceK1Handles(t *testing.T) {
+	resolved := testResolvedConfig(t)
+
+	legacyIdentities := []legacyIdentityFixture{
+		{name: "default", handle: "existing-default", displayName: "Existing Default", token: "existing-token-default"},
+		{name: "alice", handle: "existing-alice", displayName: "Existing Alice", token: "existing-token-alice"},
+		{name: "bob", handle: "existing-bob", displayName: "Existing Bob", token: "existing-token-bob"},
+	}
+
+	expectedHandleByAuth := writeLegacyIdentityFixtures(t, resolved, legacyIdentities)
+	manager := identity.NewManager(resolved.Paths)
+	imported, err := manager.ImportAllLegacy()
+	if err != nil {
+		t.Fatalf("manager.ImportAllLegacy() error = %v", err)
+	}
+	if len(imported.Imported) != len(legacyIdentities) {
+		t.Fatalf("len(imported.Imported) = %d, want %d", len(imported.Imported), len(legacyIdentities))
+	}
+
+	replaceServer := startReplaceDIDTestServer(t, expectedHandleByAuth)
+
+	resolved.ServiceBaseURL = replaceServer.URL()
+	resolved.DIDDomain = "awiki.test"
+	resolved.ANPServiceEndpoint = identity.DefaultANPServiceEndpoint("awiki.test")
+	resolved.ANPServiceDID = identity.DefaultANPServiceDID("awiki.test")
+	fileConfig := appconfig.FileConfig{}
+	fileConfig.Runtime.Mode = runtimecfg.ModeWebSocket
+	fileConfig.Services.ServiceBaseURL = replaceServer.URL()
+	fileConfig.Services.DIDDomain = "awiki.test"
+	if err := appconfig.WriteFileConfig(resolved.Paths.ConfigFile, fileConfig); err != nil {
+		t.Fatalf("WriteFileConfig() error = %v", err)
+	}
+	if err := SaveMeta(ResolvePaths(resolved).MetaPath, Meta{
+		WorkspaceSchemaVersion: 2,
+		AppVersion:             "2.0.0",
+		UpdatedAt:              "2026-04-17T00:00:00Z",
+		LastUpgradeID:          "20260417T000000Z",
+	}); err != nil {
+		t.Fatalf("SaveMeta() error = %v", err)
+	}
+
+	if err := UpgradeIfNeeded(context.Background(), resolved, "2.1.0"); err != nil {
+		t.Fatalf("UpgradeIfNeeded() error = %v", err)
+	}
+
+	meta, err := LoadMeta(ResolvePaths(resolved).MetaPath)
+	if err != nil {
+		t.Fatalf("LoadMeta() error = %v", err)
+	}
+	if meta == nil || meta.WorkspaceSchemaVersion != LatestWorkspaceSchemaVersion {
+		t.Fatalf("unexpected workspace meta: %#v", meta)
+	}
+	if len(meta.Warnings) != 0 {
+		t.Fatalf("meta.Warnings = %#v, want none", meta.Warnings)
+	}
+	replaceServer.assertCalls(t, legacyIdentities, "existing")
+
+	assertStoredIdentitiesReplaced(t, manager, legacyIdentities)
+	assertReplaceDIDBackupsForFixtures(t, resolved, legacyIdentities)
+}
+
+func writeLegacyIdentityFixtures(t *testing.T, resolved *appconfig.Resolved, fixtures []legacyIdentityFixture) map[string]string {
+	t.Helper()
+	expectedHandleByAuth := make(map[string]string, len(fixtures))
+	for _, legacy := range fixtures {
+		writeLegacyIdentityNamed(t, resolved.Paths.LegacyCredentialsDir, legacy.name, legacy.handle, legacy.displayName, legacy.token)
+		expectedHandleByAuth["Bearer "+legacy.token] = legacy.handle
+	}
+	return expectedHandleByAuth
+}
+
+type replaceDIDTestServer struct {
+	server        *httptest.Server
+	mu            sync.Mutex
+	callsByHandle map[string]int
+}
+
+func startReplaceDIDTestServer(t *testing.T, expectedHandleByAuth map[string]string) *replaceDIDTestServer {
+	t.Helper()
+	server := &replaceDIDTestServer{
+		callsByHandle: make(map[string]int, len(expectedHandleByAuth)),
+	}
+	server.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		handle, ok := expectedHandleByAuth[r.Header.Get("Authorization")]
+		if !ok {
+			t.Fatalf("Authorization = %q, want one of %#v", r.Header.Get("Authorization"), expectedHandleByAuth)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if got, _ := payload["method"].(string); got != "replace_did" {
+			t.Fatalf("rpc method = %q, want replace_did", got)
+		}
+		params, _ := payload["params"].(map[string]any)
+		newDocument, _ := params["new_did_document"].(map[string]any)
+		newDID, _ := newDocument["id"].(string)
+		if !identity.IsE1DID(newDID) {
+			t.Fatalf("new DID = %q, want e1 DID", newDID)
+		}
+
+		server.mu.Lock()
+		server.callsByHandle[handle]++
+		server.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"result": map[string]any{
+				"old_did":      "legacy-old",
+				"did":          newDID,
+				"user_id":      "user-" + handle,
+				"handle":       handle,
+				"full_handle":  handle + ".awiki.test",
+				"access_token": "new-token-" + handle,
+				"message":      "DID replaced successfully",
+			},
+			"id": "req-1",
+		}); err != nil {
+			t.Fatalf("Encode() error = %v", err)
+		}
+	}))
+	t.Cleanup(server.server.Close)
+	return server
+}
+
+func (s *replaceDIDTestServer) URL() string {
+	return s.server.URL
+}
+
+func (s *replaceDIDTestServer) assertCalls(t *testing.T, fixtures []legacyIdentityFixture, label string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.callsByHandle) != len(fixtures) {
+		t.Fatalf("replace calls = %#v, want one call per %s handle", s.callsByHandle, label)
+	}
+	for _, legacy := range fixtures {
+		if s.callsByHandle[legacy.handle] != 1 {
+			t.Fatalf("replace calls for handle %s = %d, want 1; all calls = %#v", legacy.handle, s.callsByHandle[legacy.handle], s.callsByHandle)
+		}
+	}
+}
+
+func assertStoredIdentitiesReplaced(t *testing.T, manager *identity.Manager, fixtures []legacyIdentityFixture) {
+	t.Helper()
+	for _, legacy := range fixtures {
+		record, err := manager.Load(legacy.name)
+		if err != nil {
+			t.Fatalf("manager.Load(%q) error = %v", legacy.name, err)
+		}
+		if !identity.IsE1DID(record.DID) {
+			t.Fatalf("identity %s DID = %q, want e1 DID", legacy.name, record.DID)
+		}
+		if record.Handle != legacy.handle {
+			t.Fatalf("identity %s handle = %q, want %q", legacy.name, record.Handle, legacy.handle)
+		}
+		if record.JWTToken != "new-token-"+legacy.handle {
+			t.Fatalf("identity %s JWTToken = %q, want %q", legacy.name, record.JWTToken, "new-token-"+legacy.handle)
+		}
+	}
+}
+
+func assertReplaceDIDBackupsForFixtures(t *testing.T, resolved *appconfig.Resolved, fixtures []legacyIdentityFixture) {
+	t.Helper()
+	backupRoot := filepath.Join(resolved.Paths.IdentityDir, identity.LegacyBackupDirName, "replace-did")
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		t.Fatalf("ReadDir(%s) error = %v", backupRoot, err)
+	}
+	if len(entries) != len(fixtures) {
+		t.Fatalf("backup dir count = %d, want %d", len(entries), len(fixtures))
+	}
+	expected := make(map[string]struct{}, len(fixtures))
+	for _, fixture := range fixtures {
+		expected[fixture.name] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		backupPath := filepath.Join(backupRoot, entry.Name())
+		manifest := readUpgradeTestJSONMap(t, filepath.Join(backupPath, "backup_manifest.json"))
+		identityName, _ := manifest["identity_name"].(string)
+		if _, ok := expected[identityName]; !ok {
+			t.Fatalf("unexpected backup identity_name %q in %#v", identityName, manifest)
+		}
+		seen[identityName] = struct{}{}
+		oldDID, _ := manifest["old_did"].(string)
+		if !identity.IsK1DID(oldDID) {
+			t.Fatalf("backup old_did = %q, want k1 DID", oldDID)
+		}
+		plannedNewDID, _ := manifest["planned_new_did"].(string)
+		if !identity.IsE1DID(plannedNewDID) {
+			t.Fatalf("backup planned_new_did = %q, want e1 DID", plannedNewDID)
+		}
+		if _, err := os.Stat(filepath.Join(backupPath, identity.DIDDocumentFileName)); err != nil {
+			t.Fatalf("backup %s missing DID document: %v", backupPath, err)
+		}
+		if _, err := os.Stat(filepath.Join(backupPath, identity.Key1PrivateFileName)); err != nil {
+			t.Fatalf("backup %s missing private key: %v", backupPath, err)
+		}
+	}
+	for _, fixture := range fixtures {
+		if _, ok := seen[fixture.name]; !ok {
+			t.Fatalf("backup for identity %s not found; seen = %#v", fixture.name, seen)
+		}
+	}
+}
+
+func readUpgradeTestJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("Unmarshal(%s) error = %v", path, err)
+	}
+	return payload
+}
+
 func TestUpgradeIfNeededCleansLegacySkillArtifactsForExistingWorkspace(t *testing.T) {
 	resolved := testResolvedConfig(t)
 	homeDir := filepath.Dir(resolved.Paths.WorkspaceHomeDir)
@@ -285,6 +560,10 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 }
 
 func writeLegacyIdentity(t *testing.T, legacyRoot string) *identity.GeneratedIdentity {
+	return writeLegacyIdentityNamed(t, legacyRoot, "default", "legacy-alice", "Legacy Alice", "legacy-token")
+}
+
+func writeLegacyIdentityNamed(t *testing.T, legacyRoot string, credentialName string, handle string, displayName string, jwtToken string) *identity.GeneratedIdentity {
 	t.Helper()
 	if err := os.MkdirAll(legacyRoot, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -294,7 +573,7 @@ func writeLegacyIdentity(t *testing.T, legacyRoot string) *identity.GeneratedIde
 		t.Fatalf("BuildAgentANPMessageService() error = %v", err)
 	}
 	bundle, err := anpsdk.CreateDidWBADocument("awiki.test", anpsdk.DidDocumentOptions{
-		PathSegments: []string{"legacy-alice"},
+		PathSegments: []string{handle},
 		Domain:       "awiki.test",
 		Challenge:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Services:     []map[string]any{service},
@@ -320,9 +599,9 @@ func writeLegacyIdentity(t *testing.T, legacyRoot string) *identity.GeneratedIde
 	payload := map[string]any{
 		"did":                        generated.DID,
 		"unique_id":                  generated.UniqueID,
-		"name":                       "Legacy Alice",
-		"handle":                     "legacy-alice",
-		"jwt_token":                  "legacy-token",
+		"name":                       displayName,
+		"handle":                     handle,
+		"jwt_token":                  jwtToken,
 		"private_key_pem":            generated.Key1PrivatePEM,
 		"public_key_pem":             generated.Key1PublicPEM,
 		"e2ee_signing_private_pem":   generated.E2EESigningPrivatePEM,
@@ -333,7 +612,7 @@ func writeLegacyIdentity(t *testing.T, legacyRoot string) *identity.GeneratedIde
 	if err != nil {
 		t.Fatalf("MarshalIndent() error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(legacyRoot, "default.json"), raw, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(legacyRoot, credentialName+".json"), raw, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	return generated

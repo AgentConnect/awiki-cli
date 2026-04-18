@@ -604,6 +604,11 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 		return nil, err
 	}
 
+	backupPath, err := s.manager.BackupIdentityForDIDReplacement(record.IdentityName, generated.DID)
+	if err != nil {
+		return nil, err
+	}
+
 	requestParams := map[string]any{
 		"new_did_document": generated.DIDDocument,
 	}
@@ -657,11 +662,12 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 
 	return &CommandResult{
 		Data: map[string]any{
-			"action":   "replace_did",
-			"identity": identitySummaryFromRecord(replaced),
-			"old_did":  record.DID,
-			"did":      replaced.DID,
-			"result":   result,
+			"action":      "replace_did",
+			"identity":    identitySummaryFromRecord(replaced),
+			"old_did":     record.DID,
+			"did":         replaced.DID,
+			"backup_path": backupPath,
+			"result":      result,
 		},
 		Summary: fmt.Sprintf("Identity %s DID replaced successfully", record.IdentityName),
 	}, nil

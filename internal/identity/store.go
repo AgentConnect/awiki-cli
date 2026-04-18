@@ -205,6 +205,72 @@ func (m *Manager) UpdateDisplayName(name string, displayName string) error {
 	return m.SaveIndex(index)
 }
 
+func (m *Manager) BackupIdentityForDIDReplacement(name string, plannedNewDID string) (string, error) {
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("%w: identity name is required", ErrInvalidInput)
+	}
+	if strings.TrimSpace(plannedNewDID) == "" {
+		return "", fmt.Errorf("%w: planned new did is required", ErrInvalidInput)
+	}
+	if err := m.EnsureRoot(); err != nil {
+		return "", err
+	}
+
+	index, err := m.LoadIndex()
+	if err != nil {
+		return "", err
+	}
+	resolvedName, entry, ok := m.resolveEntryName(name, index)
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrIdentityNotFound, name)
+	}
+	current, err := m.Load(resolvedName)
+	if err != nil {
+		return "", err
+	}
+	oldPaths := m.BuildPaths(entry.DirName)
+	info, err := os.Stat(oldPaths.IdentityDir)
+	if err != nil {
+		return "", fmt.Errorf("stat identity directory before backup: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%w: identity path is not a directory: %s", ErrInvalidInput, oldPaths.IdentityDir)
+	}
+
+	linkedNames := make([]string, 0, 1)
+	for candidateName, candidateEntry := range index.Credentials {
+		if candidateEntry.DirName == entry.DirName || candidateEntry.DID == entry.DID {
+			linkedNames = append(linkedNames, candidateName)
+		}
+	}
+	sort.Strings(linkedNames)
+
+	createdAt := time.Now().UTC()
+	backupName := strings.Join([]string{
+		createdAt.Format("20060102T150405.000000000Z"),
+		sanitizeIdentityName(resolvedName),
+		sanitizeComponent(entry.DirName),
+	}, "-")
+	backupDir := uniqueBackupDir(filepath.Join(m.legacyBackupRoot(), "replace-did", backupName))
+	if err := copyDir(oldPaths.IdentityDir, backupDir); err != nil {
+		return "", fmt.Errorf("backup identity directory before DID replacement: %w", err)
+	}
+
+	manifest := map[string]any{
+		"reason":                "replace_did",
+		"created_at":            createdAt.Format(time.RFC3339Nano),
+		"identity_name":         resolvedName,
+		"linked_identity_names": linkedNames,
+		"old_did":               current.DID,
+		"old_dir_name":          entry.DirName,
+		"planned_new_did":       plannedNewDID,
+	}
+	if err := writeSecureJSON(filepath.Join(backupDir, "backup_manifest.json"), manifest); err != nil {
+		return "", fmt.Errorf("write DID replacement backup manifest: %w", err)
+	}
+	return backupDir, nil
+}
+
 func (m *Manager) ReplaceIdentity(name string, input SaveInput) (*StoredIdentity, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: identity name is required", ErrInvalidInput)
@@ -525,4 +591,12 @@ func PreviewNamedIdentity(requested string, existing []IdentitySummary, fallback
 
 func (m *Manager) legacyBackupRoot() string {
 	return filepath.Join(m.RootDir(), LegacyBackupDirName)
+}
+
+func uniqueBackupDir(base string) string {
+	candidate := base
+	for idx := 2; fileExists(candidate); idx++ {
+		candidate = fmt.Sprintf("%s-%d", base, idx)
+	}
+	return candidate
 }

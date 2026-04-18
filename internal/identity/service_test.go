@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -100,6 +102,9 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	if identityData == nil || identityData.DID != gotNewDID {
 		t.Fatalf("result identity = %#v, want new did %q", identityData, gotNewDID)
 	}
+	backupPath, _ := result.Data["backup_path"].(string)
+	assertReplaceDIDBackup(t, manager, backupPath, legacy, gotNewDID)
+
 	storeRebind, e2eeCleanup, err := store.RebindLocalIdentityState(context.Background(), resolved.Paths, legacy.DID, gotNewDID)
 	if err != nil {
 		t.Fatalf("store.RebindLocalIdentityState() error = %v", err)
@@ -137,6 +142,107 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	if oldSessionCount != 0 {
 		t.Fatalf("old session count = %d, want 0", oldSessionCount)
 	}
+}
+
+func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
+	t.Parallel()
+
+	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	var remoteCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		remoteCalls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "alice",
+		DID:                     legacy.DID,
+		UniqueID:                legacy.UniqueID,
+		UserID:                  "user-1",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		JWTToken:                "legacy-token",
+		DIDDocument:             legacy.DIDDocument,
+		Key1PrivatePEM:          legacy.Key1PrivatePEM,
+		Key1PublicPEM:           legacy.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacy.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: legacy.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(resolved.Paths.IdentityDir, identity.LegacyBackupDirName), []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile(.legacy-backup) error = %v", err)
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	if _, err := service.ReplaceDID(context.Background(), identity.ReplaceDIDParams{}); err == nil {
+		t.Fatal("ReplaceDID() error = nil, want backup failure")
+	} else if !strings.Contains(err.Error(), "backup identity directory") {
+		t.Fatalf("ReplaceDID() error = %v, want backup failure", err)
+	}
+	if remoteCalls.Load() != 0 {
+		t.Fatalf("remoteCalls = %d, want 0", remoteCalls.Load())
+	}
+	stillOld, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stillOld.DID != legacy.DID {
+		t.Fatalf("identity DID = %q, want original DID %q", stillOld.DID, legacy.DID)
+	}
+}
+
+func assertReplaceDIDBackup(t *testing.T, manager *identity.Manager, backupPath string, legacy *identity.GeneratedIdentity, plannedNewDID string) {
+	t.Helper()
+	if strings.TrimSpace(backupPath) == "" {
+		t.Fatal("backup_path is empty")
+	}
+	if _, err := os.Stat(filepath.Join(manager.RootDir(), legacy.UniqueID)); !os.IsNotExist(err) {
+		t.Fatalf("old live identity dir still exists or stat failed unexpectedly: %v", err)
+	}
+	identityPayload := readTestJSONMap(t, filepath.Join(backupPath, identity.IdentityFileName))
+	if got, _ := identityPayload["did"].(string); got != legacy.DID {
+		t.Fatalf("backup identity did = %q, want %q", got, legacy.DID)
+	}
+	didDocument := readTestJSONMap(t, filepath.Join(backupPath, identity.DIDDocumentFileName))
+	if got, _ := didDocument["id"].(string); got != legacy.DID {
+		t.Fatalf("backup DID document id = %q, want %q", got, legacy.DID)
+	}
+	privateKey, err := os.ReadFile(filepath.Join(backupPath, identity.Key1PrivateFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(backup key-1-private.pem) error = %v", err)
+	}
+	if string(privateKey) != legacy.Key1PrivatePEM {
+		t.Fatalf("backup private key mismatch")
+	}
+	manifest := readTestJSONMap(t, filepath.Join(backupPath, "backup_manifest.json"))
+	if got, _ := manifest["reason"].(string); got != "replace_did" {
+		t.Fatalf("manifest reason = %q, want replace_did", got)
+	}
+	if got, _ := manifest["old_did"].(string); got != legacy.DID {
+		t.Fatalf("manifest old_did = %q, want %q", got, legacy.DID)
+	}
+	if got, _ := manifest["planned_new_did"].(string); got != plannedNewDID {
+		t.Fatalf("manifest planned_new_did = %q, want %q", got, plannedNewDID)
+	}
+}
+
+func readTestJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("Unmarshal(%s) error = %v", path, err)
+	}
+	return payload
 }
 
 func newReplaceTestWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Resolved, *identity.Manager) {

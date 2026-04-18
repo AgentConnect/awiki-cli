@@ -115,6 +115,7 @@ metadata:
 - 当前支持的输出格式：`json`、`pretty`、`table`、`ndjson`。
 - 使用 `--jq` 过滤 JSON envelope，而不是假设其他响应形状。
 - 对有副作用的命令，在真正写入前优先使用 `--dry-run`，除非用户明确要求直接执行。
+- `id replace-did` 是危险命令：不要主动运行；只有用户明确要求替换某个 identity 的 DID 时才使用，并优先 `--dry-run`、确认 `--identity <identity>` 目标。
 - 当出现 `_notice.update` 时，先完成当前任务，再提示升级信息。
 
 ## 身份与展示规则
