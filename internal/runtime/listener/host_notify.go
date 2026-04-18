@@ -162,10 +162,13 @@ func (s *fileHostNotifySink) Close() error {
 func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotifyStatus, error) {
 	config := runtimecfg.Resolve(resolved).HostNotify
 	status := HostNotifyStatus{
-		Enabled:  config.Enabled,
-		Sink:     config.Sink,
-		FilePath: config.FilePath,
-		HookURL:  config.OpenClaw.HookURL,
+		Enabled:   config.Enabled,
+		Sink:      config.Sink,
+		FilePath:  config.FilePath,
+		HookURL:   config.OpenClaw.HookURL,
+		AgentID:   config.OpenClaw.AgentID,
+		HookName:  config.OpenClaw.HookName,
+		NotifyURL: config.Hermes.NotifyURL,
 	}
 	if !config.Enabled {
 		return &noopHostNotifySink{}, status, nil
@@ -188,6 +191,12 @@ func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotify
 		}
 		status.HookURL = settings.HookURL
 		sink, err := newOpenClawHostNotifySink(resolved)
+		if err != nil {
+			return nil, status, err
+		}
+		return sink, status, nil
+	case "hermes", "webhook":
+		sink, err := newHermesHostNotifySink(resolved, config.Hermes)
 		if err != nil {
 			return nil, status, err
 		}

@@ -2,14 +2,19 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
+	"github.com/agentconnect/awiki-cli/internal/runtime/hermesbridge"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
 	"github.com/agentconnect/awiki-cli/internal/runtime/openclawnotify"
 	"github.com/agentconnect/awiki-cli/internal/store"
@@ -22,6 +27,12 @@ var (
 	runtimeBootstrapFunc  = func(app *App, resolved *appconfig.Resolved) (listenerrt.Status, error) {
 		return app.ensureRuntimeBootstrap(resolved)
 	}
+)
+
+const (
+	hermesNotifySecretEnv  = "AWIKI_HOST_NOTIFY_HERMES_SECRET"
+	legacyWebhookSecretEnv = "AWIKI_HOST_NOTIFY_WEBHOOK_SECRET"
+	defaultHermesNotifyURL = "http://127.0.0.1:8765/notify/host-event"
 )
 
 func runtimeFormat(resolved *appconfig.Resolved) string {
@@ -487,7 +498,7 @@ func (a *App) runRuntimeHostNotifyConfigShow(cmd *cobra.Command, args []string) 
 	data := map[string]any{
 		"host_notify": view,
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config loaded", nil, identityMetaFromResolved(resolved))
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config loaded", hostNotifyGuidanceWarnings(resolved), identityMetaFromResolved(resolved))
 }
 
 func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) error {
@@ -497,13 +508,13 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 	}
 	format := normalizedFormat(runtimeFormat(resolved))
 	if !cmd.Flags().Changed("sink") {
-		return output.NewExitError("invalid_argument", 2, "host-notify config set requires --sink.", "Use --sink noop|log|file|openclaw.")
+		return output.NewExitError("invalid_argument", 2, "host-notify config set requires --sink.", "Use --sink noop|log|file|openclaw|hermes.")
 	}
 	sink, _ := cmd.Flags().GetString("sink")
 	switch sink {
-	case "noop", "log", "file", "openclaw":
+	case "noop", "log", "file", "openclaw", "hermes", "webhook":
 	default:
-		return output.NewExitError("invalid_argument", 2, "unsupported host notify sink", "Use --sink noop, log, file, or openclaw.")
+		return output.NewExitError("invalid_argument", 2, "unsupported host notify sink", "Use --sink noop, log, file, openclaw, or hermes.")
 	}
 	if a.globals.DryRun {
 		data := map[string]any{"plan": map[string]any{
@@ -534,6 +545,7 @@ func (a *App) runRuntimeHostNotifyConfigSet(cmd *cobra.Command, args []string) e
 	if listenerStatus != nil {
 		data["listener"] = listenerStatus
 	}
+	warnings = append(warnings, hostNotifyGuidanceWarnings(resolved)...)
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Host notify config updated", warnings, identityMetaFromResolved(resolved))
 }
 
@@ -584,6 +596,7 @@ func (a *App) setRuntimeHostNotifyEnabled(cmd *cobra.Command, enabled bool) erro
 	if !enabled {
 		summary = "Host notify disabled"
 	}
+	warnings = append(warnings, hostNotifyGuidanceWarnings(resolved)...)
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, warnings, identityMetaFromResolved(resolved))
 }
 
@@ -707,6 +720,327 @@ func (a *App) runRuntimeHostNotifyOpenClawClearToken(cmd *cobra.Command, args []
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "OpenClaw token cleared", warnings, identityMetaFromResolved(resolved))
 }
 
+func (a *App) runRuntimeHostNotifyHermesGuide(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	deliver, _ := cmd.Flags().GetString("deliver")
+	deliver = resolveHermesDeliverTarget(resolved, deliver)
+	if !hermesbridge.IsSupportedDeliverTarget(deliver) {
+		return output.NewExitError("invalid_argument", 2, fmt.Sprintf("unsupported Hermes deliver target %q", deliver), fmt.Sprintf("Use --deliver with one of: %s.", strings.Join(hermesbridge.SupportedDeliverTargets(), ", ")))
+	}
+	notifyURL := resolveHermesNotifyURL(resolved)
+	secretSource := resolveHermesSecretSource(resolved, notifyURL)
+	data := map[string]any{
+		"hermes_guide": buildHermesHostNotifyGuideView(resolved, notifyURL, deliver, secretSource),
+	}
+	if routeState, routeErr := hermesbridge.InspectRoute(resolveHermesHomeDir(), hermesbridge.DefaultWebhookRouteName); routeErr == nil {
+		data["local_hermes"] = routeState
+	}
+	warnings := append([]string{}, hostNotifyGuidanceWarningsFor(resolved, deliver)...)
+	currentHostNotify := runtimecfg.Resolve(resolved).HostNotify
+	if currentHostNotify.Sink != "hermes" {
+		warnings = append(warnings, fmt.Sprintf("Current host notify sink is %q. Run `awiki-cli runtime host-notify hermes setup` to switch awiki-cli over to the fully managed local Hermes flow.", currentHostNotify.Sink))
+	}
+	if secretSource == "unset" {
+		warnings = append(warnings, "awiki-cli does not have a Hermes notify secret yet. `awiki-cli runtime host-notify hermes setup` will generate and persist one automatically.")
+	}
+	if deliver == "log" {
+		warnings = append(warnings, "This guide is using `deliver: \"log\"` for probe-only verification. Switch to a real messaging platform such as `feishu` or `telegram` for end-user delivery.")
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Hermes host notify guide generated", warnings, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyHermesStatus(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	hostNotifyView, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check host notify configuration and local OpenClaw route registry state.")
+	}
+	routeState, routeErr := hermesbridge.InspectRoute(resolveHermesHomeDir(), hermesbridge.DefaultWebhookRouteName)
+	bridgeStatus, bridgeErr := hermesbridge.StatusFor(resolved)
+	expectedDeliver := resolveHermesDeliverTarget(resolved, "")
+	data := map[string]any{
+		"host_notify": hostNotifyView,
+		"readiness": map[string]any{
+			"awiki_sink_is_hermes":           runtimecfg.Resolve(resolved).HostNotify.Sink == "hermes",
+			"awiki_host_notify_enabled":      runtimecfg.Resolve(resolved).HostNotify.Enabled,
+			"awiki_secret_configured":        resolveHermesSecretSource(resolved, resolveHermesNotifyURL(resolved)) != "unset",
+			"hermes_route_configured":        routeErr == nil && routeState.RouteConfigured,
+			"hermes_route_matches_deliver":   routeErr == nil && routeState.Deliver == expectedDeliver,
+			"hermes_route_uses_home_channel": routeErr == nil && routeState.DeliverUsesHomeChannel,
+			"home_channel_configured":        routeErr == nil && (expectedDeliver == "log" || routeState.HomeChannelConfigured),
+			"bridge_running":                 bridgeStatus.Running,
+			"bridge_available":               bridgeStatus.BridgeAvailable,
+		},
+	}
+	warnings := append([]string{}, hostNotifyGuidanceWarningsFor(resolved, expectedDeliver)...)
+	if routeErr == nil {
+		data["local_hermes"] = routeState
+		warnings = append(warnings, routeState.Warnings...)
+	} else {
+		warnings = append(warnings, fmt.Sprintf("Failed to inspect local Hermes config: %v", routeErr))
+	}
+	if bridgeErr == nil {
+		data["bridge"] = bridgeStatus
+		warnings = append(warnings, bridgeStatus.Warnings...)
+	} else {
+		warnings = append(warnings, fmt.Sprintf("Failed to inspect Hermes bridge status: %v", bridgeErr))
+	}
+	ready := runtimecfg.Resolve(resolved).HostNotify.Sink == "hermes" &&
+		runtimecfg.Resolve(resolved).HostNotify.Enabled &&
+		resolveHermesSecretSource(resolved, resolveHermesNotifyURL(resolved)) != "unset" &&
+		routeErr == nil && routeState.RouteConfigured && routeState.Deliver == expectedDeliver &&
+		(expectedDeliver == "log" || (routeState.DeliverUsesHomeChannel && routeState.HomeChannelConfigured)) &&
+		bridgeStatus.Running && bridgeStatus.BridgeAvailable
+	data["ready"] = ready
+	summary := "Hermes host notify readiness loaded"
+	if ready {
+		summary = fmt.Sprintf("Hermes host notify is ready for awiki -> Hermes -> %s delivery", hermesbridge.DeliverDisplayName(expectedDeliver))
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, summary, dedupeStrings(warnings), identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyHermesSetup(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	notifyURL := resolveHermesNotifyURL(resolved)
+	if cmd.Flags().Changed("notify-url") {
+		value, _ := cmd.Flags().GetString("notify-url")
+		notifyURL = strings.TrimSpace(value)
+	}
+	if strings.TrimSpace(notifyURL) == "" {
+		return output.NewExitError("invalid_argument", 2, "hermes setup requires a notify URL.", "Use --notify-url or configure runtime.host_notify.hermes.notify_url first.")
+	}
+	if _, _, _, err := hermesbridge.ValidateLocalNotifyURL(notifyURL); err != nil {
+		return output.NewExitError("invalid_argument", 2, err.Error(), "Use a local notify URL such as http://127.0.0.1:8765/notify/host-event for the fully managed Hermes flow.")
+	}
+	deliver, _ := cmd.Flags().GetString("deliver")
+	deliver = resolveHermesDeliverTarget(resolved, deliver)
+	if !hermesbridge.IsSupportedDeliverTarget(deliver) {
+		return output.NewExitError("invalid_argument", 2, fmt.Sprintf("unsupported Hermes deliver target %q", deliver), fmt.Sprintf("Use --deliver with one of: %s.", strings.Join(hermesbridge.SupportedDeliverTargets(), ", ")))
+	}
+	secretValue, secretSourceBefore, err := resolveHermesSecretValue(resolved, notifyURL)
+	if err != nil {
+		return a.runtimeExit(err, "Check awiki-cli host notify secret sources.")
+	}
+	if cmd.Flags().Changed("secret") {
+		value, _ := cmd.Flags().GetString("secret")
+		if strings.TrimSpace(value) == "" {
+			return output.NewExitError("invalid_argument", 2, "hermes setup requires a non-empty --secret when the flag is provided.", "Use --secret <secret>.")
+		}
+		secretValue = strings.TrimSpace(value)
+		secretSourceBefore = "flag"
+	} else if strings.TrimSpace(secretValue) == "" {
+		secretValue = generateHermesNotifySecret()
+		secretSourceBefore = "generated"
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":                  "host_notify_hermes_setup",
+			"notify_url":              notifyURL,
+			"secret_source":           secretSourceBefore,
+			"deliver":                 deliver,
+			"previous_sink":           runtimecfg.Resolve(resolved).HostNotify.Sink,
+			"host_notify_enabled":     true,
+			"awiki_config_file":       resolved.Paths.ConfigFile,
+			"hermes_config_file":      filepath.Join(resolveHermesHomeDir(), "config.yaml"),
+			"manages_local_hermes":    true,
+			"starts_local_bridge":     true,
+			"route_uses_home_channel": true,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: Hermes host notify setup planned", nil, identityMetaFromResolved(resolved))
+	}
+	if err := appconfig.ConfigureHermesHostNotify(resolved.Paths, notifyURL, &secretValue, deliver, true); err != nil {
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	routeState, err := hermesbridge.EnsureRoute(hermesbridge.EnsureRouteOptions{
+		HermesHome: resolveHermesHomeDir(),
+		RouteName:  hermesbridge.DefaultWebhookRouteName,
+		Deliver:    deliver,
+	})
+	if err != nil {
+		return a.runtimeExit(err, "Check local Hermes installation and ~/.hermes/config.yaml permissions.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Hermes host notify setup was written, but the listener could not be restarted to apply it.")
+	}
+	bridgeStatus, err := hermesbridge.Apply(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Hermes was configured, but the local Hermes bridge could not be started.")
+	}
+	view, err := hostNotifyConfigView(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Check host notify configuration and local OpenClaw route registry state.")
+	}
+	data := map[string]any{
+		"host_notify":  view,
+		"local_hermes": routeState,
+		"bridge":       bridgeStatus,
+		"next_steps": []string{
+			fmt.Sprintf("If you have not done it yet, send `/sethome` to Hermes from the desired %s chat.", hermesbridge.DeliverDisplayName(deliver)),
+			"Use `awiki-cli runtime host-notify hermes status` to verify end-to-end readiness.",
+		},
+	}
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	warnings = append(warnings, hostNotifyGuidanceWarningsFor(resolved, deliver)...)
+	warnings = append(warnings, routeState.Warnings...)
+	warnings = append(warnings, bridgeStatus.Warnings...)
+	if deliver != "log" && !routeState.HomeChannelConfigured {
+		if routeState.HomeChannelKey != "" {
+			warnings = append(warnings, fmt.Sprintf("Hermes route is ready, but %s is still missing. Run /sethome in %s to complete delivery targeting.", routeState.HomeChannelKey, hermesbridge.DeliverDisplayName(deliver)))
+		} else {
+			warnings = append(warnings, fmt.Sprintf("Hermes route is ready, but awiki-cli could not verify a home channel for %s. Set a home channel in Hermes before expecting delivery.", hermesbridge.DeliverDisplayName(deliver)))
+		}
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Hermes host notify setup completed", dedupeStrings(warnings), identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyHermesBridgeServiceRun(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	return hermesbridge.RunService(resolved)
+}
+
+func (a *App) runRuntimeHostNotifyHermesSet(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	var notifyURLPtr *string
+	var deliverPtr *string
+	if cmd.Flags().Changed("notify-url") {
+		value, _ := cmd.Flags().GetString("notify-url")
+		notifyURLPtr = &value
+	}
+	if cmd.Flags().Changed("deliver") {
+		value, _ := cmd.Flags().GetString("deliver")
+		normalized := resolveHermesDeliverTarget(resolved, value)
+		deliverPtr = &normalized
+	}
+	if notifyURLPtr == nil && deliverPtr == nil {
+		return output.NewExitError("invalid_argument", 2, "hermes set requires at least one changed flag.", "Use --notify-url or --deliver.")
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":      "host_notify_hermes_set",
+			"notify_url":  notifyURLPtr,
+			"deliver":     deliverPtr,
+			"config_file": resolved.Paths.ConfigFile,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: Hermes host notify config change planned", nil, identityMetaFromResolved(resolved))
+	}
+	if deliverPtr != nil && !hermesbridge.IsSupportedDeliverTarget(*deliverPtr) {
+		return output.NewExitError("invalid_argument", 2, fmt.Sprintf("unsupported Hermes deliver target %q", *deliverPtr), fmt.Sprintf("Use --deliver with one of: %s.", strings.Join(hermesbridge.SupportedDeliverTargets(), ", ")))
+	}
+	if err := appconfig.UpdateHermesSettings(resolved.Paths, notifyURLPtr, deliverPtr); err != nil {
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Hermes host notify config was updated, but the listener could not be restarted to apply it.")
+	}
+	data := map[string]any{
+		"hermes": runtimecfg.Resolve(resolved).HostNotify.Hermes,
+	}
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	warnings = append(warnings, hostNotifyGuidanceWarningsFor(resolved, resolveHermesDeliverTarget(resolved, ""))...)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Hermes host notify config updated", warnings, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyHermesSetSecret(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	value, _ := cmd.Flags().GetString("value")
+	if strings.TrimSpace(value) == "" {
+		return output.NewExitError("invalid_argument", 2, "hermes set-secret requires --value.", "Use --value <secret>.")
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":      "host_notify_hermes_set_secret",
+			"configured":  true,
+			"config_file": resolved.Paths.ConfigFile,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: Hermes secret update planned", nil, identityMetaFromResolved(resolved))
+	}
+	if err := appconfig.SetHermesSecret(resolved.Paths, value); err != nil {
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Hermes secret was updated, but the listener could not be restarted to apply it.")
+	}
+	data := map[string]any{"hermes": map[string]any{"secret_configured": true}}
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	warnings = append(warnings, hostNotifyGuidanceWarningsFor(resolved, resolveHermesDeliverTarget(resolved, ""))...)
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Hermes secret updated", warnings, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runRuntimeHostNotifyHermesClearSecret(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli doctor` to inspect runtime configuration.")
+	}
+	format := normalizedFormat(runtimeFormat(resolved))
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":      "host_notify_hermes_clear_secret",
+			"config_file": resolved.Paths.ConfigFile,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: Hermes secret clear planned", nil, identityMetaFromResolved(resolved))
+	}
+	if err := appconfig.ClearHermesSecret(resolved.Paths); err != nil {
+		return a.runtimeExit(err, "Check write permissions for config.yaml.")
+	}
+	resolved, err = a.resolveConfigForWorkspace()
+	if err != nil {
+		return a.runtimeExit(err, "Run `awiki-cli config show` to inspect the updated configuration.")
+	}
+	listenerStatus, warnings, err := a.refreshListenerForHostNotifyChange(resolved)
+	if err != nil {
+		return a.runtimeExit(err, "Hermes secret was cleared, but the listener could not be restarted to apply it.")
+	}
+	data := map[string]any{"hermes": map[string]any{"secret_configured": false}}
+	if listenerStatus != nil {
+		data["listener"] = listenerStatus
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Hermes secret cleared", warnings, identityMetaFromResolved(resolved))
+}
+
 func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) {
 	config := runtimecfg.Resolve(resolved).HostNotify
 	settings, err := openclawnotify.ResolveSettings(resolved)
@@ -717,6 +1051,7 @@ func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
+	hermesSecretSource := resolveHermesSecretSource(resolved, config.Hermes.NotifyURL)
 	return map[string]any{
 		"enabled":             config.Enabled,
 		"sink":                config.Sink,
@@ -733,5 +1068,222 @@ func hostNotifyConfigView(resolved *appconfig.Resolved) (map[string]any, error) 
 			"token_configured":             settings.TokenConfigured,
 			"token_source":                 settings.TokenSource,
 		},
+		"hermes": map[string]any{
+			"notify_url":          config.Hermes.NotifyURL,
+			"deliver":             resolveHermesDeliverTarget(resolved, ""),
+			"secret_configured":   hermesSecretSource != "unset",
+			"secret_source":       hermesSecretSource,
+			"secret_env_fallback": hermesNotifySecretEnv,
+			"secret_env_legacy":   legacyWebhookSecretEnv,
+		},
 	}, nil
+}
+
+func hostNotifyGuidanceWarnings(resolved *appconfig.Resolved) []string {
+	return hostNotifyGuidanceWarningsFor(resolved, "")
+}
+
+func hostNotifyGuidanceWarningsFor(resolved *appconfig.Resolved, deliverOverride string) []string {
+	if resolved == nil {
+		return nil
+	}
+	config := runtimecfg.Resolve(resolved).HostNotify
+	if config.Sink != "hermes" {
+		return nil
+	}
+	deliver := resolveHermesDeliverTarget(resolved, deliverOverride)
+	homeChannelKey := resolveHermesHomeChannelKey(deliver)
+	targetWarning := "Prefer the platform home channel (or /sethome in Hermes) instead of hard-coding deliver_extra.chat_id in Hermes routes."
+	if deliver != "log" && homeChannelKey != "" {
+		targetWarning = fmt.Sprintf("For %s delivery, prefer setting %s (or using /sethome in Hermes) instead of hard-coding deliver_extra.chat_id in Hermes routes.", hermesbridge.DeliverDisplayName(deliver), homeChannelKey)
+	}
+	return []string{
+		"Hermes sink only forwards notifications to the Hermes adapter. Final delivery targets are configured in Hermes, not in awiki-cli.",
+		targetWarning,
+		"`awiki-cli runtime host-notify hermes setup` now also updates the local Hermes notify route and starts the local bridge automatically.",
+	}
+}
+
+func resolveHermesNotifyURL(resolved *appconfig.Resolved) string {
+	if resolved != nil {
+		if value := strings.TrimSpace(resolved.HostNotifyHermesNotifyURL); value != "" {
+			return value
+		}
+		if strings.TrimSpace(resolved.Paths.ConfigFile) != "" {
+			fileConfig, exists, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+			if err == nil && exists {
+				if value := strings.TrimSpace(fileConfig.Runtime.HostNotify.Hermes.NotifyURL); value != "" {
+					return value
+				}
+				if value := strings.TrimSpace(fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL); value != "" {
+					return value
+				}
+			}
+		}
+	}
+	return defaultHermesNotifyURL
+}
+
+func buildHermesHostNotifyGuideView(resolved *appconfig.Resolved, notifyURL string, deliver string, secretSource string) map[string]any {
+	currentHostNotify := runtimecfg.Resolve(resolved).HostNotify
+	homeChannelKey := resolveHermesHomeChannelKey(deliver)
+	targeting := []string{}
+	if homeChannelKey != "" {
+		targeting = append(targeting, fmt.Sprintf("Prefer %s for the default delivery target.", homeChannelKey))
+	}
+	if deliver != "log" {
+		targeting = append(targeting, fmt.Sprintf("Or send /sethome or /set-home to Hermes from the desired %s chat.", hermesbridge.DeliverDisplayName(deliver)))
+	}
+	targeting = append(targeting, "Avoid hard-coding deliver_extra.chat_id unless you explicitly want a fixed destination.")
+	routeYAML := fmt.Sprintf(`platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      secret: "${HERMES_WEBHOOK_SECRET}"
+      routes:
+        notify:
+          secret: "${HERMES_ROUTE_SECRET}"
+          events: []
+          prompt: "{notify_payload}"
+          skills: ["notify"]
+          deliver: %q
+`, deliver)
+	adapterCommand := `python3 scripts/hermes_notify_adapter.py \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --notify-secret "<NOTIFY_SECRET>" \
+  --hermes-webhook-url "http://127.0.0.1:8644/webhooks/notify" \
+  --hermes-route-secret "<HERMES_ROUTE_SECRET>" \
+  --log-level INFO`
+	setupCommand := "awiki-cli runtime host-notify hermes setup"
+	if deliver != resolveHermesDeliverTarget(resolved, "") {
+		setupCommand += " --deliver " + deliver
+	}
+	return map[string]any{
+		"delivery_model": "awiki-cli only forwards host notify events to the Hermes adapter. Final delivery targets are configured in Hermes.",
+		"awiki_cli": map[string]any{
+			"current": map[string]any{
+				"enabled":           currentHostNotify.Enabled,
+				"sink":              currentHostNotify.Sink,
+				"notify_url":        notifyURL,
+				"deliver":           resolveHermesDeliverTarget(resolved, ""),
+				"secret_configured": secretSource != "unset",
+				"secret_source":     secretSource,
+			},
+			"recommended_setup_command": setupCommand,
+			"verify_commands": []string{
+				"awiki-cli runtime host-notify config show",
+				"awiki-cli runtime host-notify hermes status",
+			},
+		},
+		"hermes": map[string]any{
+			"notify_route_name":   "notify",
+			"webhook_port":        8644,
+			"webhook_secret_env":  "HERMES_WEBHOOK_SECRET",
+			"route_secret_env":    "HERMES_ROUTE_SECRET",
+			"recommended_route":   routeYAML,
+			"adapter_notify_url":  "http://127.0.0.1:8765/notify/host-event",
+			"adapter_healthcheck": "curl -sS http://127.0.0.1:8765/healthz",
+			"adapter_run_command": adapterCommand,
+			"deliver_target":      deliver,
+			"awiki_expected_url":  notifyURL,
+			"managed_by_setup":    "awiki-cli runtime host-notify hermes setup will write the local Hermes notify route and restart the local bridge for you.",
+			"targeting":           targeting,
+		},
+	}
+}
+
+func resolveHermesDeliverTarget(resolved *appconfig.Resolved, override string) string {
+	if value := strings.TrimSpace(override); value != "" {
+		return strings.ToLower(value)
+	}
+	if resolved != nil {
+		if value := strings.TrimSpace(resolved.HostNotifyHermesDeliver); value != "" {
+			return strings.ToLower(value)
+		}
+		if strings.TrimSpace(resolved.Paths.ConfigFile) != "" {
+			fileConfig, exists, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+			if err == nil && exists {
+				if value := strings.TrimSpace(fileConfig.Runtime.HostNotify.Hermes.Deliver); value != "" {
+					return strings.ToLower(value)
+				}
+			}
+		}
+	}
+	return hermesbridge.NormalizeDeliverTarget("")
+}
+
+func resolveHermesHomeChannelKey(deliver string) string {
+	return hermesbridge.HomeChannelEnvKey(deliver)
+}
+
+func resolveHermesSecretSource(resolved *appconfig.Resolved, notifyURL string) string {
+	_, source, err := resolveHermesSecretValue(resolved, notifyURL)
+	if err != nil {
+		return "unset"
+	}
+	return source
+}
+
+func resolveHermesSecretValue(resolved *appconfig.Resolved, notifyURL string) (string, string, error) {
+	if resolved != nil && strings.TrimSpace(resolved.Paths.ConfigFile) != "" {
+		fileConfig, exists, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+		if err != nil {
+			return "", "unset", err
+		}
+		if exists {
+			if value := strings.TrimSpace(fileConfig.Runtime.HostNotify.Hermes.Secret); value != "" {
+				return value, "config_file", nil
+			}
+			if value := strings.TrimSpace(fileConfig.Runtime.HostNotify.LegacyWebhook.Secret); value != "" {
+				return value, "config_file", nil
+			}
+		}
+	}
+	if strings.TrimSpace(notifyURL) != "" {
+		if value := strings.TrimSpace(os.Getenv(hermesNotifySecretEnv)); value != "" {
+			return value, "environment", nil
+		}
+		if value := strings.TrimSpace(os.Getenv(legacyWebhookSecretEnv)); value != "" {
+			return value, "environment", nil
+		}
+	}
+	return "", "unset", nil
+}
+
+func resolveHermesHomeDir() string {
+	home, err := hermesbridge.ResolveHermesHome()
+	if err != nil {
+		return filepath.Join(os.Getenv("HOME"), ".hermes")
+	}
+	return home
+}
+
+func generateHermesNotifySecret() string {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "awiki-hermes-secret"
+	}
+	return hex.EncodeToString(buf)
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }

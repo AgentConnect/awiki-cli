@@ -51,7 +51,11 @@ func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool
 
 func UpdateHostNotifySink(paths Paths, sink string) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
-		fileConfig.Runtime.HostNotify.Sink = strings.TrimSpace(sink)
+		normalized := strings.ToLower(strings.TrimSpace(sink))
+		if normalized == "webhook" {
+			normalized = "hermes"
+		}
+		fileConfig.Runtime.HostNotify.Sink = normalized
 		fileConfig.Runtime.HostNotify.Enabled = boolPtr(true)
 		return nil
 	})
@@ -73,9 +77,56 @@ func UpdateOpenClawSettings(paths Paths, hookURL *string) error {
 	})
 }
 
+func UpdateHermesSettings(paths Paths, notifyURL *string, deliver *string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		if notifyURL != nil {
+			value := strings.TrimSpace(*notifyURL)
+			fileConfig.Runtime.HostNotify.Hermes.NotifyURL = value
+			fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL = value
+		}
+		if deliver != nil {
+			fileConfig.Runtime.HostNotify.Hermes.Deliver = strings.ToLower(strings.TrimSpace(*deliver))
+		}
+		return nil
+	})
+}
+
+func ConfigureHermesHostNotify(paths Paths, notifyURL string, secret *string, deliver string, enabled bool) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		value := strings.TrimSpace(notifyURL)
+		fileConfig.Runtime.HostNotify.Enabled = boolPtr(enabled)
+		fileConfig.Runtime.HostNotify.Sink = "hermes"
+		fileConfig.Runtime.HostNotify.Hermes.NotifyURL = value
+		fileConfig.Runtime.HostNotify.Hermes.Deliver = strings.ToLower(strings.TrimSpace(deliver))
+		fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL = value
+		if secret != nil {
+			trimmed := strings.TrimSpace(*secret)
+			fileConfig.Runtime.HostNotify.Hermes.Secret = trimmed
+			fileConfig.Runtime.HostNotify.LegacyWebhook.Secret = trimmed
+		}
+		return nil
+	})
+}
+
 func SetOpenClawToken(paths Paths, token string) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		fileConfig.Runtime.HostNotify.OpenClaw.Token = token
+		return nil
+	})
+}
+
+func SetHermesSecret(paths Paths, secret string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.Hermes.Secret = secret
+		fileConfig.Runtime.HostNotify.LegacyWebhook.Secret = secret
+		return nil
+	})
+}
+
+func ClearHermesSecret(paths Paths) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Runtime.HostNotify.Hermes.Secret = ""
+		fileConfig.Runtime.HostNotify.LegacyWebhook.Secret = ""
 		return nil
 	})
 }

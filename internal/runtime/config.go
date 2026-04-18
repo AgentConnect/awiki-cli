@@ -35,10 +35,18 @@ type HostNotifyConfig struct {
 	Sink     string         `json:"sink"`
 	FilePath string         `json:"file_path,omitempty"`
 	OpenClaw OpenClawConfig `json:"openclaw,omitempty"`
+	Hermes   HermesConfig   `json:"hermes,omitempty"`
 }
 
 type OpenClawConfig struct {
-	HookURL string `json:"hook_url,omitempty"`
+	HookURL  string `json:"hook_url,omitempty"`
+	AgentID  string `json:"agent_id,omitempty"`
+	HookName string `json:"hook_name,omitempty"`
+}
+
+type HermesConfig struct {
+	NotifyURL string `json:"notify_url,omitempty"`
+	Deliver   string `json:"deliver,omitempty"`
 }
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
@@ -74,6 +82,9 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 		Enabled: resolved.HostNotifyEnabled,
 		Sink:    strings.ToLower(strings.TrimSpace(resolved.HostNotifySink)),
 	}
+	if hostNotify.Sink == "webhook" {
+		hostNotify.Sink = "hermes"
+	}
 	if hostNotify.Sink == "" {
 		hostNotify.Sink = "log"
 	}
@@ -82,7 +93,15 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	}
 	if hostNotify.Sink == "openclaw" {
 		hostNotify.OpenClaw = OpenClawConfig{
-			HookURL: strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
+			HookURL:  strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
+			AgentID:  strings.TrimSpace(resolved.HostNotifyOpenClawAgentID),
+			HookName: strings.TrimSpace(resolved.HostNotifyOpenClawHookName),
+		}
+	}
+	if hostNotify.Sink == "hermes" {
+		hostNotify.Hermes = HermesConfig{
+			NotifyURL: strings.TrimSpace(resolved.HostNotifyHermesNotifyURL),
+			Deliver:   strings.TrimSpace(resolved.HostNotifyHermesDeliver),
 		}
 	}
 	return Resolved{

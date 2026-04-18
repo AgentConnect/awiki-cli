@@ -111,6 +111,106 @@ func TestHostNotifyMutatorsWriteSinkAndOpenClawConfig(t *testing.T) {
 	}
 }
 
+func TestHostNotifyMutatorsWriteSinkAndHermesConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	if err := UpdateHostNotifySink(paths, "hermes"); err != nil {
+		t.Fatalf("UpdateHostNotifySink() error = %v", err)
+	}
+	notifyURL := "http://127.0.0.1:8765/notify/host-event"
+	deliver := "telegram"
+	if err := UpdateHermesSettings(paths, &notifyURL, &deliver); err != nil {
+		t.Fatalf("UpdateHermesSettings() error = %v", err)
+	}
+	if err := SetHermesSecret(paths, "secret-123"); err != nil {
+		t.Fatalf("SetHermesSecret() error = %v", err)
+	}
+
+	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Runtime.HostNotify.Sink != "hermes" {
+		t.Fatalf("host notify sink = %q, want hermes", fileConfig.Runtime.HostNotify.Sink)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.NotifyURL != notifyURL {
+		t.Fatalf("notify_url = %q, want %q", fileConfig.Runtime.HostNotify.Hermes.NotifyURL, notifyURL)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.Deliver != "telegram" {
+		t.Fatalf("deliver = %q, want telegram", fileConfig.Runtime.HostNotify.Hermes.Deliver)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.Secret != "secret-123" {
+		t.Fatalf("hermes secret = %q, want secret-123", fileConfig.Runtime.HostNotify.Hermes.Secret)
+	}
+
+	if err := ClearHermesSecret(paths); err != nil {
+		t.Fatalf("ClearHermesSecret() error = %v", err)
+	}
+	fileConfig, _, err = ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.Secret != "" {
+		t.Fatalf("hermes secret = %q, want empty string", fileConfig.Runtime.HostNotify.Hermes.Secret)
+	}
+}
+
+func TestConfigureHermesHostNotifyWritesOneShotConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	secret := "secret-setup"
+	if err := ConfigureHermesHostNotify(paths, "http://127.0.0.1:8765/notify/host-event", &secret, "telegram", true); err != nil {
+		t.Fatalf("ConfigureHermesHostNotify() error = %v", err)
+	}
+
+	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Runtime.HostNotify.Sink != "hermes" {
+		t.Fatalf("host notify sink = %q, want hermes", fileConfig.Runtime.HostNotify.Sink)
+	}
+	if fileConfig.Runtime.HostNotify.Enabled == nil || !*fileConfig.Runtime.HostNotify.Enabled {
+		t.Fatalf("host notify enabled = %#v, want true", fileConfig.Runtime.HostNotify.Enabled)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.NotifyURL != "http://127.0.0.1:8765/notify/host-event" {
+		t.Fatalf("notify_url = %q", fileConfig.Runtime.HostNotify.Hermes.NotifyURL)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.Deliver != "telegram" {
+		t.Fatalf("deliver = %q, want telegram", fileConfig.Runtime.HostNotify.Hermes.Deliver)
+	}
+	if fileConfig.Runtime.HostNotify.Hermes.Secret != secret {
+		t.Fatalf("hermes secret = %q, want %q", fileConfig.Runtime.HostNotify.Hermes.Secret, secret)
+	}
+	if fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL != "http://127.0.0.1:8765/notify/host-event" {
+		t.Fatalf("legacy webhook notify_url = %q", fileConfig.Runtime.HostNotify.LegacyWebhook.NotifyURL)
+	}
+	if fileConfig.Runtime.HostNotify.LegacyWebhook.Secret != secret {
+		t.Fatalf("legacy webhook secret = %q, want %q", fileConfig.Runtime.HostNotify.LegacyWebhook.Secret, secret)
+	}
+}
+
+func TestUpdateHostNotifySinkNormalizesWebhookAliasToHermes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	if err := UpdateHostNotifySink(paths, "webhook"); err != nil {
+		t.Fatalf("UpdateHostNotifySink() error = %v", err)
+	}
+	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Runtime.HostNotify.Sink != "hermes" {
+		t.Fatalf("host notify sink = %q, want hermes", fileConfig.Runtime.HostNotify.Sink)
+	}
+}
+
 func TestUpdateHostNotifyEnabledWritesBooleanPointer(t *testing.T) {
 	t.Parallel()
 

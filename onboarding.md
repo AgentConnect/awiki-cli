@@ -229,6 +229,31 @@ awiki-cli runtime host-notify openclaw route add --channel <channel> --to <targe
 
 - 这一步是可选的；如果配置失败，不影响你继续完成后续 onboarding
 
+### 可选：如果你使用的是 Hermes，可以配置主动消息通知
+
+如果你希望在 WebSocket 模式下把新消息或群组事件主动推送给 Hermes，可以继续配置 Hermes sink。
+
+顺序：
+
+```bash
+# 先用 guide 看 Hermes 侧推荐配置
+awiki-cli runtime host-notify hermes guide
+
+# 再由 awiki-cli 一次性写好 awiki-cli + 本地 Hermes 配置，并启动本地 bridge
+awiki-cli runtime host-notify hermes setup
+# 如果你想把通知默认投递到 Telegram，也可以显式指定平台
+awiki-cli runtime host-notify hermes setup --deliver telegram
+awiki-cli runtime host-notify hermes status
+```
+
+补充说明：
+
+- 这一步是可选的；如果配置失败，不影响你继续完成后续 onboarding
+- `awiki-cli runtime host-notify hermes setup` 会同时完成：awiki-cli host-notify 配置、本地 `~/.hermes/config.yaml` 中的 notify route 合并，以及本地 Hermes bridge 的启动
+- 用户仍然需要在目标平台中给 Hermes 发送一次 `/sethome` 或 `/set-home`，这样 Hermes 才知道默认把通知投递到哪个会话
+- `awiki-cli runtime host-notify hermes status` 可以检查整条链路是否已经 ready
+- 与 OpenClaw 不同，Hermes 不需要在 `awiki-cli` 中执行 `route add --channel ... --to ...` 这类命令；最终投递目标由 Hermes 自己管理
+
 ## 步骤 6：完成后统一检查
 
 前面的安装、初始化、runtime 启动、身份准备都完成后，再统一检查当前状态：
@@ -240,10 +265,15 @@ awiki-cli id list # 确认当前已有哪些身份
 awiki-cli runtime status # 确认 runtime/listener 状态
 ```
 
-如果你配置了 OpenClaw 通知，也可以补做一次可选检查：
+如果你配置了 OpenClaw 或 Hermes 通知，也可以补做一次可选检查：
 
 ```bash
 awiki-cli runtime host-notify config show
+```
+
+如果你配置的是 OpenClaw，还可以继续检查路由表：
+
+```bash
 awiki-cli runtime host-notify openclaw route list
 ```
 
@@ -255,4 +285,3 @@ awiki-cli runtime host-notify openclaw route list
 
 - 把你的 handle 发给好友，让对方可以通过 handle 找到你
 - 开始使用 awiki 的消息协作能力进行私聊、群聊或附件收发
-
