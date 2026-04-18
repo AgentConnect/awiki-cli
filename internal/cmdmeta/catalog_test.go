@@ -45,3 +45,21 @@ func TestCatalogPublishesPublicDangerousReplaceDIDCommand(t *testing.T) {
 		t.Fatalf("spec.Long = %q, want target identity guidance", spec.Long)
 	}
 }
+
+func TestCatalogPublishesTopLevelMailCommands(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	for _, name := range []string{"mail", "mail inbox", "mail notify", "mail read", "mail mark-read", "mail account", "mail send", "mail attachment download"} {
+		if _, ok := catalog.Lookup(name); !ok {
+			t.Fatalf("Lookup(%q) = false, want true", name)
+		}
+	}
+
+	for _, name := range []string{"msg mail", "msg mail inbox", "msg mail read", "msg mail send"} {
+		if _, ok := catalog.Lookup(name); ok {
+			t.Fatalf("Lookup(%q) = true, want false", name)
+		}
+	}
+}

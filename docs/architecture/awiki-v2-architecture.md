@@ -1078,6 +1078,7 @@ awiki-cli completion
 awiki-cli config
 awiki-cli id
 awiki-cli msg
+awiki-cli mail
 awiki-cli group
 awiki-cli people
 awiki-cli page
