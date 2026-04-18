@@ -21,7 +21,13 @@ release_read_version() {
   fi
 
   local version
-  version="$(jq -r '.version // empty' "${root_dir}/package.json")"
+  version="$(node - "${root_dir}/package.json" <<'NODE'
+const fs = require('fs');
+const packagePath = process.argv[2];
+const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+process.stdout.write(typeof pkg.version === 'string' ? pkg.version.trim() : '');
+NODE
+)"
   if [[ -z "${version}" ]]; then
     echo "Error: .version is missing or empty in package.json" >&2
     exit 1

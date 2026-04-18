@@ -8,7 +8,7 @@ SCRIPT_NAME="scripts/release/release-tag-stable.sh"
 # shellcheck source=scripts/release/_release_tag_shared.sh
 source "${ROOT_DIR}/scripts/release/_release_tag_shared.sh"
 
-release_require_command jq "${SCRIPT_NAME}"
+release_require_command node "${SCRIPT_NAME}"
 
 VERSION="$(release_read_version "${ROOT_DIR}")"
 if [[ "${VERSION}" == *-* ]]; then
