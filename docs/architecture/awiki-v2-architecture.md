@@ -609,8 +609,6 @@ skill 的角色不是：
 skills/
   SKILL.md
   README.md
-  manifests/
-    skills.yaml
   references/
     00-installation.md
     01-onboarding.md
@@ -1055,8 +1053,6 @@ awiki v2 不是对现有 Python skill 仓的增量修补，而是一轮完整的
 skills/
   SKILL.md
   README.md
-  manifests/
-    skills.yaml
   references/
     00-installation.md
     01-onboarding.md

@@ -26,6 +26,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+          scope: '@awiki'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -40,5 +42,5 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          echo "Publishing @agentconnect/awiki-cli to npm for ${GITHUB_REF}..."
+          echo "Publishing @awiki/cli to npm for ${GITHUB_REF}..."
           npm publish --access public

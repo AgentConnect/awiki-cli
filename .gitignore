@@ -34,3 +34,4 @@ go.work.sum
 awiki-cli
 awiki-cli-dev
 dist/
+.omx/

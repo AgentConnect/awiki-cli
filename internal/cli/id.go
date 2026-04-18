@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const replaceDIDDangerWarning = "Dangerous command: replace-did creates a new e1 DID and key material, replaces the selected identity's current DID, and rebinds local SQLite owner state. The old DID material is backed up locally and remains sensitive. Verify the target identity and prefer --dry-run first."
+
 func (a *App) identityService() (*identity.Service, output.Format, error) {
 	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
@@ -420,6 +422,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 				"plan": map[string]any{
 					"action":        "replace_did",
 					"identity_name": a.globals.Identity,
+					"dangerous":     true,
 					"remote_calls":  []string{"did-auth.replace_did"},
 					"remote_params": remoteParams,
 					"local_writes": []string{
@@ -431,12 +434,16 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 						"key-1-public.pem",
 						"e2ee-signing-private.pem",
 						"e2ee-agreement-private.pem",
+						".legacy-backup/replace-did",
 						"sqlite.owner_did_rebind",
 						"sqlite.e2ee_cleanup",
 					},
 				},
 			},
 			Summary: "Dry run: DID replacement planned",
+			Warnings: []string{
+				replaceDIDDangerWarning,
+			},
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
@@ -451,6 +458,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 	if result.Data == nil {
 		result.Data = map[string]any{}
 	}
+	result.Warnings = append([]string{replaceDIDDangerWarning}, result.Warnings...)
 	oldDID, _ := result.Data["old_did"].(string)
 	newDID, _ := result.Data["did"].(string)
 	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(context.Background(), service.Config().Paths, oldDID, newDID)

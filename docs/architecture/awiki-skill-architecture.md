@@ -34,7 +34,6 @@
 - `skills/SKILL.md`
 - `skills/README.md`
 - `skills/references/*.md`
-- `skills/manifests/skills.yaml`
 
 ---
 
@@ -44,7 +43,6 @@
 
 - `skills/SKILL.md`
 - `skills/README.md`
-- `skills/manifests/skills.yaml`
 - `skills/references/00-installation.md`
 - `skills/references/01-onboarding.md`
 - `skills/references/02-identity.md`
@@ -124,8 +122,6 @@ awiki 当前正式采用以下结构：
 skills/
   SKILL.md
   README.md
-  manifests/
-    skills.yaml
   references/
     00-installation.md
     01-onboarding.md
@@ -183,7 +179,7 @@ skills/
    对单一任务来说，预加载 bundle/shared/domain/workflow 中的大量说明，性价比不高。
 
 5. **旧 manifest/template 叙事与当前实物不一致**  
-   仓库当前正式方案已经落在 `skills/` 文件集上；`skills/manifests/skills.yaml` 现已重建为结构化索引，但不再代表旧 bundle/shared/domain/workflow 多层体系，也不是运行时依赖。
+   仓库当前正式方案已经落在 `skills/` 文件集上；旧的 manifest 叙事不再代表 bundle/shared/domain/workflow 多层体系，也不是运行时依赖。
 
 因此，旧模型在本仓库中不再作为当前正式架构保留。
 
@@ -490,19 +486,17 @@ reference 层负责承载默认入口之外的领域知识、流程细节和低�
 | debug skill | `skills/references/08-debug.md` |
 | people skill | `skills/references/09-people-planned.md` |
 | onboarding installation long guide | `skills/references/00-installation.md` |
-| 结构化 manifest | `skills/manifests/skills.yaml` |
 | templates/generator 叙事 | 不再作为当前正式架构的一部分 |
 
 ### 10.1 明确废弃的旧结构叙事
 
 以下内容不再作为当前正式方案继续维护：
 
-- `skills/manifests/skills.yaml` 作为旧多层 skill 体系的元数据中心
 - `skills/templates/*.md` 作为当前技能模板体系
 - “bundle + shared + domain + workflow + debug” 作为当前生产架构分类
 - 所有 domain/workflow 都以独立 `SKILL.md` 形式暴露给 Agent 的设计
 
-当前的 `skills/manifests/skills.yaml` 仅作为**结构化索引与维护辅助**保留；若它与 `internal/cmdmeta/catalog.go` 或 `skills/SKILL.md` / `skills/references/*.md` 出现冲突，应以后两者为准。
+当前技能体系以 `skills/SKILL.md` 与 `skills/references/*.md` 为准；若历史文档与 `internal/cmdmeta/catalog.go` 或这些文件出现冲突，应以后者为准。
 
 ---
 

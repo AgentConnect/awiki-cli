@@ -266,7 +266,7 @@ identities/
 
 > 私钥文件权限为 `0600`，目录权限为 `0700`。
 
-当前 `awiki-cli` 的活跃身份规范为 `e1` / Ed25519 `key-1`。当你把 Python v1 `awiki-agent-id-message` 本地数据默认升级到 Go 版 workspace 时，CLI 会自动尝试把已导入的 handle `k1` DID 通过 `replace_did` 换绑为新的 `e1` DID，并同步重绑本地 SQLite 的 `owner_did`。若个别身份无法自动替换，升级会继续完成，但会把失败原因记录到 upgrade warning 与 `doctor` 输出中，后续需要手动处理。
+当前 `awiki-cli` 的活跃身份规范为 `e1` / Ed25519 `key-1`。当你把 Python v1 `awiki-agent-id-message` 本地数据默认升级到 Go 版 workspace 时，CLI 会自动尝试把已导入的 handle `k1` DID 通过 `replace_did` 换绑为新的 `e1` DID，并同步重绑本地 SQLite 的 `owner_did`。替换前，旧 DID document、旧私钥和旧 identity 目录会备份到 `identities/.legacy-backup/replace-did/`；这些备份仍包含敏感密钥材料，不要上传或分享。若个别身份无法自动替换，升级会继续完成，但会把失败原因记录到 upgrade warning 与 `doctor` 输出中，后续需要手动处理。
 
 同一 handle 在本地联系人缓存中若经历 DID 切换，`awiki-cli` 会保留对应的历史 DID 映射，并在按 handle 读取 direct inbox/history 时聚合这些历史 DID 关联的消息；如需排查本地记录，可使用 `awiki-cli debug db handle-history <handle>` 查看。
 

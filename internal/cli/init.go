@@ -6,11 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/upgrade"
 	"github.com/spf13/cobra"
+)
+
+var (
+	initApplyRuntimePolicyFunc = listenerrt.ApplyRuntimePolicy
+	initUpgradeInspectFunc     = func(ctx context.Context, resolved *appconfig.Resolved) (*upgrade.Inspection, error) {
+		return upgrade.Inspect(ctx, resolved, buildinfo.Version)
+	}
+	initUpgradeIfNeededFunc = func(ctx context.Context, resolved *appconfig.Resolved) error {
+		return upgrade.UpgradeIfNeeded(ctx, resolved, buildinfo.Version)
+	}
 )
 
 // runInit initializes the awiki-cli workspace and an optional minimal config.
@@ -22,6 +34,18 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 	resolved, err := a.resolveConfig()
 	if err != nil {
 		return a.configCommandExit(err)
+	}
+
+	var warnings []string
+	if !a.globals.DryRun {
+		var migratedLegacy bool
+		resolved, migratedLegacy, err = a.maybeUpgradeLegacyBeforeInit(context.Background(), resolved)
+		if err != nil {
+			return a.configCommandExit(err)
+		}
+		if migratedLegacy {
+			warnings = append(warnings, "Legacy workspace data was migrated before initialization.")
+		}
 	}
 
 	format := normalizedFormat(resolved.OutputFormat)
@@ -129,7 +153,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 			"Initialize the local sqlite schema before enabling runtime.",
 		)
 	}
-	listenerStatus, err := listenerrt.ApplyRuntimePolicy(resolved)
+	listenerStatus, err := initApplyRuntimePolicyFunc(resolved)
 	if err != nil {
 		return output.NewExitError(
 			"internal_error",
@@ -156,7 +180,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		a.globals.JQ,
 		result,
 		"Workspace initialized",
-		nil,
+		warnings,
 		identityMetaFromResolved(resolved),
 	)
 }
@@ -164,4 +188,26 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 func boolPtr(value bool) *bool {
 	result := value
 	return &result
+}
+
+func (a *App) maybeUpgradeLegacyBeforeInit(ctx context.Context, resolved *appconfig.Resolved) (*appconfig.Resolved, bool, error) {
+	if resolved == nil {
+		return nil, false, nil
+	}
+	inspection, err := initUpgradeInspectFunc(ctx, resolved)
+	if err != nil {
+		return nil, false, err
+	}
+	detection := inspection.Detection
+	if detection.HasWorkspace || !detection.HasLegacy {
+		return resolved, false, nil
+	}
+	if err := initUpgradeIfNeededFunc(ctx, resolved); err != nil {
+		return nil, false, err
+	}
+	refreshed, err := a.resolveConfig()
+	if err != nil {
+		return nil, false, err
+	}
+	return refreshed, true, nil
 }

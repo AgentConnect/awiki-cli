@@ -54,13 +54,13 @@
 **internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为。  
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。  
-**internal/docs/topics.go**: CLI 内建 docs 主题索引。  
+**internal/docs/topics.go**: CLI 内建 docs 主题索引，`skills` 主题引用当前 single-entry `skills/SKILL.md` 与懒加载 `skills/references/*.md` 拓扑。  
 **internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
 **internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
 **internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。  
 **internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。  
-**internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及隐藏的内部 `replace-did`。  
+**internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及公开但危险的维护命令 `replace-did`。
 **internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。  
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  
 **internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。  
@@ -70,7 +70,7 @@
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
-**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、隐藏的 `replace_did` DID 换绑能力，以及远端 API。  
+**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
 **internal/identity/store_test.go**: identity store 与 legacy import 测试。  
 **internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  
@@ -141,7 +141,7 @@
   - v1 legacy credential scan / import：`id import-v1`
 - Phase 3：
   - handle registration / bind / resolve / recover / profile 的首版实现
-  - 隐藏内部命令 `id replace-did`，接入 `POST /did-auth/rpc` 的 `replace_did`
+  - 危险维护命令 `id replace-did`，接入 `POST /did-auth/rpc` 的 `replace_did`，用于为指定 `--identity` 生成新的 e1 DID 并替代旧 DID
   - local-only identity vs registered user 状态判断
   - `msg` / `runtime listener` 的 user gating 首版实现
   - current/default identity 自动回填到配置解析结果

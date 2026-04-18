@@ -10,6 +10,23 @@ CLI 安装、Awiki Skills 安装以及 workspace 初始化位于 `00-installatio
 
 WebSocket listener 初始化、OpenClaw 宿主通知配置，以及 HTTP 模式下 heartbeat 当前限制，也统一放在 `00-installation.md` 说明。
 
+## 首次安装后的推荐路径
+
+这份文档负责“配到能用”的后半程。当前置安装已经完成后，推荐按下面顺序推进：
+
+1. 先执行 `awiki-cli id status --format json`，确认当前是无身份、local-only，还是已经存在 handle-backed 身份
+2. 根据结果选择注册新 handle，或恢复已有 handle
+3. 完成后执行 `awiki-cli status --format json` 和 `awiki-cli runtime status --format json`，确认身份与 runtime 一起进入可用状态
+4. 把你的 handle 发给好友；如果需要核对 profile 或身份状态，查看 `02-identity.md`
+5. 开始消息协作：
+   - 私聊、附件收发：查看 `03-messaging.md`
+   - 创建群组、多人协作：查看 `04-groups.md`
+
+边界判断：
+
+- 如果问题仍然是安装、PATH、workspace 或 runtime 初始化问题，回到 `00-installation.md`
+- 如果安装与 runtime 准备已经完成，且你现在要开始注册、恢复或首次使用，继续留在本文件
+
 ## 当前状态
 
 - 状态：**已实现的 workflow**
@@ -185,7 +202,7 @@ awiki-cli runtime status --format json
 
 ---
 
-## 接下来可以做什么？
+## 注册完成后可以做什么？
 
 到这里，第一次使用所需的关键步骤已经完成：
 

@@ -9,7 +9,7 @@ metadata:
   design_goal: single-entry-two-layer
 ---
 
-# AWiki 技能
+# AWiki Skill
 
 请先阅读本文件。
 
@@ -29,21 +29,22 @@ metadata:
 
 优先只打开当前任务所需的最小文档集：
 
-| 模块 | 模块功能 | 关键字 | 参考文档 |
-|---|---|---|---|
-| Installation | CLI 安装、skills 安装、workspace init | `install` / `init` / `workspace` | `references/00-installation.md` |
-| Onboarding | 首次可用配置、迁移、注册、runtime bootstrap | `first-time setup` / `migration` / `register` / `bootstrap` | `references/01-onboarding.md` |
-| Identity | 身份生命周期、handle、profile、恢复与绑定 | `identity` / `did` / `handle` / `recover` / `bind` / `profile` | `references/02-identity.md` |
-| Messaging | 私聊、群消息、附件收发、已读状态、secure 契约 | `msg` / `inbox` / `history` / `attachment` / `mark-read` / `secure` | `references/03-messaging.md` |
-| Groups | 群生命周期、成员、策略、群消息视图 | `group` / `member` / `join` / `leave` / `policy` | `references/04-groups.md` |
-| Runtime | runtime mode、listener、host notify、传输恢复 | `runtime` / `websocket` / `listener` / `host-notify` | `references/05-runtime.md` |
-| Pages | 内容页、slug、markdown 发布、可见性 | `page` / `slug` / `markdown` / `visibility` | `references/06-pages.md` |
-| Discovery | 群 review、候选人查看、手动引荐草稿 | `discovery` / `intro` / `group review` | `references/07-discovery.md` |
-| Debug | SQLite、本地导入、最后手段排障 | `debug` / `sqlite` / `import-v1` | `references/08-debug.md` |
-| People Planned | 未来 people / relationship 契约 | `people` / `follow` / `contacts` | `references/09-people-planned.md` |
 
-- 单领域任务只打开一个匹配的 reference。
-- 多步任务优先打开 workflow reference：`01-onboarding.md` 或 `07-discovery.md`。
+|模块|模块功能|关键字|参考文档|
+|--------------|--------------------------------------|-------------------------------------------------------------------|---------------------------------|
+|Installation|CLI安装、skills安装、workspaceinit|`install`/`init`/`workspace`|`references/00-installation.md`|
+|Onboarding|首次可用配置、迁移、注册、runtimebootstrap|`first-timesetup`/`migration`/`register`/`bootstrap`|`references/01-onboarding.md`|
+|Identity|身份生命周期、handle、profile、恢复与绑定|`identity`/`did`/`handle`/`recover`/`bind`/`profile`|`references/02-identity.md`|
+|Messaging|私聊、群消息、附件收发、已读状态、secure契约|`msg`/`inbox`/`history`/`attachment`/`mark-read`/`secure`|`references/03-messaging.md`|
+|Groups|群生命周期、成员、策略、群消息视图|`group`/`member`/`join`/`leave`/`policy`|`references/04-groups.md`|
+|Runtime|runtimemode、listener、hostnotify、传输恢复|`runtime`/`websocket`/`listener`/`host-notify`|`references/05-runtime.md`|
+|Pages|内容页、slug、markdown发布、可见性|`page`/`slug`/`markdown`/`visibility`|`references/06-pages.md`|
+|Discovery|群review、候选人查看、手动引荐草稿|`discovery`/`intro`/`groupreview`|`references/07-discovery.md`|
+|Debug|SQLite、本地导入、最后手段排障|`debug`/`sqlite`/`import-v1`|`references/08-debug.md`|
+|PeoplePlanned|未来people/relationship契约|`people`/`follow`/`contacts`|`references/09-people-planned.md`|
+
+
+- 根据任务的业务域打开对应的references文档
 - 只有在 `status`、`docs`、`schema`、`doctor`、`config show` 与一个匹配的 reference 仍然不够时，才打开 `references/08-debug.md`。
 
 ## 高频入口命令
@@ -91,23 +92,9 @@ metadata:
 - `awiki-cli page list`：列出页面。
 - `awiki-cli page get`：查看单个页面。
 
-## 首次安装后的推荐路径
-
-安装完成后，优先关注“开始使用”这条主路径：
-
-1. **初始化 workspace**：进入 `references/00-installation.md`，完成 `awiki-cli init`
-2. **启用 runtime**：继续看 `references/00-installation.md`，完成 `runtime setup` 与 listener 状态检查
-3. **注册或恢复身份**：切换到 `references/01-onboarding.md`，完成 handle-backed 身份注册或恢复
-4. **把你的 handle 发给好友**：完成注册后，把你的 handle 分享给好友，方便对方通过 handle 给你发消息；需要核对身份状态或 profile 时，查看 `references/02-identity.md`
-5. **开始消息协作**：
-   - 如果是和单个好友开始沟通，进入 `references/03-messaging.md`
-   - 如果是多人协作，进入 `references/04-groups.md` 创建群组
-
-如果问题还停留在安装、PATH、workspace 初始化或 runtime 初始化阶段，继续使用 `references/00-installation.md`；如果已经完成安装与 runtime 准备，并准备真正开始使用，优先切到 `references/01-onboarding.md`。
-
 ## 命令发现
 
-当命令面不清楚时，优先使用这些入口：
+当命令面不清楚时，使用这些方式进行探索：
 
 - `awiki-cli --help`
 - `awiki-cli schema`
@@ -128,6 +115,7 @@ metadata:
 - 当前支持的输出格式：`json`、`pretty`、`table`、`ndjson`。
 - 使用 `--jq` 过滤 JSON envelope，而不是假设其他响应形状。
 - 对有副作用的命令，在真正写入前优先使用 `--dry-run`，除非用户明确要求直接执行。
+- `id replace-did` 是危险命令：不要主动运行；只有用户明确要求替换某个 identity 的 DID 时才使用，并优先 `--dry-run`、确认 `--identity <identity>` 目标。
 - 当出现 `_notice.update` 时，先完成当前任务，再提示升级信息。
 
 ## 身份与展示规则
@@ -214,7 +202,6 @@ metadata:
 ## 当前产品说明
 
 - 当前公开二进制名为 `awiki-cli`。
-- `group` 是一等领域，不并入 `msg`。
 - `msg secure` 子命令已保留，但尚未实现。
 - `runtime heartbeat` 已规划，但尚未实现。
 - `people` 命令已保留，但尚未实现。
