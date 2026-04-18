@@ -329,8 +329,3 @@ func splitMailList(raw string) []string {
 	}
 	return values
 }
-
-func stringFromAny(value any) string {
-	text, _ := value.(string)
-	return text
-}
