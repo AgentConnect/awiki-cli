@@ -145,3 +145,77 @@ func TestUpsertContactRebindsCurrentHandleAndPreservesHistory(t *testing.T) {
 		t.Fatalf("ListDIDsByHandle() = %#v, want [did:peer-new did:peer-old]", dids)
 	}
 }
+
+func TestListDIDsByHandleFallsBackToContactsWithoutHistoryBindings(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t)
+	ctx := context.Background()
+	if err := EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO contacts
+    (owner_did, did, handle, first_seen_at, last_seen_at, metadata)
+VALUES (?, ?, ?, ?, ?, ?)`,
+		"did:owner",
+		"did:peer",
+		"alice",
+		"2026-01-01T00:00:00Z",
+		"2026-01-01T00:00:00Z",
+		`{"source":"seed"}`,
+	); err != nil {
+		t.Fatalf("ExecContext(insert contacts) error = %v", err)
+	}
+
+	dids, err := ListDIDsByHandle(ctx, db, "did:owner", "alice")
+	if err != nil {
+		t.Fatalf("ListDIDsByHandle() error = %v", err)
+	}
+	if len(dids) != 1 || dids[0] != "did:peer" {
+		t.Fatalf("ListDIDsByHandle() = %#v, want [did:peer]", dids)
+	}
+}
+
+func TestExecuteSQLRejectsUnsafeStatementsAndAllowsScopedUpdate(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t)
+	ctx := context.Background()
+	if err := EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "msg-1",
+		OwnerDID:       "did:owner",
+		ThreadID:       MakeThreadID("did:owner", "did:peer", ""),
+		Direction:      0,
+		SenderDID:      "did:peer",
+		ReceiverDID:    "did:owner",
+		Content:        "hello",
+		CredentialName: "default",
+	}); err != nil {
+		t.Fatalf("StoreMessage() error = %v", err)
+	}
+
+	for _, statement := range []string{"", "SELECT 1; SELECT 2", "DROP TABLE messages", "DELETE FROM messages"} {
+		if _, err := ExecuteSQL(ctx, db, statement); err == nil {
+			t.Fatalf("ExecuteSQL(%q) error = nil, want unsafe SQL error", statement)
+		}
+	}
+
+	rows, err := ExecuteSQL(ctx, db, `UPDATE messages SET is_read = 1 WHERE owner_did = ? AND msg_id = ?`, "did:owner", "msg-1")
+	if err != nil {
+		t.Fatalf("ExecuteSQL(update) error = %v", err)
+	}
+	if len(rows) != 1 || rows[0]["rows_affected"] != int64(1) {
+		t.Fatalf("ExecuteSQL(update) rows = %#v, want rows_affected=1", rows)
+	}
+	messageRow, err := GetMessageByID(ctx, db, "msg-1", "did:owner", "")
+	if err != nil {
+		t.Fatalf("GetMessageByID() error = %v", err)
+	}
+	if messageRow["is_read"] != int64(1) {
+		t.Fatalf("messageRow[is_read] = %#v, want 1", messageRow["is_read"])
+	}
+}

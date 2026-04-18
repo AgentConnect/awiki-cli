@@ -226,16 +226,17 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		if connectionCount.Load() >= 2 {
+		if connectionCount.Load() >= 2 && session.currentClient() != nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("connectionCount = %d, want at least 2", connectionCount.Load())
+			t.Fatalf(
+				"reconnect state not ready: connectionCount=%d currentClientNil=%t",
+				connectionCount.Load(),
+				session.currentClient() == nil,
+			)
 		}
 		time.Sleep(100 * time.Millisecond)
-	}
-	if session.currentClient() == nil {
-		t.Fatalf("session.currentClient() = nil, want active client after reconnect")
 	}
 
 	db, err := store.Open(resolved.Paths)
