@@ -26,6 +26,11 @@ This repo does not yet ship executable Python code, but contributors should use 
 - `uv run pytest` — run tests
 - `uv run python -m awiki_cli ...` — run the CLI locally
 
+## Release
+
+- Use `scripts/release/release-one-click.sh [version] --channel beta|stable` for one-step releases.
+- Put local release secrets in ignored `scripts/release/release.env.local`; never commit tokens.
+
 If you add a new command or API integration, update the matching architecture doc and verify the sibling service API docs still match the behavior.
 
 ## Coding Style & Naming Conventions

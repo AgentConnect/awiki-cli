@@ -141,6 +141,9 @@ func (m *Manager) Load(name string) (*StoredIdentity, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIdentityNotFound, name)
 	}
 	paths := m.BuildPaths(entry.DirName)
+	if err := ensureIdentityPrivateKeysCompatible(paths); err != nil {
+		return nil, err
+	}
 	identityPayload, err := readJSONMap(paths.IdentityPath)
 	if err != nil {
 		return nil, err

@@ -12,6 +12,9 @@ type HostNotifyStatus struct {
 	Sink      string `json:"sink"`
 	FilePath  string `json:"file_path,omitempty"`
 	HookURL   string `json:"hook_url,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	HookName  string `json:"hook_name,omitempty"`
+	NotifyURL string `json:"notify_url,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 

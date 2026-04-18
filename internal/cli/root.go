@@ -188,6 +188,20 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgHistory
 	case "msg.mark-read":
 		return a.runMsgMarkRead
+	case "mail.inbox":
+		return a.runMailInbox
+	case "mail.read":
+		return a.runMailRead
+	case "mail.mark-read":
+		return a.runMailMarkRead
+	case "mail.account":
+		return a.runMailAccount
+	case "mail.send":
+		return a.runMailSend
+	case "mail.attachment.download":
+		return a.runMailAttachmentDownload
+	case "mail.notify":
+		return a.runMailNotify
 	case "group.create":
 		return a.runGroupCreate
 	case "group.show":
@@ -272,6 +286,20 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyOpenClawRouteList
 	case "runtime.host-notify.openclaw.route.remove":
 		return a.runRuntimeHostNotifyOpenClawRouteRemove
+	case "runtime.host-notify.hermes.guide":
+		return a.runRuntimeHostNotifyHermesGuide
+	case "runtime.host-notify.hermes.status":
+		return a.runRuntimeHostNotifyHermesStatus
+	case "runtime.host-notify.hermes.setup":
+		return a.runRuntimeHostNotifyHermesSetup
+	case "runtime.host-notify.hermes.bridge.service-run":
+		return a.runRuntimeHostNotifyHermesBridgeServiceRun
+	case "runtime.host-notify.hermes.set":
+		return a.runRuntimeHostNotifyHermesSet
+	case "runtime.host-notify.hermes.set-secret":
+		return a.runRuntimeHostNotifyHermesSetSecret
+	case "runtime.host-notify.hermes.clear-secret":
+		return a.runRuntimeHostNotifyHermesClearSecret
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.handle-history":
@@ -536,6 +564,7 @@ func isUpdateExemptCommand(cmd *cobra.Command) bool {
 		"awiki-cli completion powershell",
 		"awiki-cli runtime listener run",
 		"awiki-cli runtime listener service-run",
+		"awiki-cli runtime host-notify hermes bridge service-run",
 	}
 	for _, allowed := range exempt {
 		if strings.EqualFold(path, allowed) {

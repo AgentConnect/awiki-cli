@@ -109,6 +109,54 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function isTruthyEnv(name) {
+  const value = (process.env[name] || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+function resolveLocalBinaryPath() {
+  const raw = (process.env.AWIKI_CLI_LOCAL_BINARY || '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  if (path.isAbsolute(raw)) {
+    return raw;
+  }
+
+  return path.resolve(process.cwd(), raw);
+}
+
+function fileExists(p) {
+  try {
+    fs.accessSync(p, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function installLocalBinary(sourcePath, destPath, osName) {
+  if (!fileExists(sourcePath)) {
+    throw new Error(`AWIKI_CLI_LOCAL_BINARY does not exist: ${sourcePath}`);
+  }
+
+  const stat = fs.statSync(sourcePath);
+  if (!stat.isFile()) {
+    throw new Error(`AWIKI_CLI_LOCAL_BINARY must point to a file: ${sourcePath}`);
+  }
+
+  fs.copyFileSync(sourcePath, destPath);
+
+  if (osName !== 'windows') {
+    try {
+      fs.chmodSync(destPath, 0o755);
+    } catch {
+      // best effort
+    }
+  }
+}
+
 function extractArchive(archivePath, destDir, osName) {
   return new Promise((resolve, reject) => {
     let cmd;
@@ -205,6 +253,27 @@ async function main() {
 
   const binDir = path.join(rootDir, 'bin');
   ensureDir(binDir);
+  const exeName = osName === 'windows' ? 'awiki-cli.exe' : 'awiki-cli';
+  const exePath = path.join(binDir, exeName);
+  const localBinaryPath = resolveLocalBinaryPath();
+
+  if (localBinaryPath) {
+    console.log(`Installing awiki-cli ${version} from local binary ${localBinaryPath} ...`);
+    installLocalBinary(localBinaryPath, exePath, osName);
+    console.log(`awiki-cli binary is installed at ${exePath}`);
+    return;
+  }
+
+  if (isTruthyEnv('AWIKI_CLI_SKIP_DOWNLOAD')) {
+    if (fileExists(exePath)) {
+      console.log(`Skipping download and reusing existing binary at ${exePath}`);
+      return;
+    }
+    throw new Error(
+      `AWIKI_CLI_SKIP_DOWNLOAD is set, but no binary exists at ${exePath}. ` +
+      'Set AWIKI_CLI_LOCAL_BINARY=/absolute/path/to/awiki-cli or run without AWIKI_CLI_SKIP_DOWNLOAD.'
+    );
+  }
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'awiki-cli-'));
   const archivePath = path.join(tmpDir, fileName);
@@ -237,9 +306,6 @@ async function main() {
     }
   }
 
-  const exeName = osName === 'windows' ? 'awiki-cli.exe' : 'awiki-cli';
-  const exePath = path.join(binDir, exeName);
-
   if (osName !== 'windows') {
     try {
       fs.chmodSync(exePath, 0o755);
@@ -257,6 +323,7 @@ if (require.main === module) {
      console.error(
        '\nIf you are behind a firewall or using a restricted network, you can:\n' +
        '  - Set AWIKI_CLI_DOWNLOAD_MIRROR to a reachable HTTPS base URL,\n' +
+       '  - Or set AWIKI_CLI_LOCAL_BINARY to a local awiki-cli binary for local package testing,\n' +
        '  - Or manually download the archive and extract it into the awiki-cli bin directory.\n'
      );
     process.exit(1);

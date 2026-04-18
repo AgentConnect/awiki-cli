@@ -16,7 +16,7 @@ if [[ -z "${DIST_TAG}" ]]; then
   exit 1
 fi
 
-release_require_command jq "${SCRIPT_NAME}"
+release_require_command node "${SCRIPT_NAME}"
 
 VERSION="$(release_read_version "${ROOT_DIR}")"
 if [[ "${VERSION}" != *-* ]]; then

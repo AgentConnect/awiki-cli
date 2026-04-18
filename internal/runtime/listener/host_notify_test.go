@@ -139,6 +139,51 @@ func TestNormalizeHostNotificationGroupIncomingOmitsPayloadBody(t *testing.T) {
 	}
 }
 
+func TestNormalizeHostNotificationMailNotificationBuildsMailEvent(t *testing.T) {
+	t.Parallel()
+
+	notification := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "mail.notification",
+		"params": map[string]any{
+			"mailbox_did":     "did:wba:example.com:user:alice:e1_alice",
+			"mailbox_address": "alice@example.com",
+			"from_addr":       "sender@example.com",
+			"subject":         "Mail Subject",
+			"preview":         "First 200 chars of the body...",
+			"has_attachments": true,
+			"message_id":      "mail-msg-001",
+		},
+	}
+
+	event, ok := NormalizeHostNotification(notification, time.Date(2026, 4, 12, 10, 30, 0, 0, time.UTC))
+	if !ok {
+		t.Fatal("NormalizeHostNotification() ok = false, want true")
+	}
+	if event.Topic != "mail.message.received" {
+		t.Fatalf("event.Topic = %q, want mail.message.received", event.Topic)
+	}
+	data, ok := event.Data.(MailNotificationData)
+	if !ok {
+		t.Fatalf("event.Data type = %T, want MailNotificationData", event.Data)
+	}
+	if data.MailboxDID != "did:wba:example.com:user:alice:e1_alice" {
+		t.Fatalf("data.MailboxDID = %q", data.MailboxDID)
+	}
+	if data.RecipientDID != "did:wba:example.com:user:alice:e1_alice" {
+		t.Fatalf("data.RecipientDID = %q", data.RecipientDID)
+	}
+	if data.MailboxAddress != "alice@example.com" {
+		t.Fatalf("data.MailboxAddress = %q", data.MailboxAddress)
+	}
+	if data.Subject != "Mail Subject" {
+		t.Fatalf("data.Subject = %q", data.Subject)
+	}
+	if !data.HasAttachments {
+		t.Fatal("data.HasAttachments = false, want true")
+	}
+}
+
 func TestNormalizeHostNotificationGroupStateChangedInfersEventType(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +341,55 @@ func TestHandleNotificationStoresMessageWhenHostNotifyFails(t *testing.T) {
 	supervisor.statusMu.Unlock()
 	if lastError != "sink boom" {
 		t.Fatalf("host notify last error = %q, want sink boom", lastError)
+	}
+}
+
+func TestHandleNotificationDispatchesMailNotificationToSink(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t, "https://awiki.test")
+	supervisor, err := NewSupervisor(resolved)
+	if err != nil {
+		t.Fatalf("NewSupervisor() error = %v", err)
+	}
+	defer supervisor.Close()
+
+	capturing := &capturingHostNotifySink{}
+	supervisor.hostNotify = capturing
+	supervisor.statusMu.Lock()
+	supervisor.status.HostNotify.Enabled = true
+	supervisor.status.HostNotify.Sink = "capture"
+	supervisor.statusMu.Unlock()
+
+	session := &session{record: &identity.StoredIdentity{IdentityName: "alice", DID: "did:wba:example.com:user:alice:e1_alice", Handle: "alice"}}
+	supervisor.handleNotification(context.Background(), session, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "mail.notification",
+		"params": map[string]any{
+			"mailbox_did":     "did:wba:example.com:user:alice:e1_alice",
+			"mailbox_address": "alice@example.com",
+			"from_addr":       "sender@example.com",
+			"subject":         "Mail Subject",
+			"preview":         "Preview text",
+			"has_attachments": false,
+			"message_id":      "mail-msg-001",
+		},
+	})
+	if len(capturing.events) != 1 {
+		t.Fatalf("len(capturing.events) = %d, want 1", len(capturing.events))
+	}
+	if capturing.events[0].Topic != "mail.message.received" {
+		t.Fatalf("capturing.events[0].Topic = %q, want mail.message.received", capturing.events[0].Topic)
+	}
+	data, ok := capturing.events[0].Data.(MailNotificationData)
+	if !ok {
+		t.Fatalf("capturing.events[0].Data type = %T, want MailNotificationData", capturing.events[0].Data)
+	}
+	if data.MailboxAddress != "alice@example.com" {
+		t.Fatalf("data.MailboxAddress = %q", data.MailboxAddress)
+	}
+	if data.FromAddr != "sender@example.com" {
+		t.Fatalf("data.FromAddr = %q", data.FromAddr)
 	}
 }
 

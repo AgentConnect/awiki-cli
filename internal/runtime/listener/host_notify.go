@@ -85,6 +85,20 @@ type GroupStateChangedNotificationData struct {
 	ChangedAt         string `json:"changed_at,omitempty"`
 }
 
+// MailNotificationData is the normalized payload exposed to host integrations
+// for inbound mail notifications delivered through message-service.
+type MailNotificationData struct {
+	Channel        string `json:"channel"`
+	MessageID      string `json:"message_id"`
+	MailboxAddress string `json:"mailbox_address,omitempty"`
+	MailboxDID     string `json:"mailbox_did"`
+	FromAddr       string `json:"from_addr,omitempty"`
+	Subject        string `json:"subject,omitempty"`
+	Preview        string `json:"preview,omitempty"`
+	HasAttachments bool   `json:"has_attachments"`
+	RecipientDID   string `json:"recipient_did"`
+}
+
 // HostNotifySink receives normalized host notification events.
 type HostNotifySink interface {
 	Notify(context.Context, HostNotificationEvent) error
@@ -162,10 +176,13 @@ func (s *fileHostNotifySink) Close() error {
 func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotifyStatus, error) {
 	config := runtimecfg.Resolve(resolved).HostNotify
 	status := HostNotifyStatus{
-		Enabled:  config.Enabled,
-		Sink:     config.Sink,
-		FilePath: config.FilePath,
-		HookURL:  config.OpenClaw.HookURL,
+		Enabled:   config.Enabled,
+		Sink:      config.Sink,
+		FilePath:  config.FilePath,
+		HookURL:   config.OpenClaw.HookURL,
+		AgentID:   config.OpenClaw.AgentID,
+		HookName:  config.OpenClaw.HookName,
+		NotifyURL: config.Hermes.NotifyURL,
 	}
 	if !config.Enabled {
 		return &noopHostNotifySink{}, status, nil
@@ -192,6 +209,12 @@ func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotify
 			return nil, status, err
 		}
 		return sink, status, nil
+	case "hermes", "webhook":
+		sink, err := newHermesHostNotifySink(resolved, config.Hermes)
+		if err != nil {
+			return nil, status, err
+		}
+		return sink, status, nil
 	default:
 		return nil, status, fmt.Errorf("unsupported host notify sink %q", config.Sink)
 	}
@@ -204,6 +227,8 @@ func NormalizeHostNotification(notification map[string]any, receivedAt time.Time
 	switch stringValue(notification["method"]) {
 	case "direct.incoming":
 		return normalizeDirectIncoming(notification, receivedAt)
+	case "mail.notification":
+		return normalizeMailNotification(notification, receivedAt)
 	case "group.incoming":
 		return normalizeGroupIncoming(notification, receivedAt)
 	case "group.state_changed":
@@ -410,6 +435,33 @@ func inferGroupStateEventType(body map[string]any) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeMailNotification(notification map[string]any, receivedAt time.Time) (*HostNotificationEvent, bool) {
+	params := mapValue(notification["params"])
+	mailboxDID := stringValue(params["mailbox_did"])
+	if mailboxDID == "" {
+		return nil, false
+	}
+	messageID := fallbackString(stringValue(params["message_id"]), generatedHostNotificationID(notification))
+	data := MailNotificationData{
+		Channel:        "mail",
+		MessageID:      messageID,
+		MailboxAddress: stringValue(params["mailbox_address"]),
+		MailboxDID:     mailboxDID,
+		FromAddr:       stringValue(params["from_addr"]),
+		Subject:        stringValue(params["subject"]),
+		Preview:        stringValue(params["preview"]),
+		HasAttachments: boolValue(params["has_attachments"]),
+		RecipientDID:   mailboxDID,
+	}
+	return &HostNotificationEvent{
+		Version:    hostNotificationVersion,
+		ID:         messageID,
+		Topic:      "mail.message.received",
+		ReceivedAt: receivedAt.Format(time.RFC3339),
+		Data:       data,
+	}, true
 }
 
 func generatedHostNotificationID(notification map[string]any) string {
