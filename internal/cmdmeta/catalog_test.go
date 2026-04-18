@@ -1,6 +1,9 @@
 package cmdmeta
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 	t.Parallel()
@@ -20,7 +23,7 @@ func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 	}
 }
 
-func TestCatalogPublishesHiddenReplaceDIDCommand(t *testing.T) {
+func TestCatalogPublishesPublicDangerousReplaceDIDCommand(t *testing.T) {
 	t.Parallel()
 
 	catalog := NewCatalog()
@@ -29,7 +32,16 @@ func TestCatalogPublishesHiddenReplaceDIDCommand(t *testing.T) {
 	if !ok {
 		t.Fatal(`Lookup("id replace-did") = false, want true`)
 	}
-	if !spec.Hidden {
-		t.Fatalf("spec.Hidden = %t, want true", spec.Hidden)
+	if spec.Hidden {
+		t.Fatalf("spec.Hidden = %t, want false", spec.Hidden)
+	}
+	if !spec.SideEffect {
+		t.Fatal("spec.SideEffect = false, want true")
+	}
+	if !strings.Contains(strings.ToLower(spec.Short), "danger") {
+		t.Fatalf("spec.Short = %q, want danger warning", spec.Short)
+	}
+	if !strings.Contains(spec.Long, "--identity") {
+		t.Fatalf("spec.Long = %q, want target identity guidance", spec.Long)
 	}
 }

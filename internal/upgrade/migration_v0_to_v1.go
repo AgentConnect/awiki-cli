@@ -19,6 +19,7 @@ import (
 
 type workspaceV0ToV1Migration struct{}
 type workspaceV1ToV2Migration struct{}
+type workspaceV2ToV3Migration struct{}
 
 type legacySettingsFile struct {
 	UserServiceURL   string `json:"user_service_url"`
@@ -50,6 +51,10 @@ func newWorkspaceV0ToV1Migration() Migration {
 
 func newWorkspaceV1ToV2Migration() Migration {
 	return workspaceV1ToV2Migration{}
+}
+
+func newWorkspaceV2ToV3Migration() Migration {
+	return workspaceV2ToV3Migration{}
 }
 
 func (workspaceV0ToV1Migration) From() int { return 0 }
@@ -226,6 +231,34 @@ func (workspaceV1ToV2Migration) Validate(ctx context.Context, uc *Context) error
 	return nil
 }
 
+func (workspaceV2ToV3Migration) From() int { return 2 }
+
+func (workspaceV2ToV3Migration) To() int { return 3 }
+
+func (workspaceV2ToV3Migration) Name() string {
+	return "workspace_2_to_3_replace_existing_k1_handle_dids"
+}
+
+func (workspaceV2ToV3Migration) IsDone(ctx context.Context, uc *Context) (bool, error) {
+	meta, err := LoadMeta(uc.Paths.MetaPath)
+	if err != nil {
+		return false, err
+	}
+	return meta != nil && meta.WorkspaceSchemaVersion >= 3, nil
+}
+
+func (workspaceV2ToV3Migration) Apply(ctx context.Context, uc *Context) error {
+	if uc == nil || uc.Resolved == nil {
+		return fmt.Errorf("workspace upgrade requires a resolved config")
+	}
+	uc.Warnings = append(uc.Warnings, replaceExistingWorkspaceK1DIDs(ctx, uc.Resolved)...)
+	return nil
+}
+
+func (workspaceV2ToV3Migration) Validate(ctx context.Context, uc *Context) error {
+	return nil
+}
+
 type normalizedLegacySettings struct {
 	ServiceBaseURL string
 	DidDomain      string
@@ -311,7 +344,23 @@ func refreshResolvedConfig(current *appconfig.Resolved) (*appconfig.Resolved, er
 }
 
 func replaceImportedLegacyK1DIDs(ctx context.Context, resolved *appconfig.Resolved, imported []identity.IdentitySummary) []string {
-	if resolved == nil || len(imported) == 0 {
+	return replaceK1DIDsForSummaries(ctx, resolved, imported)
+}
+
+func replaceExistingWorkspaceK1DIDs(ctx context.Context, resolved *appconfig.Resolved) []string {
+	if resolved == nil {
+		return nil
+	}
+	manager := identity.NewManager(resolved.Paths)
+	identities, err := manager.List()
+	if err != nil {
+		return []string{fmt.Sprintf("Automatic existing k1 to e1 DID replacement was skipped: %v", err)}
+	}
+	return replaceK1DIDsForSummaries(ctx, resolved, identities)
+}
+
+func replaceK1DIDsForSummaries(ctx context.Context, resolved *appconfig.Resolved, identities []identity.IdentitySummary) []string {
+	if resolved == nil || len(identities) == 0 {
 		return nil
 	}
 	service, err := identity.NewService(resolved)
@@ -319,24 +368,37 @@ func replaceImportedLegacyK1DIDs(ctx context.Context, resolved *appconfig.Resolv
 		return []string{fmt.Sprintf("Automatic k1 to e1 DID replacement was skipped: %v", err)}
 	}
 
-	seenDirs := map[string]struct{}{}
+	manager := identity.NewManager(resolved.Paths)
 	warnings := make([]string, 0)
-	for _, summary := range imported {
+	for _, summary := range identities {
 		if !identity.IsK1DID(summary.DID) {
 			continue
 		}
-		if _, ok := seenDirs[summary.DirName]; ok {
-			continue
-		}
-		seenDirs[summary.DirName] = struct{}{}
 
-		if _, _, err := identity.HandlePathPrefixFromDID(summary.DID); err != nil {
+		record, err := manager.Load(summary.IdentityName)
+		if err != nil {
 			warnings = append(
 				warnings,
 				fmt.Sprintf(
 					"Automatic DID replacement skipped for identity %s (%s): %v",
 					summary.IdentityName,
 					summary.DID,
+					err,
+				),
+			)
+			continue
+		}
+		if !identity.IsK1DID(record.DID) {
+			continue
+		}
+
+		if _, _, err := identity.HandlePathPrefixFromDID(record.DID); err != nil {
+			warnings = append(
+				warnings,
+				fmt.Sprintf(
+					"Automatic DID replacement skipped for identity %s (%s): %v",
+					summary.IdentityName,
+					record.DID,
 					err,
 				),
 			)
@@ -349,7 +411,7 @@ func replaceImportedLegacyK1DIDs(ctx context.Context, resolved *appconfig.Resolv
 				fmt.Sprintf(
 					"Automatic DID replacement failed for identity %s (%s): %v",
 					summary.IdentityName,
-					summary.DID,
+					record.DID,
 					err,
 				),
 			)

@@ -105,6 +105,7 @@ awiki-cli id recover --handle alice --phone +8613800138000 --otp 123456 [--ident
 awiki-cli id list
 awiki-cli id current
 awiki-cli id use alice
+awiki-cli --identity alice id replace-did [--is-public] [--is-agent] [--role <role>] [--endpoint-url <url>] # dangerous DID replacement
 awiki-cli id profile get [--self | --handle alice | --did did:wba:...]
 awiki-cli id profile set [--display-name "Alice"] [--bio "..."] [--tags "ai,did,agent"] [--markdown "# About Me"] [--markdown-file ./profile.md]
 
@@ -388,6 +389,7 @@ awiki-cli history alice         # = awiki-cli msg history --with alice
 写操作返回**发生了什么变更**：
 
 * `id register`
+* `id replace-did`（危险维护命令；必须先确认 `--identity` 目标并优先 `--dry-run`）
 * `msg send`
 * `msg group join`
 * `people follow`

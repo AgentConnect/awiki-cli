@@ -269,12 +269,29 @@ type Migration interface {
 
 - 只针对本次从 Python v1 导入的 identity 执行
 - 只对 handle 形态的 `k1_...` DID 执行；非 handle DID 跳过并记录 warning
+- 迁移循环必须覆盖本次导入的所有 handle identity，不能只处理 default
 - 认证继续使用旧 DID 的现有凭证（Bearer / DID 鉴权链路）
 - 若单个 identity 替换失败，不中断整次 workspace upgrade；warning 会落到 `meta.json`
 
 ---
 
-## 10. 校验与健康检查
+## 10. 后续迁移：`1 -> 2` 与 `2 -> 3`
+
+`workspace 1 -> 2` 的职责：
+
+- 删除 legacy skill 安装目录
+- 停止并清理 legacy websocket listener 服务
+- 移除 legacy heartbeat 注入片段
+
+`workspace 2 -> 3` 的职责：
+
+- 针对已经完成旧版本迁移的既有 workspace，扫描当前 identity store 中的全部 identities
+- 对仍为 handle 形态 `k1_...` DID 的 identity 自动调用 `replace_did` 换绑为 `e1_...` DID
+- 成功后同步执行本地 SQLite `owner_did` rebind；单个 identity 失败仍只记录 warning，不阻断 workspace upgrade
+
+---
+
+## 11. 校验与健康检查
 
 每步迁移后至少做：
 
@@ -293,19 +310,18 @@ type Migration interface {
 
 ---
 
-## 11. 当前实现边界
+## 12. 当前实现边界
 
 当前落地实现包含：
 
 - `internal/upgrade` 统一入口
 - `meta / journal / lock / backup / detection`
-- 首个真实迁移 `0 -> 1`
+- 真实迁移 `0 -> 1`、`1 -> 2`、`2 -> 3`
 - 状态型 CLI 命令在本地状态初始化前触发升级检查
 - `doctor` / `config show` 可检查升级元数据
 
 后续阶段可继续演进：
 
-- 新的 `workspace schema 1 -> 2` 及后续迁移
 - listener runtime 私有状态纳入统一备份
 - 更细粒度的 migration phase 持久化
 - 显式 restore 命令与更完整的升级诊断输出
