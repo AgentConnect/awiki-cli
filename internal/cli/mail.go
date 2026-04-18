@@ -49,7 +49,7 @@ func (a *App) mailExit(err error, hint string) error {
 	case errors.Is(err, mail.ErrMessageIDRequired), errors.Is(err, mail.ErrRecipientRequired), errors.Is(err, mail.ErrSubjectRequired), errors.Is(err, mail.ErrBodyRequired), errors.Is(err, mail.ErrAttachmentIndexZero):
 		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
-		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg mail commands.")
+		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using `awiki-cli mail` commands.")
 	default:
 		return output.NewExitError("internal_error", 1, err.Error(), hint)
 	}
@@ -97,7 +97,7 @@ func (a *App) runMailInbox(cmd *cobra.Command, args []string) error {
 func (a *App) runMailRead(cmd *cobra.Command, args []string) error {
 	messageID, _ := cmd.Flags().GetString("id")
 	if strings.TrimSpace(messageID) == "" {
-		return output.NewExitError("invalid_argument", 2, "mail read requires --id.", "Usage: awiki-cli msg mail read --id <MESSAGE_ID>")
+		return output.NewExitError("invalid_argument", 2, "mail read requires --id.", "Usage: awiki-cli mail read --id <MESSAGE_ID>")
 	}
 	service, format, err := a.mailService()
 	if err != nil {
@@ -122,7 +122,7 @@ func (a *App) runMailRead(cmd *cobra.Command, args []string) error {
 
 func (a *App) runMailMarkRead(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
-		return output.NewExitError("invalid_argument", 2, "mail mark-read requires at least one message id.", "Usage: awiki-cli msg mail mark-read <MESSAGE_ID...>")
+		return output.NewExitError("invalid_argument", 2, "mail mark-read requires at least one message id.", "Usage: awiki-cli mail mark-read <MESSAGE_ID...>")
 	}
 	service, format, err := a.mailService()
 	if err != nil {
@@ -176,7 +176,7 @@ func (a *App) runMailSend(cmd *cobra.Command, args []string) error {
 	to := splitMailList(toRaw)
 	cc := splitMailList(ccRaw)
 	if len(to) == 0 {
-		return output.NewExitError("invalid_argument", 2, "mail send requires --to.", "Usage: awiki-cli msg mail send --to alice@example.com --subject \"Hello\" --body \"Hi\"")
+		return output.NewExitError("invalid_argument", 2, "mail send requires --to.", "Usage: awiki-cli mail send --to alice@example.com --subject \"Hello\" --body \"Hi\"")
 	}
 	if strings.TrimSpace(subject) == "" {
 		return output.NewExitError("invalid_argument", 2, "mail send requires --subject.", "Provide a subject with --subject.")
@@ -222,7 +222,7 @@ func (a *App) runMailAttachmentDownload(cmd *cobra.Command, args []string) error
 	index, _ := cmd.Flags().GetInt("attachment-index")
 	outputPath, _ := cmd.Flags().GetString("output")
 	if strings.TrimSpace(messageID) == "" {
-		return output.NewExitError("invalid_argument", 2, "mail attachment download requires --message-id.", "Usage: awiki-cli msg mail attachment download --message-id <MESSAGE_ID> --attachment-index 0")
+		return output.NewExitError("invalid_argument", 2, "mail attachment download requires --message-id.", "Usage: awiki-cli mail attachment download --message-id <MESSAGE_ID> --attachment-index 0")
 	}
 	if index < 0 {
 		return output.NewExitError("invalid_argument", 2, "attachment index must be >= 0.", "Use --attachment-index 0 for the first attachment.")

@@ -122,6 +122,30 @@ class HermesNotifyAdapterValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "host event received_at must be RFC3339 date-time"):
             hermes_notify_adapter.convert_host_event_to_surface(payload)
 
+    def test_convert_host_event_to_surface_maps_mail_topic(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "mail-msg-001",
+            "topic": "mail.message.received",
+            "received_at": "2026-04-12T10:30:00Z",
+            "data": {
+                "message_id": "mail-msg-001",
+                "mailbox_address": "alice@example.com",
+                "mailbox_did": "did:wba:test:alice",
+                "recipient_did": "did:wba:test:alice",
+                "from_addr": "sender@example.com",
+                "subject": "Mail Subject",
+            },
+        }
+
+        surface = hermes_notify_adapter.convert_host_event_to_surface(payload)
+
+        self.assertEqual(surface["kind"], "message")
+        self.assertEqual(surface["topic"], "mail.message.received")
+        self.assertEqual(surface["source"]["conversation_id"], "alice@example.com")
+        self.assertEqual(surface["source"]["thread_id"], "mail-msg-001")
+        self.assertEqual(surface["binding_key"], "awiki:mail:did:wba:test:alice:alice@example.com")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,18 +1,19 @@
 # awiki-cli 邮件命令（简要说明）
 
-本说明用于记录邮件能力在 v2 CLI 中的归属与最小用法，避免新增顶级命令。
+本说明用于记录邮件能力在 v2 CLI 中的归属与最小用法。
 
 ## 命令归属
-- 邮件命令挂载在 `msg` 域下：`awiki-cli msg mail ...`
-- 不新增顶级 `mail` 命令（遵守 Phase 0 冻结的顶级命令集合）。
+- 邮件命令作为顶级域提供：`awiki-cli mail ...`
+- `mail` 与 `msg` 同级，便于终端自动补全、schema 暴露和 AI 工具调用。
 
 ## 主要命令
-- `awiki-cli msg mail inbox --folder inbox --limit 20 --offset 0 [--unread]`
-- `awiki-cli msg mail read --id <MESSAGE_ID>`
-- `awiki-cli msg mail mark-read <MESSAGE_ID...>`
-- `awiki-cli msg mail account`
-- `awiki-cli msg mail send --to a@b.com,b@c.com --subject "Hello" --body "Hi" [--cc ...] [--html ...]`
-- `awiki-cli msg mail attachment download --message-id <MESSAGE_ID> --attachment-index 0 --output <path>`
+- `awiki-cli mail inbox --folder inbox --limit 20 --offset 0 [--unread]`
+- `awiki-cli mail notify --limit 20`
+- `awiki-cli mail read --id <MESSAGE_ID>`
+- `awiki-cli mail mark-read <MESSAGE_ID...>`
+- `awiki-cli mail account`
+- `awiki-cli mail send --to a@b.com,b@c.com --subject "Hello" --body "Hi" [--cc ...] [--html ...]`
+- `awiki-cli mail attachment download --message-id <MESSAGE_ID> --attachment-index 0 --output <path>`
 
 ## 配置说明
 - 邮件服务地址通过 `config.yaml` 的 `services.mail_service_url` 配置。

@@ -84,20 +84,32 @@ Raw notification JSON:
 {notify_payload}
 `
 
-const defaultNotifyPrompt = `你是 awiki 外部 IM 消息通知整理助手。
+const defaultNotifyPrompt = `你是 awiki 外部消息通知整理助手。
 
-请把收到的通知整理成一条简洁、稳定、适合目标 IM 平台阅读的中文消息。
+请根据收到的通知 topic 和 data，把它整理成一条简洁、稳定、适合目标 IM 平台阅读的中文消息。
 规则：
 1. 只输出最终通知正文，不要加解释。
 2. 不要提问，不要添加无关寒暄。
-3. 优先使用可读的人名、handle 或显示名；没有时再使用 DID。
-4. 如果存在 DID，请单独一行展示。
-5. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
-6. 消息内容摘要控制在 1 到 5 行短句内。
+3. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
+4. 字段标题统一使用中文。
+5. 不存在的字段不要臆造，缺失时直接省略对应行。
+6. 摘要控制在 1 到 5 行短句内。
 7. 如果有链接，放在最后单独列出。
-8. 字段标题统一使用中文。
+8. ` + "`topic=mail.message.received`" + ` 时，优先使用邮箱地址字段，如 ` + "`from_addr`" + `、` + "`mailbox_address`" + `、` + "`subject`" + `、` + "`preview`" + `。
+9. IM 通知优先使用可读的人名、handle 或显示名；没有时再使用 DID。
 
-建议格式：
+如果 topic 是 ` + "`mail.message.received`" + `，建议格式：
+收到外部邮件通知
+发件人：<邮箱地址或名称>
+收件邮箱：<mailbox_address>
+收件人 DID：<recipient_did，如存在>
+时间：<Asia/Shanghai 时间>
+邮件摘要：
+主题：<subject，如存在>
+<preview 1-5 行>
+附件：<有附件时再展示，例如：有>
+
+如果 topic 是 IM 相关事件，例如 ` + "`im.message.received`" + `、` + "`im.group.message.received`" + `、` + "`im.group.state.changed`" + `，建议格式：
 收到外部IM消息通知
 发送者：<名称或 DID>
 发送者 DID：<如存在>

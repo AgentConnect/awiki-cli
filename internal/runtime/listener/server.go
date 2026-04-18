@@ -481,6 +481,7 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 	}
 	if record, ok := messageRecordFromMailNotification(notification, session.record.IdentityName); ok {
 		_ = store.StoreMessage(ctx, s.db, record)
+		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return
 	}
 	if record, ok := messageRecordFromGroupIncoming(notification, session.record.IdentityName); ok {
@@ -561,15 +562,17 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 // messageRecordFromMailNotification maps a lightweight mail.notification payload into a local MessageRecord.
 //
 // The message-service v2 side pushes notifications in the shape:
-//   {"jsonrpc":"2.0","method":"mail.notification","params":{
-//       "mailbox_did": "...",
-//       "mailbox_address": "alice@awiki.ai",
-//       "from_addr": "sender@example.com",
-//       "subject": "Subject",
-//       "preview": "Body preview ...",
-//       "has_attachments": true,
-//       "message_id": "uuid"
-//   }}
+//
+//	{"jsonrpc":"2.0","method":"mail.notification","params":{
+//	    "mailbox_did": "...",
+//	    "mailbox_address": "alice@awiki.ai",
+//	    "from_addr": "sender@example.com",
+//	    "subject": "Subject",
+//	    "preview": "Body preview ...",
+//	    "has_attachments": true,
+//	    "message_id": "uuid"
+//	}}
+//
 // We persist this as an inbound "system" message with:
 //   - owner_did = mailbox_did
 //   - thread_id = mail:<mailbox_address>

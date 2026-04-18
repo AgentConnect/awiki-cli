@@ -89,9 +89,9 @@ func buildOpenClawHookRequest(event HostNotificationEvent, hookName string, chan
 }
 
 func buildOpenClawAgentHookMessage(event HostNotificationEvent) (string, error) {
-	messageType, groupID, senderHandle, senderDID, receiverHandle, receiverDID, content := openClawEventPromptParts(event)
+	messageType, groupID, senderHandle, senderDID, receiverHandle, receiverDID, content, summary := openClawEventPromptParts(event)
 	lines := []string{
-		"You received a new im message from awiki.",
+		summary,
 		fmt.Sprintf("Sender handle: %s", fallbackString(senderHandle, "unknown")),
 		fmt.Sprintf("Sender DID: %s", fallbackString(senderDID, "unknown")),
 		fmt.Sprintf("Receiver handle: %s", fallbackString(receiverHandle, "unknown")),
@@ -166,18 +166,34 @@ func openClawEventTextParts(event HostNotificationEvent) (string, []string, stri
 			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
 		}, " "))
 		return "[Awiki Group State Changed]", lines, content
+	case MailNotificationData:
+		lines := []string{}
+		if strings.TrimSpace(data.FromAddr) != "" {
+			lines = append(lines, "from_addr: "+data.FromAddr)
+		}
+		if strings.TrimSpace(data.MailboxAddress) != "" {
+			lines = append(lines, "mailbox_address: "+data.MailboxAddress)
+		}
+		if strings.TrimSpace(data.Subject) != "" {
+			lines = append(lines, "subject: "+data.Subject)
+		}
+		if data.HasAttachments {
+			lines = append(lines, "has_attachments: true")
+		}
+		content := fallbackString(strings.TrimSpace(data.Preview), fmt.Sprintf("[%s]", fallbackString(data.Channel, "mail")))
+		return "[Awiki New Mail]", lines, content
 	default:
 		raw, _ := json.Marshal(event)
 		return "[Awiki Notification]", nil, string(raw)
 	}
 }
 
-func openClawEventPromptParts(event HostNotificationEvent) (messageType string, groupID string, senderHandle string, senderDID string, receiverHandle string, receiverDID string, content string) {
+func openClawEventPromptParts(event HostNotificationEvent) (messageType string, groupID string, senderHandle string, senderDID string, receiverHandle string, receiverDID string, content string, summary string) {
 	switch data := event.Data.(type) {
 	case DirectMessageNotificationData:
-		return "private", "N/A", data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+		return "private", "N/A", data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message"))), "You received a new im message from awiki."
 	case GroupMessageNotificationData:
-		return "group", fallbackString(data.GroupDID, "N/A"), data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message")))
+		return "group", fallbackString(data.GroupDID, "N/A"), data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message"))), "You received a new im message from awiki."
 	case GroupStateChangedNotificationData:
 		content = strings.TrimSpace(strings.Join([]string{
 			"Group state changed.",
@@ -186,9 +202,22 @@ func openClawEventPromptParts(event HostNotificationEvent) (messageType string, 
 			"subject_did=" + fallbackString(data.SubjectDID, "unknown"),
 			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
 		}, " "))
-		return "group", fallbackString(data.GroupDID, "N/A"), "", data.ActorDID, "", data.RecipientDID, content
+		return "group", fallbackString(data.GroupDID, "N/A"), "", data.ActorDID, "", data.RecipientDID, content, "You received a new im message from awiki."
+	case MailNotificationData:
+		contentLines := []string{}
+		if strings.TrimSpace(data.Subject) != "" {
+			contentLines = append(contentLines, "Subject: "+data.Subject)
+		}
+		if strings.TrimSpace(data.Preview) != "" {
+			contentLines = append(contentLines, "", strings.TrimSpace(data.Preview))
+		}
+		if data.HasAttachments {
+			contentLines = append(contentLines, "", "(This message has attachments.)")
+		}
+		content = strings.TrimSpace(strings.Join(contentLines, "\n"))
+		return "mail", "N/A", "", data.FromAddr, data.MailboxAddress, data.RecipientDID, fallbackString(content, "[mail notification]"), "You received a new mail notification from awiki."
 	default:
 		raw, _ := json.Marshal(event)
-		return "notification", "N/A", "unknown", "unknown", "unknown", "unknown", string(raw)
+		return "notification", "N/A", "unknown", "unknown", "unknown", "unknown", string(raw), "You received a new notification from awiki."
 	}
 }

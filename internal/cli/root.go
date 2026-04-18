@@ -188,19 +188,19 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgHistory
 	case "msg.mark-read":
 		return a.runMsgMarkRead
-	case "msg.mail.inbox", "mail.inbox":
+	case "mail.inbox":
 		return a.runMailInbox
-	case "msg.mail.read", "mail.read":
+	case "mail.read":
 		return a.runMailRead
-	case "msg.mail.mark-read", "mail.mark-read":
+	case "mail.mark-read":
 		return a.runMailMarkRead
-	case "msg.mail.account", "mail.account":
+	case "mail.account":
 		return a.runMailAccount
-	case "msg.mail.send", "mail.send":
+	case "mail.send":
 		return a.runMailSend
-	case "msg.mail.attachment.download", "mail.attachment.download":
+	case "mail.attachment.download":
 		return a.runMailAttachmentDownload
-	case "msg.mail.notify", "mail.notify":
+	case "mail.notify":
 		return a.runMailNotify
 	case "group.create":
 		return a.runGroupCreate

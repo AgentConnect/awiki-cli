@@ -408,7 +408,7 @@ def require_rfc3339_field(field_name: str, value: Any) -> str:
 
 
 def resolve_kind(topic: str) -> str:
-    if topic in {"im.message.received", "im.group.message.received"}:
+    if topic in {"im.message.received", "im.group.message.received", "mail.message.received"}:
         return "message"
     if topic == "im.group.state.changed":
         return "state"
@@ -418,13 +418,15 @@ def resolve_kind(topic: str) -> str:
 def resolve_conversation_id(topic: str, data: dict[str, Any], fallback: str) -> str:
     if topic == "im.message.received":
         return str(data.get("conversation_id", "")).strip() or fallback or "unknown"
+    if topic == "mail.message.received":
+        return str(data.get("mailbox_address", "")).strip() or str(data.get("recipient_did", "")).strip() or fallback or "unknown"
     if topic in {"im.group.message.received", "im.group.state.changed"}:
         return str(data.get("group_did", "")).strip() or fallback or "unknown"
     return fallback or "unknown"
 
 
 def resolve_thread_id(topic: str, data: dict[str, Any], fallback: str) -> str:
-    if topic in {"im.message.received", "im.group.message.received"}:
+    if topic in {"im.message.received", "im.group.message.received", "mail.message.received"}:
         return str(data.get("message_id", "")).strip() or fallback or "unknown"
     if topic == "im.group.state.changed":
         return str(data.get("event_id", "")).strip() or fallback or "unknown"
@@ -442,6 +444,9 @@ def resolve_binding_key(
         sender_did = str(data.get("sender_did", "")).strip()
         conversation_part = conversation_id if conversation_id and conversation_id != "unknown" else sender_did
         return f"awiki:direct:{recipient_did}:{conversation_part or fallback or 'unknown'}"
+    if topic == "mail.message.received":
+        mailbox = str(data.get("mailbox_address", "")).strip() or conversation_id or fallback or "unknown"
+        return f"awiki:mail:{recipient_did}:{mailbox}"
     if topic == "im.group.message.received":
         group_did = str(data.get("group_did", "")).strip() or fallback or "unknown"
         return f"awiki:group:{recipient_did}:{group_did}"

@@ -46,6 +46,12 @@ func TestEnsureRouteCreatesWebhookNotifyRouteAndUsesHomeChannel(t *testing.T) {
 	if !strings.Contains(text, "deliver: feishu") {
 		t.Fatalf("config.yaml missing deliver=feishu: %q", text)
 	}
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml missing mail notification prompt section: %q", text)
+	}
+	if !strings.Contains(text, "收到外部IM消息通知") {
+		t.Fatalf("config.yaml missing IM notification prompt section: %q", text)
+	}
 	if strings.Contains(text, "chat_id:") {
 		t.Fatalf("config.yaml unexpectedly contains fixed chat_id: %q", text)
 	}
@@ -202,6 +208,9 @@ func TestEnsureRouteMigratesLegacyEnglishPromptToChineseDefault(t *testing.T) {
 		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
 	}
 	text := string(raw)
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml prompt not migrated to mail-aware Chinese default: %q", text)
+	}
 	if !strings.Contains(text, "收到外部IM消息通知") {
 		t.Fatalf("config.yaml prompt not migrated to Chinese default: %q", text)
 	}

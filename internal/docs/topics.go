@@ -38,7 +38,17 @@ func NewIndex() *Index {
 			References: []string{
 				"docs/architecture/awiki-v2-architecture.md",
 				"docs/architecture/awiki-command-v2.md",
+				"docs/architecture/awiki-mail-cli.md",
 				"docs/architecture/awiki-skill-architecture.md",
+			},
+		},
+		{
+			Name:    "mail",
+			Summary: "Top-level mail command surface and service configuration",
+			References: []string{
+				"docs/architecture/awiki-mail-cli.md",
+				"docs/architecture/awiki-v2-architecture.md",
+				"docs/plan/phase-0/implementation-constraints.md",
 			},
 		},
 		{

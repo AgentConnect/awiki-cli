@@ -216,7 +216,7 @@ review 要关注：
 
 **必须检查：**
 
-- [ ] 是否仍保持 canonical 顶级命令面：`status/docs/schema/doctor/version/init/completion/config/id/msg/group/runtime/people/page/debug`
+- [ ] 是否仍保持 canonical 顶级命令面：`status/docs/schema/doctor/version/init/completion/config/id/msg/mail/group/runtime/people/page/debug`
 - [ ] 是否把 `group` 保持为独立顶级域，而不是重新把公共 surface 收回 `msg group`
 - [ ] 是否坚持 `msg send --group` 是唯一 canonical 群发消息入口
 - [ ] 新增测试 / fixture / 协议示例里的 DID profile 段是否默认使用 `e1_...` 形式，而不是裸 `e1`
