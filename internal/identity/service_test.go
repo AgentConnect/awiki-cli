@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -97,6 +98,12 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	if !identity.IsE1DID(updated.DID) {
 		t.Fatalf("updated DID = %q, want e1 did", updated.DID)
 	}
+	if strings.Contains(updated.Key1PrivatePEM, "BEGIN ANP ") {
+		t.Fatalf("new e1 key-1 private key still uses legacy ANP PEM label")
+	}
+	if !strings.HasPrefix(updated.Key1PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
+		t.Fatalf("new e1 key-1 private key = %q, want standard PKCS#8 PEM", updated.Key1PrivatePEM[:32])
+	}
 
 	identityData, _ := result.Data["identity"].(*identity.IdentitySummary)
 	if identityData == nil || identityData.DID != gotNewDID {
@@ -142,6 +149,96 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	if oldSessionCount != 0 {
 		t.Fatalf("old session count = %d, want 0", oldSessionCount)
 	}
+}
+
+func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
+	t.Parallel()
+
+	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy.Key1PrivatePEM = legacyANPPrivatePEMFromStandard(t, legacy.Key1PrivatePEM, "ANP SECP256K1 PRIVATE KEY")
+
+	var methods []string
+	var replaceAuth string
+	var gotNewDID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		method, _ := payload["method"].(string)
+		methods = append(methods, method)
+		w.Header().Set("Content-Type", "application/json")
+		switch method {
+		case "get_me":
+			if r.Header.Get("Signature-Input") == "" || r.Header.Get("Signature") == "" {
+				t.Fatalf("get_me auth headers missing Signature-Input/Signature: %#v", r.Header)
+			}
+			w.Header().Set("Authentication-Info", `access_token="fresh-token"`)
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + legacy.DID + `","user_id":"user-1"},"id":"req-1"}`))
+		case "replace_did":
+			replaceAuth = r.Header.Get("Authorization")
+			params, _ := payload["params"].(map[string]any)
+			newDocument, _ := params["new_did_document"].(map[string]any)
+			gotNewDID, _ = newDocument["id"].(string)
+			if !identity.IsE1DID(gotNewDID) {
+				t.Fatalf("new did = %q, want e1 did", gotNewDID)
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected rpc method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "alice",
+		DID:                     legacy.DID,
+		UniqueID:                legacy.UniqueID,
+		UserID:                  "user-1",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		JWTToken:                "",
+		DIDDocument:             legacy.DIDDocument,
+		Key1PrivatePEM:          legacy.Key1PrivatePEM,
+		Key1PublicPEM:           legacy.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacy.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: legacy.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	migratedLegacy, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() migrated legacy identity error = %v", err)
+	}
+	if strings.Contains(migratedLegacy.Key1PrivatePEM, "BEGIN ANP ") {
+		t.Fatalf("migrated key-1 private key still uses legacy ANP PEM label")
+	}
+	if !strings.HasPrefix(migratedLegacy.Key1PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
+		t.Fatalf("migrated key-1 private key = %q, want standard PKCS#8 PEM", migratedLegacy.Key1PrivatePEM[:32])
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.ReplaceDID(context.Background(), identity.ReplaceDIDParams{})
+	if err != nil {
+		t.Fatalf("ReplaceDID() error = %v", err)
+	}
+	if got := strings.Join(methods, ","); got != "get_me,replace_did" {
+		t.Fatalf("rpc methods = %q, want get_me,replace_did", got)
+	}
+	if replaceAuth != "Bearer fresh-token" {
+		t.Fatalf("replace Authorization = %q, want Bearer fresh-token", replaceAuth)
+	}
+	backupPath, _ := result.Data["backup_path"].(string)
+	expectedBackup := *legacy
+	expectedBackup.Key1PrivatePEM = migratedLegacy.Key1PrivatePEM
+	assertReplaceDIDBackup(t, manager, backupPath, &expectedBackup, gotNewDID)
 }
 
 func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
@@ -376,4 +473,13 @@ func testDidSuffix(did string) string {
 		return did[lastIndex+1:]
 	}
 	return did
+}
+
+func legacyANPPrivatePEMFromStandard(t *testing.T, standardPEM string, label string) string {
+	t.Helper()
+	privateKey, err := anpsdk.PrivateKeyFromPEM(standardPEM)
+	if err != nil {
+		t.Fatalf("PrivateKeyFromPEM() fixture error = %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: label, Bytes: privateKey.Bytes}))
 }

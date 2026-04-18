@@ -41,13 +41,13 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.4`
+  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.5`
 
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
 **config.template.yaml**: 标准用户主配置模板，展示当前 canonical `config.yaml` 字段与默认值。  
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.4`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.5`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
@@ -69,6 +69,7 @@
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
+**internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.5+ 下仍可完成 DID WBA 签名。
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
 **internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
@@ -85,7 +86,7 @@
 **internal/store/import_test.go**: legacy SQLite 导入测试。  
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: 基于 ANP Go SDK 0.8.4 的 RFC 9421 origin proof 薄封装。  
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.5 的 RFC 9421 origin proof 薄封装。
 **internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
 **internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  

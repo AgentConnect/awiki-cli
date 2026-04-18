@@ -589,10 +589,6 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
-	if err != nil {
-		return nil, err
-	}
 	generated, err := GenerateIdentity(GenerateOptions{
 		Hostname:           didDomain,
 		PathPrefix:         pathPrefix,
@@ -605,6 +601,10 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	}
 
 	backupPath, err := s.manager.BackupIdentityForDIDReplacement(record.IdentityName, generated.DID)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := s.authSession(record)
 	if err != nil {
 		return nil, err
 	}
@@ -828,6 +828,11 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 	paths, err := s.manager.PathsForIdentity(record.IdentityName)
 	if err != nil {
 		return nil, err
+	}
+	if fileExists(paths.Key1PrivatePath) {
+		if err := EnsureKey1PrivatePEMCompatible(paths.Key1PrivatePath); err != nil {
+			return nil, err
+		}
 	}
 	session := authsdk.NewSession(
 		paths.DIDDocumentPath,
