@@ -47,6 +47,7 @@ func TestRunIDReplaceDIDDryRunWarnsAndTargetsIdentity(t *testing.T) {
 		`"dangerous": true`,
 		"generated_e1_document",
 		"did-auth.replace_did",
+		".legacy-backup/replace-did",
 		"sqlite.owner_did_rebind",
 		"Dangerous command: replace-did creates a new e1 DID",
 	} {

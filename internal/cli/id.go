@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const replaceDIDDangerWarning = "Dangerous command: replace-did creates a new e1 DID and key material, replaces the selected identity's current DID, and rebinds local SQLite owner state. Verify the target identity and prefer --dry-run first."
+const replaceDIDDangerWarning = "Dangerous command: replace-did creates a new e1 DID and key material, replaces the selected identity's current DID, and rebinds local SQLite owner state. The old DID material is backed up locally and remains sensitive. Verify the target identity and prefer --dry-run first."
 
 func (a *App) identityService() (*identity.Service, output.Format, error) {
 	resolved, err := a.resolveConfigForWorkspace()
@@ -434,6 +434,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 						"key-1-public.pem",
 						"e2ee-signing-private.pem",
 						"e2ee-agreement-private.pem",
+						".legacy-backup/replace-did",
 						"sqlite.owner_did_rebind",
 						"sqlite.e2ee_cleanup",
 					},

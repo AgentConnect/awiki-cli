@@ -265,6 +265,7 @@ func TestUpgradeIfNeededReplacesAllImportedLegacyK1Handles(t *testing.T) {
 		t.Fatalf("len(identities) = %d, want %d: %#v", len(identities), len(legacyIdentities), identities)
 	}
 	assertStoredIdentitiesReplaced(t, manager, legacyIdentities)
+	assertReplaceDIDBackupsForFixtures(t, resolved, legacyIdentities)
 }
 
 func TestUpgradeIfNeededReplacesExistingWorkspaceK1Handles(t *testing.T) {
@@ -325,6 +326,7 @@ func TestUpgradeIfNeededReplacesExistingWorkspaceK1Handles(t *testing.T) {
 	replaceServer.assertCalls(t, legacyIdentities, "existing")
 
 	assertStoredIdentitiesReplaced(t, manager, legacyIdentities)
+	assertReplaceDIDBackupsForFixtures(t, resolved, legacyIdentities)
 }
 
 func writeLegacyIdentityFixtures(t *testing.T, resolved *appconfig.Resolved, fixtures []legacyIdentityFixture) map[string]string {
@@ -430,6 +432,67 @@ func assertStoredIdentitiesReplaced(t *testing.T, manager *identity.Manager, fix
 			t.Fatalf("identity %s JWTToken = %q, want %q", legacy.name, record.JWTToken, "new-token-"+legacy.handle)
 		}
 	}
+}
+
+func assertReplaceDIDBackupsForFixtures(t *testing.T, resolved *appconfig.Resolved, fixtures []legacyIdentityFixture) {
+	t.Helper()
+	backupRoot := filepath.Join(resolved.Paths.IdentityDir, identity.LegacyBackupDirName, "replace-did")
+	entries, err := os.ReadDir(backupRoot)
+	if err != nil {
+		t.Fatalf("ReadDir(%s) error = %v", backupRoot, err)
+	}
+	if len(entries) != len(fixtures) {
+		t.Fatalf("backup dir count = %d, want %d", len(entries), len(fixtures))
+	}
+	expected := make(map[string]struct{}, len(fixtures))
+	for _, fixture := range fixtures {
+		expected[fixture.name] = struct{}{}
+	}
+	seen := map[string]struct{}{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		backupPath := filepath.Join(backupRoot, entry.Name())
+		manifest := readUpgradeTestJSONMap(t, filepath.Join(backupPath, "backup_manifest.json"))
+		identityName, _ := manifest["identity_name"].(string)
+		if _, ok := expected[identityName]; !ok {
+			t.Fatalf("unexpected backup identity_name %q in %#v", identityName, manifest)
+		}
+		seen[identityName] = struct{}{}
+		oldDID, _ := manifest["old_did"].(string)
+		if !identity.IsK1DID(oldDID) {
+			t.Fatalf("backup old_did = %q, want k1 DID", oldDID)
+		}
+		plannedNewDID, _ := manifest["planned_new_did"].(string)
+		if !identity.IsE1DID(plannedNewDID) {
+			t.Fatalf("backup planned_new_did = %q, want e1 DID", plannedNewDID)
+		}
+		if _, err := os.Stat(filepath.Join(backupPath, identity.DIDDocumentFileName)); err != nil {
+			t.Fatalf("backup %s missing DID document: %v", backupPath, err)
+		}
+		if _, err := os.Stat(filepath.Join(backupPath, identity.Key1PrivateFileName)); err != nil {
+			t.Fatalf("backup %s missing private key: %v", backupPath, err)
+		}
+	}
+	for _, fixture := range fixtures {
+		if _, ok := seen[fixture.name]; !ok {
+			t.Fatalf("backup for identity %s not found; seen = %#v", fixture.name, seen)
+		}
+	}
+}
+
+func readUpgradeTestJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("Unmarshal(%s) error = %v", path, err)
+	}
+	return payload
 }
 
 func TestUpgradeIfNeededCleansLegacySkillArtifactsForExistingWorkspace(t *testing.T) {

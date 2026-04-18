@@ -80,7 +80,9 @@
 
 ### 危险：替换 DID
 
-`id replace-did` 会为指定 identity 生成新的 e1 DID 和新密钥材料，并用远端 `did-auth.replace_did` 把旧 DID 替换掉。该操作会更新本地 identity store、DID document、私钥文件，并重绑本地 SQLite 的 `owner_did`；使用错误目标可能造成身份、消息历史或通知路由混乱。
+`id replace-did` 会为指定 identity 生成新的 e1 DID 和新密钥材料，并用远端 `did-auth.replace_did` 把旧 DID 替换掉。该操作会先把旧 DID document、旧私钥和旧 identity 目录备份到本地 `.legacy-backup/replace-did/`，然后更新本地 identity store、DID document、私钥文件，并重绑本地 SQLite 的 `owner_did`；使用错误目标可能造成身份、消息历史或通知路由混乱。
+
+`.legacy-backup/replace-did/` 中的内容仍然包含旧私钥和旧 JWT 等敏感材料，不要上传、粘贴或分享。
 
 仅在用户明确要求替换 DID 时使用：
 

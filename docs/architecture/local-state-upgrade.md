@@ -270,6 +270,7 @@ type Migration interface {
 - 只针对本次从 Python v1 导入的 identity 执行
 - 只对 handle 形态的 `k1_...` DID 执行；非 handle DID 跳过并记录 warning
 - 迁移循环必须覆盖本次导入的所有 handle identity，不能只处理 default
+- 调用 `replace_did` 前必须先把旧 identity 目录备份到 `.legacy-backup/replace-did/`，包括旧 DID document 与旧私钥材料
 - 认证继续使用旧 DID 的现有凭证（Bearer / DID 鉴权链路）
 - 若单个 identity 替换失败，不中断整次 workspace upgrade；warning 会落到 `meta.json`
 
@@ -287,7 +288,7 @@ type Migration interface {
 
 - 针对已经完成旧版本迁移的既有 workspace，扫描当前 identity store 中的全部 identities
 - 对仍为 handle 形态 `k1_...` DID 的 identity 自动调用 `replace_did` 换绑为 `e1_...` DID
-- 成功后同步执行本地 SQLite `owner_did` rebind；单个 identity 失败仍只记录 warning，不阻断 workspace upgrade
+- 替换前同样先备份旧 identity 目录到 `.legacy-backup/replace-did/`；成功后同步执行本地 SQLite `owner_did` rebind；单个 identity 失败仍只记录 warning，不阻断 workspace upgrade
 
 ---
 
