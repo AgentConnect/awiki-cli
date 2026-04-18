@@ -11,8 +11,8 @@ MODULE_PREFIX = "github.com/agentconnect/awiki-cli/"
 TOTAL_LABEL = "total"
 THRESHOLDS = {
     TOTAL_LABEL: 40.0,
-    "internal/cli": 20.0,
-    "internal/message": 28.0,
+    "internal/cli": 30.0,
+    "internal/message": 35.0,
     "internal/identity": 50.0,
     "internal/store": 60.0,
     "internal/doctor": 70.0,

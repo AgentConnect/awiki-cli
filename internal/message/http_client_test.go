@@ -241,3 +241,149 @@ func TestHTTPTransportHTTPErrorReturnsServiceError(t *testing.T) {
 		t.Fatalf("serviceErr.Error() = %q, want http status text", got)
 	}
 }
+
+func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
+	cases := []struct {
+		name       string
+		call       func(*HTTPTransport) error
+		wantMethod string
+		verifyBody func(t *testing.T, body map[string]any)
+	}{
+		{
+			name:       "get group info",
+			wantMethod: "group.get_info",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.GetGroupInfo(context.Background(), GroupInfoRequest{Group: "did:group", IncludePolicy: true, IncludeMemberList: true})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["include_policy"] != true || body["include_member_list"] != true {
+					t.Fatalf("body = %#v, want include flags", body)
+				}
+			},
+		},
+		{
+			name:       "join group",
+			wantMethod: "group.join",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.JoinGroup(context.Background(), GroupJoinRequest{Group: "did:group", ReasonText: "because"})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["reason_text"] != "because" {
+					t.Fatalf("body = %#v, want reason", body)
+				}
+			},
+		},
+		{
+			name:       "add member",
+			wantMethod: "group.add",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.AddGroupMember(context.Background(), GroupMemberRequest{Group: "did:group", Member: "did:member", Role: "admin", ReasonText: "invite"})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["member_did"] != "did:member" || body["role"] != "admin" {
+					t.Fatalf("body = %#v, want member/role", body)
+				}
+			},
+		},
+		{
+			name:       "remove member",
+			wantMethod: "group.remove",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.RemoveGroupMember(context.Background(), GroupMemberRequest{Group: "did:group", Member: "did:member", ReasonText: "cleanup"})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["member_did"] != "did:member" || body["reason_text"] != "cleanup" {
+					t.Fatalf("body = %#v, want member/reason", body)
+				}
+			},
+		},
+		{
+			name:       "list members",
+			wantMethod: "group.list_members",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.ListGroupMembers(context.Background(), GroupMembersRequest{Group: "did:group", Limit: 7})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["group_did"] != "did:group" || intValueFromAny(body["limit"], 0) != 7 {
+					t.Fatalf("body = %#v, want group/limit", body)
+				}
+			},
+		},
+		{
+			name:       "list messages",
+			wantMethod: "group.list_messages",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.ListGroupMessages(context.Background(), GroupMessagesRequest{Group: "did:group", Limit: 8, Cursor: "3", Skip: 2})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["group_did"] != "did:group" || body["since_seq"] != "3" || intValueFromAny(body["skip"], 0) != 2 {
+					t.Fatalf("body = %#v, want group/cursor/skip", body)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var captured rpcRequestEnvelope
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				captured = decodeRPCRequest(t, r)
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": captured.ID, "result": map[string]any{"ok": true}})
+			}))
+			defer server.Close()
+
+			transport, _, _ := newHTTPTransportForTest(t, server.URL)
+			transport = transport.WithRPCEndpoint(server.URL + MessageRPCEndpoint)
+			if err := tc.call(transport); err != nil {
+				t.Fatalf("transport call error = %v", err)
+			}
+			if captured.Method != tc.wantMethod {
+				t.Fatalf("captured.Method = %q, want %q", captured.Method, tc.wantMethod)
+			}
+			body := mustMapValue(t, captured.Params["body"], "params.body")
+			if tc.verifyBody != nil {
+				tc.verifyBody(t, body)
+			}
+		})
+	}
+}
+
+func TestHTTPTransportGetMessageServiceDIDUsesConfiguredOrCapabilities(t *testing.T) {
+	t.Parallel()
+
+	transport, _, _ := newHTTPTransportForTest(t, "https://awiki.test")
+	transport.resolved.ANPServiceDID = "did:wba:configured.example"
+	got, err := transport.GetMessageServiceDID(context.Background())
+	if err != nil {
+		t.Fatalf("GetMessageServiceDID(configured) error = %v", err)
+	}
+	if got != "did:wba:configured.example" {
+		t.Fatalf("GetMessageServiceDID(configured) = %q", got)
+	}
+
+	var captured rpcRequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = decodeRPCRequest(t, r)
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": captured.ID, "result": map[string]any{"service_did": "did:wba:capabilities.example"}})
+	}))
+	defer server.Close()
+
+	transport, _, _ = newHTTPTransportForTest(t, server.URL)
+	transport = transport.WithRPCEndpoint(server.URL + MessageRPCEndpoint)
+	got, err = transport.GetMessageServiceDID(context.Background())
+	if err != nil {
+		t.Fatalf("GetMessageServiceDID(capabilities) error = %v", err)
+	}
+	if got != "did:wba:capabilities.example" {
+		t.Fatalf("GetMessageServiceDID(capabilities) = %q", got)
+	}
+	if captured.Method != "anp.get_capabilities" {
+		t.Fatalf("captured.Method = %q, want anp.get_capabilities", captured.Method)
+	}
+}
