@@ -44,6 +44,7 @@ awiki-cli version
 | Agent环境       | `--agent`        |
 | ------------- | ---------------- |
 | OpenClaw      | `openclaw`       |
+| Hermes        | `hermes`         |
 | ClaudeCode    | `claude-code`    |
 | Cursor        | `cursor`         |
 | GitHubCopilot | `github-copilot` |
@@ -241,8 +242,8 @@ awiki-cli runtime host-notify hermes guide
 
 # 再由 awiki-cli 一次性写好 awiki-cli + 本地 Hermes 配置，并启动本地 bridge
 awiki-cli runtime host-notify hermes setup
-# 如果你想把通知默认投递到 Telegram，也可以显式指定平台
-awiki-cli runtime host-notify hermes setup --deliver telegram
+# 如果你想把通知默认投递到飞书，也可以显式指定平台
+awiki-cli runtime host-notify hermes setup --deliver feishu
 awiki-cli runtime host-notify hermes status
 ```
 
