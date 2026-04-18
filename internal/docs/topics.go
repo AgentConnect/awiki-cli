@@ -47,7 +47,8 @@ func NewIndex() *Index {
 			References: []string{
 				"skills/SKILL.md",
 				"docs/architecture/awiki-skill-architecture.md",
-				"skills/README.md",
+				"skills/references/02-identity.md",
+				"skills/references/03-messaging.md",
 			},
 		},
 		{
