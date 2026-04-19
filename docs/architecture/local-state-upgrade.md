@@ -188,9 +188,17 @@ Python v1 目录只作为 **legacy source**，不再作为 awiki-cli live worksp
 
 升级前必须先拿锁：
 
-- 锁文件：`upgrade.lock`
-- 锁内容记录 `pid / app_version / started_at`
-- 若锁文件存在但持有进程已经退出，则视为 stale lock，可回收后重试
+- 锁锚点文件：`upgrade.lock`
+- 真正互斥由 OS 级 advisory lock 承担：
+  - macOS / Linux / Unix：`flock`
+  - Windows：`LockFileEx`
+- `upgrade.lock` 可以常驻；文件存在本身不代表升级未完成，也不代表当前有升级进程。
+- 锁内容仅作为诊断 metadata，记录 `lock_scheme / pid / app_version / started_at / hostname / executable`。
+- 新锁格式使用 `lock_scheme = "os_file_lock_v1"`。
+- 旧格式残留锁只用于兼容判断：
+  - JSON 损坏、PID 不存在、PID 非法，或 `started_at` 超过兼容 TTL 时视为 stale，可覆盖后重试。
+  - PID 仍存在且 `started_at` 很新时，保守视为旧版本升级仍在运行，避免并发修改 workspace。
+- 解锁时只释放 OS lock 并关闭文件句柄，不删除 `upgrade.lock`，避免 inode race。
 
 ### 7.2 备份
 
