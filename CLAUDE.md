@@ -113,6 +113,7 @@
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
 **docs/architecture/anp-service-discovery.md**: awiki-cli 生成 DID 文档时的 `ANPMessageService` 填写规则、配置约束与实施记录。
+**docs/architecture/multi-tenant-hosted-domain-implementation.md**: hosted multi-domain 下 awiki-cli 的单 active domain workspace、services 配置推导、DID 生成和 doctor 诊断实现方案。
 **docs/architecture/websocket-host-notification-v1.md**: websocket listener 向宿主 Agent 暴露统一通知事件的 v1 设计文档。  
 **docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
