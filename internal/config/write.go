@@ -34,6 +34,16 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 	})
 }
 
+func UpdateServicesSettings(paths Paths, services ServicesConfig) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Services.ServiceBaseURL = NormalizeBaseURL(services.ServiceBaseURL)
+		fileConfig.Services.DIDDomain = strings.TrimSpace(services.DIDDomain)
+		fileConfig.Services.ANPServiceEndpoint = strings.TrimSpace(services.ANPServiceEndpoint)
+		fileConfig.Services.ANPServiceDID = strings.TrimSpace(services.ANPServiceDID)
+		return nil
+	})
+}
+
 func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool, autoStart *bool) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		if enabled != nil {

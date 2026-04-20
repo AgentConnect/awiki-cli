@@ -192,6 +192,8 @@ awiki-cli config services set \
 
 ## CLI-MTD-2：`init --domain` onboarding
 
+**状态**：已完成（2026-04-20）。`init` 命令已支持 `--domain`、`--service-base-url`、`--anp-service-endpoint`、`--anp-service-did`；dry-run 会输出 planned services 且不落盘，非 dry-run 会写入或更新 `services.*`。
+
 ### 目标
 
 用户可以用一条命令初始化指定 home domain 的 workspace。

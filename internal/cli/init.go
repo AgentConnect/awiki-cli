@@ -51,6 +51,14 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 	format := normalizedFormat(resolved.OutputFormat)
 	rootSource := resolved.Sources["workspace_home_dir"]
 	upgradeDir := filepath.Join(resolved.Paths.WorkspaceHomeDir, "upgrade")
+	plannedServices, servicesChanged, serviceWarnings, err := initServicesFromFlags(cmd, resolved)
+	if err != nil {
+		return a.configCommandExit(err)
+	}
+	warnings = append(warnings, serviceWarnings...)
+	if servicesChanged {
+		applyResolvedServices(resolved, plannedServices)
+	}
 
 	dirs := []string{
 		resolved.Paths.WorkspaceHomeDir,
@@ -73,6 +81,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 				"config_file":   resolved.Paths.ConfigFile,
 				"config_exists": resolved.ConfigExists,
 				"config_error":  resolved.ConfigError,
+				"services":      plannedServices,
 			},
 		}
 		return a.renderSuccess(
@@ -119,10 +128,10 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 		cfg.Output.Format = resolved.OutputFormat
 		noColor := resolved.NoColor
 		cfg.Output.NoColor = &noColor
-		cfg.Services.ServiceBaseURL = resolved.ServiceBaseURL
-		cfg.Services.DIDDomain = resolved.DIDDomain
-		cfg.Services.ANPServiceEndpoint = resolved.ANPServiceEndpoint
-		cfg.Services.ANPServiceDID = resolved.ANPServiceDID
+		cfg.Services.ServiceBaseURL = plannedServices.ServiceBaseURL
+		cfg.Services.DIDDomain = plannedServices.DIDDomain
+		cfg.Services.ANPServiceEndpoint = plannedServices.ANPServiceEndpoint
+		cfg.Services.ANPServiceDID = plannedServices.ANPServiceDID
 		cfg.Services.CABundle = resolved.CABundle
 
 		if err := appconfig.WriteFileConfig(resolved.Paths.ConfigFile, cfg); err != nil {
@@ -134,6 +143,15 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 			)
 		}
 		resolved.ConfigExists = true
+	} else if servicesChanged {
+		if err := appconfig.UpdateServicesSettings(resolved.Paths, plannedServices); err != nil {
+			return output.NewExitError(
+				"internal_error",
+				1,
+				err.Error(),
+				"Check write permissions for config.yaml under the awiki-cli workspace.",
+			)
+		}
 	}
 	db, err := store.Open(resolved.Paths)
 	if err != nil {
@@ -171,6 +189,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 			"config_file":   resolved.Paths.ConfigFile,
 			"config_exists": resolved.ConfigExists,
 		},
+		"services": plannedServices,
 		"listener": listenerStatus,
 	}
 
@@ -188,6 +207,80 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 func boolPtr(value bool) *bool {
 	result := value
 	return &result
+}
+
+func initServicesFromFlags(cmd *cobra.Command, resolved *appconfig.Resolved) (appconfig.ServicesConfig, bool, []string, error) {
+	current := appconfig.ServicesConfig{
+		ServiceBaseURL:     resolved.ServiceBaseURL,
+		DIDDomain:          resolved.DIDDomain,
+		ANPServiceEndpoint: resolved.ANPServiceEndpoint,
+		ANPServiceDID:      resolved.ANPServiceDID,
+	}
+	domain, domainChanged := optionalStringFlag(cmd, "domain")
+	serviceBaseURL, serviceBaseURLChanged := optionalStringFlag(cmd, "service-base-url")
+	anpEndpoint, anpEndpointChanged := optionalStringFlag(cmd, "anp-service-endpoint")
+	anpServiceDID, anpServiceDIDChanged := optionalStringFlag(cmd, "anp-service-did")
+	changed := domainChanged || serviceBaseURLChanged || anpEndpointChanged || anpServiceDIDChanged
+	if !changed {
+		return current, false, nil, nil
+	}
+	baseDomain := resolved.DIDDomain
+	if domainChanged {
+		baseDomain = domain
+	}
+	planned, err := appconfig.DefaultServicesForDomain(baseDomain)
+	if err != nil {
+		return current, true, nil, output.NewExitError(
+			"invalid_argument",
+			2,
+			err.Error(),
+			"Use --domain with a bare host such as a.example.com.",
+		)
+	}
+	if serviceBaseURLChanged {
+		planned.ServiceBaseURL = appconfig.NormalizeBaseURL(serviceBaseURL)
+	}
+	if anpEndpointChanged {
+		planned.ANPServiceEndpoint = strings.TrimSpace(anpEndpoint)
+	}
+	if anpServiceDIDChanged {
+		planned.ANPServiceDID = strings.TrimSpace(anpServiceDID)
+	}
+	diagnostics := appconfig.ValidateServices(planned)
+	var warnings []string
+	for _, diagnostic := range diagnostics {
+		switch diagnostic.Severity {
+		case appconfig.ServiceSeverityError:
+			return planned, true, nil, output.NewExitError(
+				"invalid_argument",
+				2,
+				diagnostic.Message,
+				diagnostic.Hint,
+			)
+		case appconfig.ServiceSeverityWarn:
+			warnings = append(warnings, diagnostic.Message)
+		}
+	}
+	return planned, true, warnings, nil
+}
+
+func optionalStringFlag(cmd *cobra.Command, name string) (string, bool) {
+	if cmd == nil || cmd.Flags() == nil || cmd.Flags().Lookup(name) == nil {
+		return "", false
+	}
+	value, _ := cmd.Flags().GetString(name)
+	return value, cmd.Flags().Changed(name)
+}
+
+func applyResolvedServices(resolved *appconfig.Resolved, services appconfig.ServicesConfig) {
+	resolved.ServiceBaseURL = appconfig.NormalizeBaseURL(services.ServiceBaseURL)
+	resolved.DIDDomain = strings.TrimSpace(services.DIDDomain)
+	resolved.ANPServiceEndpoint = strings.TrimSpace(services.ANPServiceEndpoint)
+	resolved.ANPServiceDID = strings.TrimSpace(services.ANPServiceDID)
+	resolved.Sources["service_base_url"] = appconfig.ValueSource{Source: "flag", Value: resolved.ServiceBaseURL}
+	resolved.Sources["did_domain"] = appconfig.ValueSource{Source: "flag", Value: resolved.DIDDomain}
+	resolved.Sources["anp_service_endpoint"] = appconfig.ValueSource{Source: "flag", Value: resolved.ANPServiceEndpoint}
+	resolved.Sources["anp_service_did"] = appconfig.ValueSource{Source: "flag", Value: resolved.ANPServiceDID}
 }
 
 func (a *App) maybeUpgradeLegacyBeforeInit(ctx context.Context, resolved *appconfig.Resolved) (*appconfig.Resolved, bool, error) {
