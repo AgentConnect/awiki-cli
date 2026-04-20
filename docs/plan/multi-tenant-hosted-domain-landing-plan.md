@@ -293,6 +293,8 @@ awiki-cli config services set --domain b.example.com
 
 ## CLI-MTD-4：DID 生成与服务发现对齐
 
+**状态**：已完成（2026-04-20）。已锁定 DID 文档生成字段来源：`id create/register/replace-did` 使用 resolved `services.did_domain` 作为 DID/proof domain，并使用 `services.anp_service_endpoint` / `services.anp_service_did` 生成 `ANPMessageService`；测试覆盖 service base URL 与 DID domain 分离。
+
 ### 目标
 
 确保 identity 生命周期始终使用 services 配置，而不是从 API URL 或其他字段推导 DID 文档。

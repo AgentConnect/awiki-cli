@@ -210,6 +210,7 @@
 - Hosted multi-domain CLI-MTD-1 已完成：`internal/config` 提供 domain normalization、default services derivation 与 services diagnostics；合法 `services.did_domain` 会规范化，并驱动 `service_base_url` / `anp_service_endpoint` / `anp_service_did` 默认推导。
 - Hosted multi-domain CLI-MTD-2 已完成：`awiki-cli init` 支持 `--domain` 与 services 高级覆盖 flags；dry-run 输出 planned services，执行时写入/更新 `config.yaml.services.*`。
 - Hosted multi-domain CLI-MTD-3 已完成：`config services show/set` 已落地；`set` 复用 init 的 services flags / validation，`show` 输出 services、sources 与 diagnostics。
+- Hosted multi-domain CLI-MTD-4 已完成：DID 文档生成已锁定使用 `services.did_domain` / `services.anp_service_endpoint` / `services.anp_service_did`；`service_base_url` 不参与 DID domain 推导。
 
 ### 尚未实现
 

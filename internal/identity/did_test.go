@@ -137,3 +137,35 @@ func TestGenerateIdentityRejectsNonBareANPServiceDID(t *testing.T) {
 		t.Fatal("GenerateIdentity() error = nil, want bare-domain DID validation error")
 	}
 }
+
+func TestGenerateIdentityUsesExplicitServiceDiscoveryFieldsWithoutDerivingFromHostname(t *testing.T) {
+	t.Parallel()
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:           "b.example.com",
+		PathPrefix:         []string{"alice"},
+		ProofDomain:        "b.example.com",
+		ANPServiceEndpoint: "https://gateway.example.com/anp-im/rpc",
+		ANPServiceDID:      "did:wba:service.example.com",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	if !strings.HasPrefix(generated.DID, "did:wba:b.example.com:alice:") {
+		t.Fatalf("generated DID = %q, want b.example.com handle DID", generated.DID)
+	}
+	services, ok := generated.DIDDocument["service"].([]any)
+	if !ok || len(services) != 1 {
+		t.Fatalf("generated did document service = %#v", generated.DIDDocument["service"])
+	}
+	service, ok := services[0].(map[string]any)
+	if !ok {
+		t.Fatalf("service[0] = %#v, want map", services[0])
+	}
+	if got := stringValue(service["serviceEndpoint"], ""); got != "https://gateway.example.com/anp-im/rpc" {
+		t.Fatalf("serviceEndpoint = %q", got)
+	}
+	if got := stringValue(service["serviceDid"], ""); got != "did:wba:service.example.com" {
+		t.Fatalf("serviceDid = %q", got)
+	}
+}

@@ -585,16 +585,16 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 		return nil, err
 	}
 
-	didDomain, pathPrefix, err := HandlePathPrefixFromDID(record.DID)
+	_, pathPrefix, err := HandlePathPrefixFromDID(record.DID)
 	if err != nil {
 		return nil, err
 	}
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           didDomain,
+		Hostname:           s.config.DIDDomain,
 		PathPrefix:         pathPrefix,
-		ProofDomain:        didDomain,
-		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, DefaultANPServiceEndpoint(didDomain)),
-		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, DefaultANPServiceDID(didDomain)),
+		ProofDomain:        s.config.DIDDomain,
+		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
+		ANPServiceDID:      s.config.ANPServiceDID,
 	})
 	if err != nil {
 		return nil, err
@@ -857,14 +857,6 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 		record.JWTToken = session.CurrentJWT()
 	}
 	return session, nil
-}
-
-func defaultValueForReplacement(value string, fallback string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed != "" {
-		return trimmed
-	}
-	return fallback
 }
 
 func normalizePhone(phone string) (string, error) {

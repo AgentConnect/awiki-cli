@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -192,6 +193,59 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	}
 	if stored.Handle != "alice" || stored.JWTToken != "jwt-1" {
 		t.Fatalf("stored identity = %#v, want handle alice and jwt-1", stored)
+	}
+}
+
+func TestServiceRegisterUsesConfiguredDIDDomainAndANPService(t *testing.T) {
+	t.Parallel()
+
+	var gotDocument map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
+		case "/user-service/did-auth/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("Decode() error = %v", err)
+			}
+			params, _ := payload["params"].(map[string]any)
+			gotDocument, _ = params["did_document"].(map[string]any)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"user_id":"user-1","access_token":"jwt-1","handle":"alice"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, _ := newIdentityServiceWorkspace(t, server.URL)
+	resolved.ServiceBaseURL = server.URL
+	resolved.DIDDomain = "b.example.com"
+	resolved.ANPServiceEndpoint = "https://b.example.com/anp-im/rpc"
+	resolved.ANPServiceDID = "did:wba:b.example.com"
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	if _, err := service.Register(context.Background(), identity.RegisterParams{Handle: "alice", Email: "alice@example.com"}); err != nil {
+		t.Fatalf("Service.Register() error = %v", err)
+	}
+	id, _ := gotDocument["id"].(string)
+	if !strings.HasPrefix(id, "did:wba:b.example.com:alice:") {
+		t.Fatalf("did document id = %q", id)
+	}
+	services, _ := gotDocument["service"].([]any)
+	if len(services) != 1 {
+		t.Fatalf("service entries = %#v", gotDocument["service"])
+	}
+	messageService, _ := services[0].(map[string]any)
+	if messageService["serviceEndpoint"] != "https://b.example.com/anp-im/rpc" {
+		t.Fatalf("serviceEndpoint = %#v", messageService["serviceEndpoint"])
+	}
+	if messageService["serviceDid"] != "did:wba:b.example.com" {
+		t.Fatalf("serviceDid = %#v", messageService["serviceDid"])
 	}
 }
 

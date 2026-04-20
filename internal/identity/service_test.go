@@ -43,6 +43,17 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 		if !identity.IsE1DID(gotNewDID) {
 			t.Fatalf("new did = %q, want e1 did", gotNewDID)
 		}
+		if !strings.HasPrefix(gotNewDID, "did:wba:replacement.test:alice:") {
+			t.Fatalf("new did = %q, want replacement.test domain", gotNewDID)
+		}
+		services, _ := newDocument["service"].([]any)
+		messageService, _ := services[0].(map[string]any)
+		if messageService["serviceEndpoint"] != "https://replacement.test/anp-im/rpc" {
+			t.Fatalf("serviceEndpoint = %#v", messageService["serviceEndpoint"])
+		}
+		if messageService["serviceDid"] != "did:wba:replacement.test" {
+			t.Fatalf("serviceDid = %#v", messageService["serviceDid"])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
 	}))
@@ -358,9 +369,9 @@ func newReplaceTestWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Re
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
 		ServiceBaseURL:     serviceBaseURL,
-		DIDDomain:          "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		DIDDomain:          "replacement.test",
+		ANPServiceEndpoint: "https://replacement.test/anp-im/rpc",
+		ANPServiceDID:      "did:wba:replacement.test",
 		ActiveIdentity:     "alice",
 		OutputFormat:       "json",
 	}
