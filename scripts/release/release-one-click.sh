@@ -355,14 +355,14 @@ if (activeRun) {
   run = fallbackRun;
 }
 if (run && run.databaseId) {
-  process.stdout.write([
+  console.log([
     mode,
     String(run.databaseId),
     run.status || "unknown",
     run.conclusion || "none",
   ].join(" "));
 } else {
-  process.stdout.write("none none unknown none");
+  console.log("none none unknown none");
 }
 ' <<<"${runs_json}")
         if [[ "${run_mode}" == "watch" && -n "${run_id}" && "${run_id}" != "null" ]]; then
