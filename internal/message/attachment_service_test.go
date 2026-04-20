@@ -30,7 +30,7 @@ func TestServiceSendDirectAttachmentPersistsManifestAndDelivery(t *testing.T) {
 	attachmentPayload := []byte("attachment body")
 	filePath := writeTestAttachmentFile(t, "report.txt", attachmentPayload)
 	targetDID := "did:wba:awiki.ai:user:bob:e1_bob"
-	serviceDID := "did:wba:awiki.ai:services:message:e1_service"
+	serviceDID := "did:wba:awiki.ai"
 	var uploadBody []byte
 
 	var server *httptest.Server
@@ -195,7 +195,7 @@ func TestServiceSendDirectAttachmentUploadFailureReturnsServiceError(t *testing.
 	t.Parallel()
 
 	filePath := writeTestAttachmentFile(t, "broken.txt", []byte("attachment body"))
-	serviceDID := "did:wba:awiki.ai:services:message:e1_service"
+	serviceDID := "did:wba:awiki.ai"
 
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func TestServiceSendGroupAttachmentAddsHTTPWarningAndBackfillsMessageID(t *testi
 
 	filePath := writeTestAttachmentFile(t, "group.txt", []byte("group attachment"))
 	groupDID := "did:wba:awiki.ai:groups:demo:e1_group"
-	serviceDID := "did:wba:awiki.ai:services:message:e1_service"
+	serviceDID := "did:wba:awiki.ai"
 
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

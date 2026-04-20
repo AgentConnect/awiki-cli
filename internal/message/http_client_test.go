@@ -33,7 +33,8 @@ func TestHTTPTransportSendDirectBuildsRPCPayloadAndBackfillsResultFields(t *test
 
 	targetDID := "did:wba:awiki.ai:user:bob:e1_bob"
 	var captured rpcRequestEnvelope
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != MessageRPCEndpoint {
 			http.NotFound(w, r)
 			return
@@ -112,7 +113,8 @@ func TestHTTPTransportGetHistoryBuildsLocalRPCBody(t *testing.T) {
 	t.Parallel()
 
 	var captured rpcRequestEnvelope
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = decodeRPCRequest(t, r)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
@@ -368,7 +370,8 @@ func TestHTTPTransportGetMessageServiceDIDUsesConfiguredOrCapabilities(t *testin
 	}
 
 	var captured rpcRequestEnvelope
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = decodeRPCRequest(t, r)
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": captured.ID, "result": map[string]any{"service_did": "did:wba:capabilities.example"}})
 	}))
@@ -385,5 +388,63 @@ func TestHTTPTransportGetMessageServiceDIDUsesConfiguredOrCapabilities(t *testin
 	}
 	if captured.Method != "anp.get_capabilities" {
 		t.Fatalf("captured.Method = %q, want anp.get_capabilities", captured.Method)
+	}
+}
+
+func TestHTTPTransportUsesServiceBaseURLForRPCAndConfiguredServiceDIDForAttachmentControl(t *testing.T) {
+	t.Parallel()
+
+	var captured rpcRequestEnvelope
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != MessageRPCEndpoint {
+			http.NotFound(w, r)
+			return
+		}
+		captured = decodeRPCRequest(t, r)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      captured.ID,
+			"result": map[string]any{
+				"attachment_id": "att-1",
+				"slot_id":       "slot-1",
+				"upload_uri":    server.URL + "/upload/slot-1",
+				"upload_headers": map[string]any{
+					"X-Test-Upload": "slot-1",
+				},
+				"object_uri":   "https://objects.b.example/objects/obj-1",
+				"commit_token": "commit-1",
+				"expires_at":   "2026-04-18T10:00:00Z",
+			},
+		})
+	}))
+	defer server.Close()
+
+	transport, resolved, _ := newHTTPTransportForTest(t, server.URL)
+	resolved.DIDDomain = "b.example.com"
+	resolved.ANPServiceEndpoint = "https://b.example.com/anp-im/rpc"
+	resolved.ANPServiceDID = "did:wba:b.example.com"
+	prepared := &preparedAttachment{
+		Filename:   "report.txt",
+		MIMEType:   "text/plain",
+		SizeString: "5",
+		DigestB64U: "digest",
+		Payload:    []byte("hello"),
+	}
+
+	slot, err := transport.CreateAttachmentSlot(context.Background(), "agent", "did:wba:b.example.com:user:bob:e1_bob", prepared)
+	if err != nil {
+		t.Fatalf("CreateAttachmentSlot() error = %v", err)
+	}
+	if slot.RequestServiceDID != "did:wba:b.example.com" {
+		t.Fatalf("slot.RequestServiceDID = %q", slot.RequestServiceDID)
+	}
+	meta := mustMapValue(t, captured.Params["meta"], "params.meta")
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["did"]); got != "did:wba:b.example.com" {
+		t.Fatalf("meta.target.did = %q", got)
+	}
+	if resolved.ServiceBaseURL != server.URL {
+		t.Fatalf("ServiceBaseURL = %q, want API server URL", resolved.ServiceBaseURL)
 	}
 }

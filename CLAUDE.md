@@ -212,6 +212,7 @@
 - Hosted multi-domain CLI-MTD-3 已完成：`config services show/set` 已落地；`set` 复用 init 的 services flags / validation，`show` 输出 services、sources 与 diagnostics。
 - Hosted multi-domain CLI-MTD-4 已完成：DID 文档生成已锁定使用 `services.did_domain` / `services.anp_service_endpoint` / `services.anp_service_did`；`service_base_url` 不参与 DID domain 推导。
 - Hosted multi-domain CLI-MTD-5 已完成：`doctor` 的 `anp_service` 检查接入 services diagnostics，能输出 blocking errors 与高级部署 warnings。
+- Hosted multi-domain CLI-MTD-6 已完成：message/runtime/listener 兼容边界已锁定为单 workspace 单 active domain；HTTP/WSS API 入口走 `service_base_url`，attachment control target 走 `anp_service_did`。
 
 ### 尚未实现
 
