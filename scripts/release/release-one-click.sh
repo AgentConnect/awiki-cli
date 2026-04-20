@@ -191,8 +191,8 @@ run_tests() {
   fi
 
   require_command go
-  echo "Running go test ./..."
-  go test ./...
+  echo "Running CGO_ENABLED=0 go test ./..."
+  CGO_ENABLED=0 go test ./...
 }
 
 commit_package_change() {
@@ -207,11 +207,11 @@ commit_package_change() {
     git add package.json
 
     if [[ "${RUN_TESTS}" == "1" ]]; then
-      tested_summary="go test ./..."
+      tested_summary="CGO_ENABLED=0 go test ./..."
       not_tested_summary="External GitHub/Gitee/npm publication before this release commit is pushed."
     else
       tested_summary="Not run by this invocation (--skip-tests)."
-      not_tested_summary="go test ./...; external GitHub/Gitee/npm publication before this release commit is pushed."
+      not_tested_summary="CGO_ENABLED=0 go test ./...; external GitHub/Gitee/npm publication before this release commit is pushed."
     fi
 
     git commit -F - <<EOF
