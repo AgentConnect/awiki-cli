@@ -118,6 +118,7 @@
 **docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。  
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
 **docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。  
+**docs/plan/multi-tenant-hosted-domain-landing-plan.md**: hosted multi-domain 下 awiki-cli 的 workspace active domain、services 配置入口、DID 生成、doctor 诊断、runtime/listener 兼容与测试同步的落地计划。
 **docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。  
 **docs/plan/phase-0/capability-mapping.md**: v2 命令、v1 脚本、服务 API 的能力映射。  
 **docs/plan/phase-0/audit-findings.md**: Phase 0 审计冲突与裁决。  
