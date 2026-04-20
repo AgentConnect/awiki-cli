@@ -55,6 +55,9 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 	}
 	targetWSURL := appconfig.DeriveWebSocketURL(resolved.ServiceBaseURL, message.MessageWSEndpoint)
 	didAuthURL := appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
+	auth.RememberScope(resolved.ServiceBaseURL)
+	auth.RememberScope(didAuthURL)
+	auth.RememberScope(targetHTTPURL)
 	return &WSClient{
 		requestURL:    targetHTTPURL,
 		didAuthURL:    didAuthURL,

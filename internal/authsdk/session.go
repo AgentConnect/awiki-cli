@@ -24,7 +24,7 @@ type Session struct {
 
 func NewSession(didDocumentPath string, privateKeyPath string, identityName string, did string, jwtToken string, persistToken func(string) error) *Session {
 	helper := anpsdk.NewDIDWbaAuthHeader(didDocumentPath, privateKeyPath, anpsdk.AuthModeHTTPSignatures)
-	session := &Session{
+	return &Session{
 		helper:       helper,
 		identityName: identityName,
 		did:          did,
@@ -32,21 +32,28 @@ func NewSession(didDocumentPath string, privateKeyPath string, identityName stri
 		persistToken: persistToken,
 		persistent:   map[string]struct{}{},
 	}
-	if strings.TrimSpace(jwtToken) != "" {
-		headers := map[string]string{"Authorization": "Bearer " + jwtToken}
-		helper.UpdateToken("https://awiki.ai", headers)
-	}
-	return session
 }
 
-func (s *Session) SetBearer(serverURL string, token string) {
-	if s == nil || s.helper == nil || strings.TrimSpace(token) == "" {
+// RememberScope marks a server scope as safe to persist bearer tokens returned
+// by that scope. It is intentionally separate from SetBearer so first-time
+// signed requests without an existing JWT can still store the token returned in
+// Authentication-Info.
+func (s *Session) RememberScope(serverURL string) {
+	if s == nil {
 		return
 	}
-	s.helper.UpdateToken(serverURL, map[string]string{"Authorization": "Bearer " + token})
 	if scope := authScope(serverURL); scope != "" {
 		s.persistent[scope] = struct{}{}
 	}
+}
+
+func (s *Session) SetBearer(serverURL string, token string) {
+	token = strings.TrimSpace(token)
+	if s == nil || s.helper == nil || token == "" {
+		return
+	}
+	s.helper.UpdateToken(serverURL, map[string]string{"Authorization": "Bearer " + token})
+	s.RememberScope(serverURL)
 	s.jwtToken = token
 }
 
@@ -178,9 +185,7 @@ func (s *Session) EnsureJWT(ctx context.Context, client *http.Client, requestURL
 	if s == nil {
 		return "", fmt.Errorf("auth session is not configured")
 	}
-	if scope := authScope(requestURL); scope != "" {
-		s.persistent[scope] = struct{}{}
-	}
+	s.RememberScope(requestURL)
 	var result map[string]any
 	if err := s.DoJSONRPC(ctx, client, requestURL, http.MethodPost, "get_me", map[string]any{}, &result); err != nil {
 		return "", err

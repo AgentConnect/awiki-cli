@@ -558,6 +558,7 @@ func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentit
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
 	didAuthURL := appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
+	rememberAuthScopes(session, s.resolved)
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if _, err := session.EnsureJWT(ctxWithTimeout, s.remote.Client(), didAuthURL); err != nil {
@@ -617,23 +618,37 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 	if err != nil {
 		return nil, nil, err
 	}
+	if auth != nil && auth.session != nil {
+		rememberAuthScopes(auth.session, s.resolved)
+	}
 	if auth != nil && auth.session != nil && strings.TrimSpace(record.JWTToken) != "" {
-		auth.session.SetBearer(s.resolved.ServiceBaseURL, record.JWTToken)
+		token := strings.TrimSpace(record.JWTToken)
+		auth.session.SetBearer(s.resolved.ServiceBaseURL, token)
 		auth.session.SetBearer(
 			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
-			record.JWTToken,
+			token,
 		)
 		auth.session.SetBearer(
 			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, MessageRPCEndpoint),
-			record.JWTToken,
+			token,
 		)
-		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, record.JWTToken)
+		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, token)
 	}
 	client := http.DefaultClient
 	if s.remote != nil && s.remote.Client() != nil {
 		client = s.remote.Client()
 	}
 	return NewHTTPTransport(s.resolved, auth, client), nil, nil
+}
+
+func rememberAuthScopes(session *authsdk.Session, resolved *appconfig.Resolved) {
+	if session == nil || resolved == nil {
+		return
+	}
+	session.RememberScope(resolved.ServiceBaseURL)
+	session.RememberScope(appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc"))
+	session.RememberScope(appconfig.JoinBaseURL(resolved.ServiceBaseURL, MessageRPCEndpoint))
+	session.RememberScope(resolved.ANPServiceEndpoint)
 }
 
 func (s *Service) groupControlTransport(record *identity.StoredIdentity) (*HTTPTransport, []string, error) {

@@ -271,6 +271,13 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 	)
 	baseURL := strings.TrimSpace(s.resolved.ServiceBaseURL)
 	token := strings.TrimSpace(record.JWTToken)
+	if baseURL != "" {
+		session.RememberScope(baseURL)
+		session.RememberScope(appconfig.JoinBaseURL(baseURL, didAuthRPCEndpoint))
+	}
+	if strings.TrimSpace(s.resolved.MailServiceURL) != "" {
+		session.RememberScope(s.resolved.MailServiceURL)
+	}
 	if token != "" && baseURL != "" {
 		// 统一的 service_base_url 与 did-auth 端点
 		session.SetBearer(baseURL, token)

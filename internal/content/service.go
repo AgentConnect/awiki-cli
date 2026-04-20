@@ -267,6 +267,8 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 		record.JWTToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
+	session.RememberScope(s.config.ServiceBaseURL)
+	session.RememberScope(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint))
 	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
 	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
