@@ -35,7 +35,7 @@ func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 	}
 }
 
-func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
+func TestResolveDerivesServiceDefaultsFromDIDDomain(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
@@ -50,6 +50,12 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 	resolved, err := Resolve(Overrides{})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://awiki.test")
+	}
+	if source := resolved.Sources["service_base_url"]; source.Source != "derived_default" {
+		t.Fatalf("resolved.Sources[service_base_url].Source = %q, want %q", source.Source, "derived_default")
 	}
 	if resolved.ANPServiceEndpoint != "https://awiki.test/anp-im/rpc" {
 		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://awiki.test/anp-im/rpc")
@@ -443,5 +449,73 @@ func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
 	}
 	if source.Value != "https://awiki.test" {
 		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://awiki.test")
+	}
+}
+
+func TestNormalizeDomainRejectsURLAndHostPort(t *testing.T) {
+	got, err := NormalizeDomain("  A.Example.COM.  ")
+	if err != nil {
+		t.Fatalf("NormalizeDomain() error = %v", err)
+	}
+	if got != "a.example.com" {
+		t.Fatalf("NormalizeDomain() = %q, want a.example.com", got)
+	}
+	for _, raw := range []string{"https://a.example.com", "a.example.com:8443", "a.example.com/path", ""} {
+		if _, err := NormalizeDomain(raw); err == nil {
+			t.Fatalf("NormalizeDomain(%q) error = nil, want error", raw)
+		}
+	}
+}
+
+func TestDefaultServicesForDomainDerivesCanonicalFields(t *testing.T) {
+	services, err := DefaultServicesForDomain("B.Example.COM.")
+	if err != nil {
+		t.Fatalf("DefaultServicesForDomain() error = %v", err)
+	}
+	if services.DIDDomain != "b.example.com" {
+		t.Fatalf("DIDDomain = %q, want b.example.com", services.DIDDomain)
+	}
+	if services.ServiceBaseURL != "https://b.example.com" {
+		t.Fatalf("ServiceBaseURL = %q, want https://b.example.com", services.ServiceBaseURL)
+	}
+	if services.ANPServiceEndpoint != "https://b.example.com/anp-im/rpc" {
+		t.Fatalf("ANPServiceEndpoint = %q", services.ANPServiceEndpoint)
+	}
+	if services.ANPServiceDID != "did:wba:b.example.com" {
+		t.Fatalf("ANPServiceDID = %q", services.ANPServiceDID)
+	}
+}
+
+func TestValidateServicesReportsAdvancedOverrideWarnings(t *testing.T) {
+	diagnostics := ValidateServices(ServicesConfig{
+		ServiceBaseURL:     "https://api.a.example.com",
+		DIDDomain:          "a.example.com",
+		ANPServiceEndpoint: "https://gateway.a.example.com/anp-im/rpc",
+		ANPServiceDID:      "did:wba:service.a.example.com",
+	})
+	if len(diagnostics) != 2 {
+		t.Fatalf("len(ValidateServices()) = %d, want 2: %#v", len(diagnostics), diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity != ServiceSeverityWarn {
+			t.Fatalf("diagnostic severity = %q, want warn: %#v", diagnostic.Severity, diagnostic)
+		}
+	}
+}
+
+func TestValidateServicesReportsBlockingErrors(t *testing.T) {
+	diagnostics := ValidateServices(ServicesConfig{
+		ServiceBaseURL:     "ftp://api.example.com",
+		DIDDomain:          "https://a.example.com",
+		ANPServiceEndpoint: "http://127.0.0.1/anp-im/rpc",
+		ANPServiceDID:      "did:wba:a.example.com:services:message:e1",
+	})
+	if len(diagnostics) < 4 {
+		t.Fatalf("len(ValidateServices()) = %d, want at least 4: %#v", len(diagnostics), diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "" {
+			t.Fatalf("diagnostic missing severity: %#v", diagnostic)
+		}
 	}
 }

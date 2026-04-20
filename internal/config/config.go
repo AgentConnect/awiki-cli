@@ -394,23 +394,42 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		defaultOutputFormat,
 	)
 	resolved.NoColor, resolved.Sources["no_color"] = chooseBool(fileConfig.Output.NoColor, false)
-	resolved.ServiceBaseURL, resolved.Sources["service_base_url"] = chooseValue(
-		"",
-		false,
-		fileConfig.Services.ServiceBaseURL,
-		defaultServiceBaseURL,
-	)
-	resolved.ServiceBaseURL = NormalizeBaseURL(resolved.ServiceBaseURL)
-	if source, ok := resolved.Sources["service_base_url"]; ok {
-		source.Value = resolved.ServiceBaseURL
-		resolved.Sources["service_base_url"] = source
-	}
 	resolved.DIDDomain, resolved.Sources["did_domain"] = chooseValue(
 		"",
 		false,
 		fileConfig.Services.DIDDomain,
 		defaultDIDDomain,
 	)
+	if normalizedDomain, err := NormalizeDomain(resolved.DIDDomain); err == nil {
+		resolved.DIDDomain = normalizedDomain
+		if source, ok := resolved.Sources["did_domain"]; ok {
+			source.Value = resolved.DIDDomain
+			resolved.Sources["did_domain"] = source
+		}
+	}
+	defaultServices, defaultServicesErr := DefaultServicesForDomain(resolved.DIDDomain)
+	if defaultServicesErr != nil {
+		defaultServices, _ = DefaultServicesForDomain(defaultDIDDomain)
+	}
+	resolved.ServiceBaseURL, resolved.Sources["service_base_url"] = chooseValue(
+		"",
+		false,
+		fileConfig.Services.ServiceBaseURL,
+		"",
+	)
+	if strings.TrimSpace(resolved.ServiceBaseURL) == "" {
+		resolved.ServiceBaseURL = defaultServices.ServiceBaseURL
+		resolved.Sources["service_base_url"] = ValueSource{
+			Source: "derived_default",
+			Key:    "did_domain",
+			Value:  resolved.ServiceBaseURL,
+		}
+	}
+	resolved.ServiceBaseURL = NormalizeBaseURL(resolved.ServiceBaseURL)
+	if source, ok := resolved.Sources["service_base_url"]; ok {
+		source.Value = resolved.ServiceBaseURL
+		resolved.Sources["service_base_url"] = source
+	}
 	resolved.ANPServiceEndpoint, resolved.Sources["anp_service_endpoint"] = chooseValue(
 		"",
 		false,
@@ -418,7 +437,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 	)
 	if strings.TrimSpace(resolved.ANPServiceEndpoint) == "" {
-		resolved.ANPServiceEndpoint = defaultANPServiceEndpoint(resolved.DIDDomain)
+		resolved.ANPServiceEndpoint = defaultServices.ANPServiceEndpoint
 		resolved.Sources["anp_service_endpoint"] = ValueSource{
 			Source: "derived_default",
 			Key:    "did_domain",
@@ -432,7 +451,7 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 	)
 	if strings.TrimSpace(resolved.ANPServiceDID) == "" {
-		resolved.ANPServiceDID = defaultANPServiceDID(resolved.DIDDomain)
+		resolved.ANPServiceDID = defaultServices.ANPServiceDID
 		resolved.Sources["anp_service_did"] = ValueSource{
 			Source: "derived_default",
 			Key:    "did_domain",

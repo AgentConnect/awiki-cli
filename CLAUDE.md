@@ -207,6 +207,7 @@
   - `id` 域公共输出已统一移除 `user_id`，对外保持 handle-first 身份语义
   - direct origin proof scheme 已切换为 `anp-rfc9421-origin-proof-v1`
   - websocket `direct.incoming` 已按最新 P3 结构仅消费 `params.meta/body/auth`，不再依赖 `server` 包装字段
+- Hosted multi-domain CLI-MTD-1 已完成：`internal/config` 提供 domain normalization、default services derivation 与 services diagnostics；合法 `services.did_domain` 会规范化，并驱动 `service_base_url` / `anp_service_endpoint` / `anp_service_did` 默认推导。
 
 ### 尚未实现
 

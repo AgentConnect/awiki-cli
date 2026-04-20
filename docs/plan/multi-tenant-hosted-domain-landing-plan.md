@@ -164,6 +164,8 @@ awiki-cli config services set \
 
 ## CLI-MTD-1：services 配置解析与校验收口
 
+**状态**：已完成（2026-04-20）。已在 `internal/config` 收口 domain normalization、默认 services 推导和 services diagnostic 校验；`Resolve` 会规范化合法 `did_domain`，并从该 domain 派生 `service_base_url`、`anp_service_endpoint` 与 `anp_service_did` 的默认值。
+
 ### 目标
 
 把 domain normalization、default derivation、高级覆盖校验收口为可复用配置逻辑，供 `init`、`config services set`、`doctor`、DID 生成共用。
