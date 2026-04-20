@@ -324,6 +324,8 @@ awiki-cli config services set --domain b.example.com
 
 ## CLI-MTD-5：doctor 多域名诊断
 
+**状态**：已完成（2026-04-20）。`doctor` 的 `anp_service` 检查已接入 `config.ValidateServices()` diagnostics，能区分 blocking error 与 advanced deployment warning，并输出 service base URL、DID domain、ANP endpoint、service DID 与 diagnostics 详情。
+
 ### 目标
 
 `doctor` 能解释当前 workspace 的 active domain 与 ANP service 配置状态。

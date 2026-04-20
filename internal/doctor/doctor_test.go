@@ -195,11 +195,8 @@ INSERT INTO contact_handle_bindings (
 					t.Fatal("config_file details missing parse error")
 				}
 				anpCheck := checkByName(t, report, "anp_service")
-				if anpCheck.Details["endpoint_error"] == nil {
-					t.Fatal("anp_service details missing endpoint_error")
-				}
-				if anpCheck.Details["service_did_error"] == nil {
-					t.Fatal("anp_service details missing service_did_error")
+				if len(anpServiceDiagnostics(t, anpCheck)) < 2 {
+					t.Fatalf("anp_service diagnostics = %#v, want endpoint and service DID errors", anpCheck.Details["diagnostics"])
 				}
 			},
 		},
@@ -236,6 +233,44 @@ INSERT INTO contact_handle_bindings (
 	}
 }
 
+func TestANPServiceCheckWarnsForAdvancedHostedGateway(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	resolved.ServiceBaseURL = "https://api.a.example.com"
+	resolved.DIDDomain = "a.example.com"
+	resolved.ANPServiceEndpoint = "https://gateway.a.example.com/anp-im/rpc"
+	resolved.ANPServiceDID = "did:wba:service.a.example.com"
+
+	check := anpServiceCheck(resolved)
+	if check.Status != "warn" {
+		t.Fatalf("anpServiceCheck().Status = %q, want warn", check.Status)
+	}
+	diagnostics := anpServiceDiagnostics(t, check)
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostics = %#v, want two warnings", diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity != appconfig.ServiceSeverityWarn {
+			t.Fatalf("diagnostic severity = %q, want warn: %#v", diagnostic.Severity, diagnostic)
+		}
+	}
+}
+
+func TestANPServiceCheckErrorsForInvalidHostedConfig(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	resolved.ServiceBaseURL = "ftp://api.example.com"
+	resolved.DIDDomain = "https://a.example.com"
+	resolved.ANPServiceEndpoint = "http://127.0.0.1/anp-im/rpc"
+	resolved.ANPServiceDID = "did:wba:a.example.com:services:message:e1"
+
+	check := anpServiceCheck(resolved)
+	if check.Status != "error" {
+		t.Fatalf("anpServiceCheck().Status = %q, want error", check.Status)
+	}
+	if len(anpServiceDiagnostics(t, check)) < 4 {
+		t.Fatalf("diagnostics = %#v, want blocking diagnostics", check.Details["diagnostics"])
+	}
+}
+
 func resolveDoctorConfig(t *testing.T, keepEnvHits bool) *appconfig.Resolved {
 	t.Helper()
 	return resolveDoctorConfigForWorkspace(t, t.TempDir(), keepEnvHits)
@@ -258,6 +293,15 @@ func resolveDoctorConfigForWorkspace(t *testing.T, workspace string, keepEnvHits
 		resolved.EnvHits = nil
 	}
 	return resolved
+}
+
+func anpServiceDiagnostics(t *testing.T, check Check) []appconfig.ServiceDiagnostic {
+	t.Helper()
+	diagnostics, ok := check.Details["diagnostics"].([]appconfig.ServiceDiagnostic)
+	if !ok {
+		t.Fatalf("diagnostics type = %T, want []config.ServiceDiagnostic", check.Details["diagnostics"])
+	}
+	return diagnostics
 }
 
 func checkByName(t *testing.T, report Report, name string) Check {

@@ -223,20 +223,30 @@ func anpServiceCheck(resolved *config.Resolved) Check {
 	status := "ok"
 	summary := "ANP service discovery fields are ready for DID generation"
 	details := map[string]any{
+		"service_base_url":     resolved.ServiceBaseURL,
+		"did_domain":           resolved.DIDDomain,
 		"anp_service_endpoint": resolved.ANPServiceEndpoint,
 		"anp_service_did":      resolved.ANPServiceDID,
 	}
-	if err := identity.ValidateANPServiceEndpoint(resolved.ANPServiceEndpoint); err != nil {
-		status = "error"
-		summary = "ANP service endpoint is invalid for public DID discovery"
-		details["endpoint_error"] = err.Error()
+	services := config.ServicesConfig{
+		ServiceBaseURL:     resolved.ServiceBaseURL,
+		DIDDomain:          resolved.DIDDomain,
+		ANPServiceEndpoint: resolved.ANPServiceEndpoint,
+		ANPServiceDID:      resolved.ANPServiceDID,
 	}
-	if err := identity.ValidateANPServiceDID(resolved.ANPServiceDID); err != nil {
-		if status != "error" {
+	diagnostics := config.ValidateServices(services)
+	details["diagnostics"] = diagnostics
+	for _, diagnostic := range diagnostics {
+		switch diagnostic.Severity {
+		case config.ServiceSeverityError:
 			status = "error"
-			summary = "ANP service DID is invalid for public DID discovery"
+			summary = "ANP service discovery fields have blocking issues"
+		case config.ServiceSeverityWarn:
+			if status != "error" {
+				status = "warn"
+				summary = "ANP service discovery fields need review"
+			}
 		}
-		details["service_did_error"] = err.Error()
 	}
 	return Check{
 		Name:    "anp_service",
