@@ -152,6 +152,10 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runVersion
 	case "config.show":
 		return a.runConfigShow
+	case "config.services.show":
+		return a.runConfigServicesShow
+	case "config.services.set":
+		return a.runConfigServicesSet
 	case "id.status":
 		return a.runIDStatus
 	case "id.create":
@@ -457,6 +461,102 @@ func (a *App) runConfigShow(cmd *cobra.Command, args []string) error {
 	data["database"] = database
 	data["workspace_upgrade"] = upgradeState
 	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Resolved configuration", nil, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runConfigServicesShow(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return a.configCommandExit(err)
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	data := configServicesView(resolved)
+	warnings := servicesDiagnosticWarnings(data["diagnostics"])
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Resolved service configuration", warnings, identityMetaFromResolved(resolved))
+}
+
+func (a *App) runConfigServicesSet(cmd *cobra.Command, args []string) error {
+	resolved, err := a.resolveConfig()
+	if err != nil {
+		return a.configCommandExit(err)
+	}
+	format := normalizedFormat(resolved.OutputFormat)
+	plannedServices, changed, warnings, err := initServicesFromFlags(cmd, resolved)
+	if err != nil {
+		return a.configCommandExit(err)
+	}
+	if !changed {
+		return output.NewExitError(
+			"invalid_argument",
+			2,
+			"at least one services flag is required",
+			"Use --domain or an advanced services override flag.",
+		)
+	}
+	if a.globals.DryRun {
+		data := map[string]any{
+			"plan": map[string]any{
+				"action":      "config_services_set",
+				"config_file": resolved.Paths.ConfigFile,
+				"services":    plannedServices,
+			},
+			"diagnostics": appconfig.ValidateServices(plannedServices),
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: service configuration update planned", warnings, identityMetaFromResolved(resolved))
+	}
+	if err := appconfig.UpdateServicesSettings(resolved.Paths, plannedServices); err != nil {
+		return output.NewExitError(
+			"internal_error",
+			1,
+			err.Error(),
+			"Check write permissions for config.yaml under the awiki-cli workspace.",
+		)
+	}
+	refreshed, err := a.resolveConfig()
+	if err != nil {
+		return a.configCommandExit(err)
+	}
+	data := configServicesView(refreshed)
+	warnings = append(warnings, servicesDiagnosticWarnings(data["diagnostics"])...)
+	return a.renderSuccess(cmd.CommandPath(), normalizedFormat(refreshed.OutputFormat), a.globals.JQ, data, "Service configuration updated", dedupeStrings(warnings), identityMetaFromResolved(refreshed))
+}
+
+func configServicesView(resolved *appconfig.Resolved) map[string]any {
+	services := appconfig.ServicesConfig{
+		ServiceBaseURL:     resolved.ServiceBaseURL,
+		DIDDomain:          resolved.DIDDomain,
+		ANPServiceEndpoint: resolved.ANPServiceEndpoint,
+		ANPServiceDID:      resolved.ANPServiceDID,
+	}
+	return map[string]any{
+		"services":    services,
+		"sources":     serviceSources(resolved),
+		"diagnostics": appconfig.ValidateServices(services),
+		"config_file": resolved.Paths.ConfigFile,
+	}
+}
+
+func serviceSources(resolved *appconfig.Resolved) map[string]appconfig.ValueSource {
+	sources := map[string]appconfig.ValueSource{}
+	for _, key := range []string{"service_base_url", "did_domain", "anp_service_endpoint", "anp_service_did"} {
+		if source, ok := resolved.Sources[key]; ok {
+			sources[key] = source
+		}
+	}
+	return sources
+}
+
+func servicesDiagnosticWarnings(raw any) []string {
+	diagnostics, ok := raw.([]appconfig.ServiceDiagnostic)
+	if !ok {
+		return nil
+	}
+	warnings := make([]string, 0)
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == appconfig.ServiceSeverityWarn {
+			warnings = append(warnings, diagnostic.Message)
+		}
+	}
+	return warnings
 }
 
 func (a *App) runStub(cmd *cobra.Command, args []string) error {

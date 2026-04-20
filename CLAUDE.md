@@ -209,6 +209,7 @@
   - websocket `direct.incoming` 已按最新 P3 结构仅消费 `params.meta/body/auth`，不再依赖 `server` 包装字段
 - Hosted multi-domain CLI-MTD-1 已完成：`internal/config` 提供 domain normalization、default services derivation 与 services diagnostics；合法 `services.did_domain` 会规范化，并驱动 `service_base_url` / `anp_service_endpoint` / `anp_service_did` 默认推导。
 - Hosted multi-domain CLI-MTD-2 已完成：`awiki-cli init` 支持 `--domain` 与 services 高级覆盖 flags；dry-run 输出 planned services，执行时写入/更新 `config.yaml.services.*`。
+- Hosted multi-domain CLI-MTD-3 已完成：`config services show/set` 已落地；`set` 复用 init 的 services flags / validation，`show` 输出 services、sources 与 diagnostics。
 
 ### 尚未实现
 

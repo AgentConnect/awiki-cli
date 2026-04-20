@@ -236,6 +236,8 @@ awiki-cli init --domain a.example.com
 
 ## CLI-MTD-3：`config services show/set`
 
+**状态**：已完成（2026-04-20）。已新增 `config services show` 与 `config services set` 命令；`set` 复用 `init` 的 services 推导/校验逻辑并支持 `--dry-run`，`show` 输出 active services、sources 与 diagnostics。
+
 ### 目标
 
 提供独立服务配置入口，不创建身份、不启动 listener。
