@@ -13,6 +13,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	awikiruntime "github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/coder/websocket"
 )
@@ -341,6 +342,121 @@ func TestStartSocketPersistsBridgeAvailability(t *testing.T) {
 	}
 	if !status.BridgeAvailable {
 		t.Fatalf("status.BridgeAvailable = false, want true")
+	}
+}
+
+func TestBridgeGroupCreateSelectsActiveServiceDID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		configuredServiceDID string
+		capabilityServiceDID string
+		wantTargetDID        string
+		wantCapabilities     int32
+	}{
+		{
+			name:                 "configured active service did",
+			configuredServiceDID: "did:wba:b.example.com",
+			capabilityServiceDID: "did:wba:a.example.com",
+			wantTargetDID:        "did:wba:b.example.com",
+			wantCapabilities:     0,
+		},
+		{
+			name:                 "capabilities fallback",
+			capabilityServiceDID: "did:wba:a.example.com",
+			wantTargetDID:        "did:wba:a.example.com",
+			wantCapabilities:     1,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capabilitiesCalls atomic.Int32
+			targetDIDCh := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/im/ws" {
+					http.NotFound(w, r)
+					return
+				}
+				conn, err := websocket.Accept(w, r, nil)
+				if err != nil {
+					t.Errorf("websocket.Accept() error = %v", err)
+					return
+				}
+				defer conn.Close(websocket.StatusNormalClosure, "done")
+
+				for {
+					readCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+					var request map[string]any
+					err := wsjsonRead(readCtx, conn, &request)
+					cancel()
+					if err != nil {
+						return
+					}
+					response := map[string]any{
+						"jsonrpc": "2.0",
+						"id":      request["id"],
+					}
+					switch method := stringValue(request["method"]); method {
+					case "anp.get_capabilities":
+						capabilitiesCalls.Add(1)
+						response["result"] = map[string]any{"service_did": tc.capabilityServiceDID}
+					case "group.create":
+						params, _ := request["params"].(map[string]any)
+						meta, _ := params["meta"].(map[string]any)
+						target, _ := meta["target"].(map[string]any)
+						targetDIDCh <- stringValue(target["did"])
+						response["result"] = map[string]any{"group_did": "did:wba:b.example.com:groups:demo:e1_group"}
+						writeCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+						_ = wsjsonWrite(writeCtx, conn, response)
+						cancel()
+						return
+					default:
+						response["error"] = map[string]any{"code": -32601, "message": "unexpected method " + method}
+					}
+					writeCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+					_ = wsjsonWrite(writeCtx, conn, response)
+					cancel()
+				}
+			}))
+			defer server.Close()
+
+			resolved := testResolvedConfig(t, server.URL)
+			resolved.ANPServiceDID = tc.configuredServiceDID
+			supervisor, err := NewSupervisor(resolved)
+			if err != nil {
+				t.Fatalf("NewSupervisor() error = %v", err)
+			}
+			defer supervisor.Close()
+
+			result, err := supervisor.handleBridgeRequest(awikiruntime.BridgeRequest{
+				IdentityName: "alice",
+				Method:       "group.create",
+				Params: map[string]any{
+					"name": "Demo",
+				},
+			})
+			if err != nil {
+				t.Fatalf("handleBridgeRequest(group.create) error = %v", err)
+			}
+			if got := stringValue(result["group_did"]); got == "" {
+				t.Fatalf("group.create result missing group_did: %#v", result)
+			}
+			if got := capabilitiesCalls.Load(); got != tc.wantCapabilities {
+				t.Fatalf("capabilities calls = %d, want %d", got, tc.wantCapabilities)
+			}
+			select {
+			case got := <-targetDIDCh:
+				if got != tc.wantTargetDID {
+					t.Fatalf("group.create target DID = %q, want %q", got, tc.wantTargetDID)
+				}
+			default:
+				t.Fatal("group.create target DID was not captured")
+			}
+		})
 	}
 }
 

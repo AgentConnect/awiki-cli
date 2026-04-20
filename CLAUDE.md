@@ -69,6 +69,7 @@
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
+**internal/identity/anp_service.go**: ANP Message Service 默认值、公开 endpoint / bare-domain service DID 校验与 service 构造；生成的 profiles 固定声明 core binding、direct base、group base 与 attachment。
 **internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.5+ 下仍可完成 DID WBA 签名。
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
 **internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
@@ -103,7 +104,7 @@
 **internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
 **internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
 **internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
-**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库；首条陌生来信会按 DID 反查 Handle 并更新通讯录。  
+**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库；首条陌生来信会按 DID 反查 Handle 并更新通讯录；websocket bridge 的 `group.create` 优先使用 active `services.anp_service_did`，仅在未配置时回退 capabilities。
 **internal/runtime/listener/contact_sync.go**: websocket 收件路径的 DID→Handle 自动补全与联系人重绑定辅助。  
 **internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口；direct/group 事件可带 `sender_handle` / `recipient_handle`。  
 **internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责从本地 route registry 读取已注册 routes，并通过 `/hooks/agent` 执行 webhook fan-out；事件文本仍保留 sender/recipient handle 等可读字段。  
@@ -212,7 +213,7 @@
 - Hosted multi-domain CLI-MTD-3 已完成：`config services show/set` 已落地；`set` 复用 init 的 services flags / validation，`show` 输出 services、sources 与 diagnostics。
 - Hosted multi-domain CLI-MTD-4 已完成：DID 文档生成已锁定使用 `services.did_domain` / `services.anp_service_endpoint` / `services.anp_service_did`；`service_base_url` 不参与 DID domain 推导。
 - Hosted multi-domain CLI-MTD-5 已完成：`doctor` 的 `anp_service` 检查接入 services diagnostics，能输出 blocking errors 与高级部署 warnings。
-- Hosted multi-domain CLI-MTD-6 已完成：message/runtime/listener 兼容边界已锁定为单 workspace 单 active domain；HTTP/WSS API 入口走 `service_base_url`，attachment control target 走 `anp_service_did`。
+- Hosted multi-domain CLI-MTD-6 已完成：message/runtime/listener 兼容边界已锁定为单 workspace 单 active domain；HTTP/WSS API 入口走 `service_base_url`，group create / attachment control target 走 `anp_service_did`。
 - Hosted multi-domain CLI-MTD-7 已完成：`config services set` 不改写 identity store；`doctor` 会提示 identity DID domain 与 active services DID domain 不一致。
 - Hosted multi-domain CLI-MTD-8 已完成：README / installation / command architecture / ANP discovery / built-in docs / system-test 规划已同步，schema/help 已包含 `init --domain` 与 `config services show/set`。
 

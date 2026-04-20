@@ -15,6 +15,7 @@ var (
 	agentMessageServiceProfiles = []string{
 		"anp.core.binding.v1",
 		"anp.direct.base.v1",
+		"anp.group.base.v1",
 		"anp.attachment.v1",
 	}
 	agentMessageServiceSecurityProfiles = []string{"transport-protected"}

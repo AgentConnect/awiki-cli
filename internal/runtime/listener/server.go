@@ -977,6 +977,11 @@ func systemEventText(body map[string]any) string {
 }
 
 func (s *Supervisor) fetchMessageServiceDID(session *session) (string, error) {
+	if s != nil && s.resolved != nil {
+		if configured := strings.TrimSpace(s.resolved.ANPServiceDID); configured != "" {
+			return configured, nil
+		}
+	}
 	client := session.currentClient()
 	if client == nil {
 		return "", fmt.Errorf("websocket session is not connected for identity %s", session.identityName)

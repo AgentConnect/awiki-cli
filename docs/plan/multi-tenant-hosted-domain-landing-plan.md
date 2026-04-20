@@ -352,7 +352,7 @@ awiki-cli config services set --domain b.example.com
 
 ## CLI-MTD-6：runtime / listener / message 兼容边界
 
-**状态**：已完成（2026-04-20）。已补充 message / attachment 测试锁定边界：HTTP RPC 与 websocket 仍以 `service_base_url` 为 API 入口，attachment control target 使用配置的 `anp_service_did`，运行时不引入多 active domain 状态。
+**状态**：已完成（2026-04-20）。已补充 message / attachment 测试锁定边界：HTTP RPC 与 websocket 仍以 `service_base_url` 为 API 入口，group create 与 attachment control target 使用配置的 `anp_service_did`，运行时不引入多 active domain 状态。
 
 ### 目标
 

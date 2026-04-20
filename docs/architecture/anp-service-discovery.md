@@ -30,6 +30,7 @@
   "profiles": [
     "anp.core.binding.v1",
     "anp.direct.base.v1",
+    "anp.group.base.v1",
     "anp.attachment.v1"
   ],
   "securityProfiles": [
@@ -42,6 +43,7 @@
 
 - `serviceEndpoint` 是 DID 文档里的公开发现地址，不是 CLI 本地 bridge、listener socket 或 websocket 地址
 - `serviceDid` 是服务身份提示字段，当前固定要求为 bare-domain DID
+- `profiles` 同时声明 core binding、direct base、group base 与 attachment 能力，确保远端可基于 DID 文档发现 group-capable message service
 - direct E2EE 还未作为 awiki-cli 的公开互通能力启用，因此不写 `anp.direct.e2ee.v1` / `direct-e2ee`
 
 ## 3. 本地配置项
@@ -110,7 +112,7 @@
 ## 6. 验收点
 
 - `awiki-cli id create` 生成的 DID 文档包含且仅包含一个 `ANPMessageService`
-- `profiles` 只包含 direct base + attachment
+- `profiles` 只包含 core binding + direct base + group base + attachment
 - `securityProfiles` 只包含 `transport-protected`
 - 无效 `anp_service_endpoint` / `anp_service_did` 会在 DID 生成和 `doctor` 中暴露
 

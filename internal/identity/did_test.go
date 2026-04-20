@@ -56,6 +56,7 @@ func TestGenerateIdentity(t *testing.T) {
 	expectedProfiles := []string{
 		"anp.core.binding.v1",
 		"anp.direct.base.v1",
+		"anp.group.base.v1",
 		"anp.attachment.v1",
 	}
 	if len(profiles) != len(expectedProfiles) {
