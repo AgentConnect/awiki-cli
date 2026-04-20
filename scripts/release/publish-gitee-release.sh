@@ -70,6 +70,60 @@ if (typeof value === 'object') {
 NODE
 }
 
+local_tag_commit() {
+  local tag="$1"
+  git rev-parse -q --verify "refs/tags/${tag}^{commit}" 2>/dev/null || true
+}
+
+remote_tag_commit() {
+  local remote="$1"
+  local tag="$2"
+  local output
+
+  output="$(git ls-remote --tags "${remote}" "refs/tags/${tag}^{}" "refs/tags/${tag}" 2>/dev/null || true)"
+  if [[ -z "${output}" ]]; then
+    return
+  fi
+
+  awk '
+    $2 ~ /\^\{\}$/ { print $1; found=1; exit }
+    !found && $2 ~ /^refs\/tags\// { fallback=$1 }
+    END {
+      if (!found && fallback != "") {
+        print fallback
+      }
+    }
+  ' <<<"${output}"
+}
+
+ensure_remote_tag_matches_local() {
+  local remote="$1"
+  local remote_label="$2"
+  local tag="$3"
+  local local_commit
+  local remote_commit
+
+  local_commit="$(local_tag_commit "${tag}")"
+  if [[ -z "${local_commit}" ]]; then
+    echo "Error: local tag ${tag} is unavailable after fetch/create." >&2
+    exit 1
+  fi
+
+  remote_commit="$(remote_tag_commit "${remote}" "${tag}")"
+  if [[ -n "${remote_commit}" ]]; then
+    if [[ "${remote_commit}" != "${local_commit}" ]]; then
+      echo "Error: ${remote_label} tag ${tag} already exists but points to ${remote_commit}, local tag points to ${local_commit}." >&2
+      exit 1
+    fi
+
+    echo "${remote_label} tag ${tag} already exists and points to the expected commit; reusing it."
+    return
+  fi
+
+  echo "Pushing tag ${tag} to ${remote_label}..."
+  git push "${remote}" "refs/tags/${tag}:refs/tags/${tag}"
+}
+
 VERSION=""
 if [[ -f package.json ]]; then
   VERSION="$(json_value package.json 'typeof data.version === "string" ? data.version.trim() : ""')"
@@ -245,10 +299,9 @@ if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
 fi
 
-echo "Pushing tag ${TAG} to Gitee..."
 git remote add gitee "${GITEE_GIT_URL}" 2>/dev/null || \
   git remote set-url gitee "${GITEE_GIT_URL}"
-git push gitee "refs/tags/${TAG}:refs/tags/${TAG}"
+ensure_remote_tag_matches_local gitee Gitee "${TAG}"
 
 assets_dir="${download_dir}"
 echo "Downloading GitHub release assets to ${assets_dir}..."
