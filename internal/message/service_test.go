@@ -61,6 +61,28 @@ func TestRequireActiveIdentityAcceptsRegisteredUser(t *testing.T) {
 	}
 }
 
+func TestGroupControlSourceDefaultsToRemoteHTTP(t *testing.T) {
+	t.Parallel()
+
+	if got := groupControlSource(nil); got != "remote_http" {
+		t.Fatalf("groupControlSource(nil) = %q, want %q", got, "remote_http")
+	}
+	if got := groupControlSource(map[string]any{"source": "custom"}); got != "custom" {
+		t.Fatalf("groupControlSource(custom) = %q, want %q", got, "custom")
+	}
+}
+
+func TestTransportSourceMatchesActualMode(t *testing.T) {
+	t.Parallel()
+
+	if got := transportSource("http"); got != "remote_http" {
+		t.Fatalf("transportSource(http) = %q, want %q", got, "remote_http")
+	}
+	if got := transportSource("websocket"); got != "local_ws_cache" {
+		t.Fatalf("transportSource(websocket) = %q, want %q", got, "local_ws_cache")
+	}
+}
+
 func TestSyncPeerHandleRebindsCurrentContactAndPreservesHistory(t *testing.T) {
 	t.Parallel()
 

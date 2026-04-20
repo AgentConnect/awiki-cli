@@ -144,6 +144,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		transport := NewWSProxyTransport(s.resolved, record.IdentityName)
 		raw, err = transport.GetInbox(ctx, request)
 		if err != nil {
+			wsErr := err
 			cached, cacheErr := s.readInboxFromCache(ctx, record, peerDID, request.Limit, request.UnreadOnly)
 			if targetIsHandle {
 				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
@@ -160,7 +161,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded inbox from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{websocketCacheFallbackWarning(wsErr)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -183,7 +184,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -293,6 +294,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		transport := NewWSProxyTransport(s.resolved, record.IdentityName)
 		raw, err = transport.GetHistory(ctx, request)
 		if err != nil {
+			wsErr := err
 			cached, cacheErr := s.readHistoryFromCache(ctx, record, peerDID, request.Limit)
 			if targetIsHandle {
 				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
@@ -309,7 +311,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded history from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{websocketCacheFallbackWarning(wsErr)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -332,7 +334,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -632,6 +634,25 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 		client = s.remote.Client()
 	}
 	return NewHTTPTransport(s.resolved, auth, client), nil, nil
+}
+
+func (s *Service) groupControlTransport(record *identity.StoredIdentity) (*HTTPTransport, []string, error) {
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.runtimeConfig().Mode == runtime.ModeWebSocket {
+		warnings = append(warnings, "Group lifecycle commands use HTTP transport even when runtime.mode is websocket.")
+	}
+	return transport, warnings, nil
+}
+
+func groupControlSource(result map[string]any) string {
+	return sourceWithDefault(result, runtime.ModeHTTP)
+}
+
+func transportSource(mode string) string {
+	return sourceWithDefault(nil, mode)
 }
 
 func (s *Service) httpFallbackSend(ctx context.Context, record *identity.StoredIdentity, request SendRequest, targetDID string) (*directSendResult, []string, error) {

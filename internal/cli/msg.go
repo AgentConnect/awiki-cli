@@ -12,6 +12,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var quietMessageWarningPrefixes = []string{
+	"Group lifecycle commands use HTTP transport even when runtime.mode is websocket.",
+}
+
 func (a *App) messageService() (*message.Service, output.Format, error) {
 	resolved, err := a.resolveConfigForWorkspace()
 	if err != nil {
@@ -84,7 +88,39 @@ func (a *App) renderMessageResult(cmd *cobra.Command, format output.Format, resu
 	if result == nil {
 		return commandResultMissing(cmd.CommandPath())
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, result.Data, result.Summary, result.Warnings, a.identityMeta())
+	return a.renderSuccess(
+		cmd.CommandPath(),
+		format,
+		a.globals.JQ,
+		result.Data,
+		result.Summary,
+		a.filterMessageWarningsForDisplay(result.Warnings),
+		a.identityMeta(),
+	)
+}
+
+func (a *App) filterMessageWarningsForDisplay(warnings []string) []string {
+	if a != nil && a.globals.Verbose {
+		return warnings
+	}
+	filtered := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		if shouldHideMessageWarning(warning) {
+			continue
+		}
+		filtered = append(filtered, warning)
+	}
+	return filtered
+}
+
+func shouldHideMessageWarning(warning string) bool {
+	warning = strings.TrimSpace(warning)
+	for _, prefix := range quietMessageWarningPrefixes {
+		if strings.HasPrefix(warning, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {

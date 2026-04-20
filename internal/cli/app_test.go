@@ -128,6 +128,40 @@ func TestRenderMessageResultRendersValidResult(t *testing.T) {
 	}
 }
 
+func TestRenderMessageResultHidesInformationalTransportWarningWithoutVerbose(t *testing.T) {
+	app := &App{}
+	rendered, err := captureStdout(func() error {
+		return app.renderMessageResult(&cobra.Command{Use: "create"}, output.FormatJSON, &message.CommandResult{
+			Data:     map[string]any{"ok": true},
+			Summary:  "Created",
+			Warnings: []string{"Group lifecycle commands use HTTP transport even when runtime.mode is websocket."},
+		})
+	})
+	if err != nil {
+		t.Fatalf("captureStdout(renderMessageResult) error = %v", err)
+	}
+	if strings.Contains(rendered, "Group lifecycle commands use HTTP transport even when runtime.mode is websocket.") {
+		t.Fatalf("rendered output %q unexpectedly included informational warning", rendered)
+	}
+}
+
+func TestRenderMessageResultShowsInformationalTransportWarningWithVerbose(t *testing.T) {
+	app := &App{globals: GlobalOptions{Verbose: true}}
+	rendered, err := captureStdout(func() error {
+		return app.renderMessageResult(&cobra.Command{Use: "create"}, output.FormatJSON, &message.CommandResult{
+			Data:     map[string]any{"ok": true},
+			Summary:  "Created",
+			Warnings: []string{"Group lifecycle commands use HTTP transport even when runtime.mode is websocket."},
+		})
+	})
+	if err != nil {
+		t.Fatalf("captureStdout(renderMessageResult) error = %v", err)
+	}
+	if !strings.Contains(rendered, "Group lifecycle commands use HTTP transport even when runtime.mode is websocket.") {
+		t.Fatalf("rendered output %q missing informational warning in verbose mode", rendered)
+	}
+}
+
 func TestRenderContentResultRendersValidResult(t *testing.T) {
 	app := &App{}
 	rendered, err := captureStdout(func() error {

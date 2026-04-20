@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
 )
 
@@ -22,22 +23,13 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	if err != nil {
 		return nil, err
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.CreateGroup(ctx, request)
 	if err != nil {
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		result, err = httpTransport.CreateGroup(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	groupDID := stringFromAny(result["group_did"])
 	warnings = append(warnings, s.syncGroupState(ctx, record, groupDID, true)...)
@@ -48,7 +40,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 			"group":    snapshot,
 			"members":  members,
 			"delivery": result,
-			"source":   sourceWithDefault(result, s.runtimeConfig().Mode),
+			"source":   groupControlSource(result),
 		},
 		Summary:  fmt.Sprintf("Created group %s", groupDID),
 		Warnings: compactWarnings(warnings),
@@ -63,33 +55,20 @@ func (s *Service) GetGroup(ctx context.Context, request GroupGetRequest) (*Comma
 	if err != nil {
 		return nil, err
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.GetGroup(ctx, request)
 	if err != nil {
-		cached, cacheErr := s.readCachedGroupSnapshot(ctx, record, request.Group)
-		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"group": cached, "source": "local_ws_cache_fallback"}, Summary: "Loaded group snapshot from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
-		}
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		result, err = httpTransport.GetGroup(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	warnings = append(warnings, s.persistGroupSnapshot(ctx, record, result)...)
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
 	if len(snapshot) == 0 {
 		snapshot = normalizeGroupSnapshot(result)
 	}
-	return &CommandResult{Data: map[string]any{"group": snapshot, "source": sourceWithDefault(result, s.runtimeConfig().Mode)}, Summary: "Loaded group snapshot", Warnings: compactWarnings(warnings)}, nil
+	return &CommandResult{Data: map[string]any{"group": snapshot, "source": groupControlSource(result)}, Summary: "Loaded group snapshot", Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) JoinGroup(ctx context.Context, request GroupJoinRequest) (*CommandResult, error) {
@@ -100,27 +79,18 @@ func (s *Service) JoinGroup(ctx context.Context, request GroupJoinRequest) (*Com
 	if err != nil {
 		return nil, err
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.JoinGroup(ctx, request)
 	if err != nil {
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		result, err = httpTransport.JoinGroup(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	groupDID := stringFromAny(result["group_did"])
 	warnings = append(warnings, s.syncGroupState(ctx, record, groupDID, true)...)
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, groupDID)
-	return &CommandResult{Data: map[string]any{"group": snapshot, "delivery": result, "source": sourceWithDefault(result, s.runtimeConfig().Mode)}, Summary: fmt.Sprintf("Joined group %s", groupDID), Warnings: compactWarnings(warnings)}, nil
+	return &CommandResult{Data: map[string]any{"group": snapshot, "delivery": result, "source": groupControlSource(result)}, Summary: fmt.Sprintf("Joined group %s", groupDID), Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) AddGroupMember(ctx context.Context, request GroupMemberRequest) (*CommandResult, error) {
@@ -147,7 +117,7 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 		return nil, err
 	}
 	request.Member = memberDID
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
@@ -158,20 +128,7 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 		result, err = transport.RemoveGroupMember(ctx, request)
 	}
 	if err != nil {
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		if action == "add" {
-			result, err = httpTransport.AddGroupMember(ctx, request)
-		} else {
-			result, err = httpTransport.RemoveGroupMember(ctx, request)
-		}
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	warnings = append(warnings, s.syncGroupState(ctx, record, request.Group, true)...)
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
@@ -191,22 +148,13 @@ func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*C
 	if snapshotErr == nil && isActiveGroupOwner(cachedSnapshot) {
 		return nil, ErrGroupOwnerCannotLeave
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.LeaveGroup(ctx, request)
 	if err != nil {
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		result, err = httpTransport.LeaveGroup(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	warnings = append(warnings, s.markCachedGroupLeft(ctx, record, request.Group)...)
 	return &CommandResult{Data: map[string]any{"delivery": result, "group": request.Group}, Summary: fmt.Sprintf("Left group %s", request.Group), Warnings: compactWarnings(warnings)}, nil
@@ -225,7 +173,7 @@ func (s *Service) UpdateGroup(ctx context.Context, request GroupUpdateRequest) (
 	if len(profilePatch) == 0 && len(policyPatch) == 0 {
 		return nil, fmt.Errorf("group update requires at least one mutable field")
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
@@ -233,32 +181,14 @@ func (s *Service) UpdateGroup(ctx context.Context, request GroupUpdateRequest) (
 	if len(profilePatch) > 0 {
 		result, callErr := transport.UpdateGroupProfile(ctx, GroupGetRequest{Group: request.Group}, profilePatch)
 		if callErr != nil {
-			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-			if httpErr != nil {
-				return nil, callErr
-			}
-			result, callErr = httpTransport.UpdateGroupProfile(ctx, GroupGetRequest{Group: request.Group}, profilePatch)
-			if callErr != nil {
-				return nil, callErr
-			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
-			warnings = append(warnings, httpWarnings...)
+			return nil, callErr
 		}
 		responses = append(responses, result)
 	}
 	if len(policyPatch) > 0 {
 		result, callErr := transport.UpdateGroupPolicy(ctx, GroupGetRequest{Group: request.Group}, policyPatch)
 		if callErr != nil {
-			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-			if httpErr != nil {
-				return nil, callErr
-			}
-			result, callErr = httpTransport.UpdateGroupPolicy(ctx, GroupGetRequest{Group: request.Group}, policyPatch)
-			if callErr != nil {
-				return nil, callErr
-			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
-			warnings = append(warnings, httpWarnings...)
+			return nil, callErr
 		}
 		responses = append(responses, result)
 	}
@@ -275,26 +205,13 @@ func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest)
 	if err != nil {
 		return nil, err
 	}
-	transport, warnings, err := s.transportFor(record)
+	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.ListGroupMembers(ctx, request)
 	if err != nil {
-		cached, cacheErr := s.readCachedGroupMembers(ctx, record, request.Group, request.Limit)
-		if shouldUseCachedGroupFallback(err) && cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"members": cached, "total": len(cached), "group": request.Group, "source": "local_ws_cache_fallback"}, Summary: "Loaded group members from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
-		}
-		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
-		if httpErr != nil {
-			return nil, err
-		}
-		result, err = httpTransport.ListGroupMembers(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
-		warnings = append(warnings, httpWarnings...)
+		return nil, err
 	}
 	warnings = append(warnings, s.persistGroupMembers(ctx, record, request.Group, result)...)
 	members, _ := s.readCachedGroupMembers(ctx, record, request.Group, request.Limit)
@@ -302,7 +219,7 @@ func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest)
 		members = groupMembersFromResult(result["members"])
 	}
 	total := intValueFromAny(result["total"], len(members))
-	return &CommandResult{Data: map[string]any{"group": request.Group, "members": members, "total": total, "source": sourceWithDefault(result, s.runtimeConfig().Mode)}, Summary: fmt.Sprintf("Loaded %d group members", total), Warnings: compactWarnings(warnings)}, nil
+	return &CommandResult{Data: map[string]any{"group": request.Group, "members": members, "total": total, "source": groupControlSource(result)}, Summary: fmt.Sprintf("Loaded %d group members", total), Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesRequest) (*CommandResult, error) {
@@ -313,15 +230,17 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 	if err != nil {
 		return nil, err
 	}
+	sourceMode := s.runtimeConfig().Mode
 	transport, warnings, err := s.transportFor(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.ListGroupMessages(ctx, request)
 	if err != nil {
+		wsErr := err
 		cached, cacheErr := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
 		if cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{websocketCacheFallbackWarning(err)}}, nil
+			return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{websocketCacheFallbackWarning(wsErr)}}, nil
 		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
@@ -331,7 +250,8 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
+		sourceMode = runtime.ModeHTTP
+		warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.persistGroupMessages(ctx, record, request.Group, result)...)
@@ -340,7 +260,7 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 		messages = messagesFromResult(result["messages"])
 	}
 	total := intValueFromAny(result["total"], len(messages))
-	return &CommandResult{Data: map[string]any{"group": request.Group, "messages": messages, "total": total, "has_more": boolFromAny(result["has_more"]), "next_since_seq": result["next_since_seq"], "source": sourceWithDefault(result, s.runtimeConfig().Mode)}, Summary: fmt.Sprintf("Loaded %d group messages", total), Warnings: compactWarnings(warnings)}, nil
+	return &CommandResult{Data: map[string]any{"group": request.Group, "messages": messages, "total": total, "has_more": boolFromAny(result["has_more"]), "next_since_seq": result["next_since_seq"], "source": sourceWithDefault(result, sourceMode)}, Summary: fmt.Sprintf("Loaded %d group messages", total), Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandResult, error) {
@@ -357,12 +277,14 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 	if err != nil {
 		return nil, err
 	}
+	sourceMode := s.runtimeConfig().Mode
 	transport, warnings, err := s.transportFor(record)
 	if err != nil {
 		return nil, err
 	}
 	result, err := transport.SendGroup(ctx, request)
 	if err != nil {
+		wsErr := err
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
 			return nil, err
@@ -371,10 +293,11 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 		if err != nil {
 			return nil, err
 		}
-		warnings = append(warnings, websocketHTTPFallbackWarning(err))
+		sourceMode = runtime.ModeHTTP
+		warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 		warnings = append(warnings, httpWarnings...)
 	}
-	return s.persistGroupSendResult(ctx, record, request, result, warnings)
+	return s.persistGroupSendResult(ctx, record, request, result, warnings, sourceMode)
 }
 
 func (s *Service) syncGroupState(ctx context.Context, record *identity.StoredIdentity, groupDID string, includeMembers bool) []string {
@@ -402,7 +325,7 @@ func (s *Service) syncGroupState(ctx context.Context, record *identity.StoredIde
 	return compactWarnings(warnings)
 }
 
-func (s *Service) persistGroupSendResult(ctx context.Context, record *identity.StoredIdentity, request SendRequest, result *groupSendResult, warnings []string) (*CommandResult, error) {
+func (s *Service) persistGroupSendResult(ctx context.Context, record *identity.StoredIdentity, request SendRequest, result *groupSendResult, warnings []string, sourceMode string) (*CommandResult, error) {
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -436,7 +359,7 @@ func (s *Service) persistGroupSendResult(ctx context.Context, record *identity.S
 		warnings = append(warnings, fmt.Sprintf("Failed to persist local group message: %v", err))
 	}
 	warnings = append(warnings, s.touchCachedGroup(ctx, record, request.Group, result.AcceptedAt, result.GroupEventSeq, result.GroupStateVersion)...)
-	return &CommandResult{Data: map[string]any{"action": "send_message", "target": map[string]any{"kind": "group", "did": request.Group}, "message": map[string]any{"id": msgID, "type": request.MessageType, "secure": false, "sent_at": result.AcceptedAt}, "delivery": result}, Summary: fmt.Sprintf("Sent a group %s message", request.MessageType), Warnings: compactWarnings(warnings)}, nil
+	return &CommandResult{Data: map[string]any{"action": "send_message", "target": map[string]any{"kind": "group", "did": request.Group}, "message": map[string]any{"id": msgID, "type": request.MessageType, "secure": false, "sent_at": result.AcceptedAt}, "delivery": result, "source": transportSource(sourceMode)}, Summary: fmt.Sprintf("Sent a group %s message", request.MessageType), Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) persistGroupSnapshot(ctx context.Context, record *identity.StoredIdentity, raw map[string]any) []string {
