@@ -375,6 +375,8 @@ awiki-cli config services set --domain b.example.com
 
 ## CLI-MTD-7：迁移与兼容
 
+**状态**：已完成（2026-04-20）。已锁定 `config services set` 不改写 identity store；`doctor` 会在 identity DID domain 与 active `services.did_domain` 不一致时给出 warning，提示换 home domain 应使用新 workspace 或显式维护命令。
+
 ### 目标
 
 保护既有 workspace，同时给用户明确换 home domain 的路径。

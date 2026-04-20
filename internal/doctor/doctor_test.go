@@ -77,7 +77,7 @@ func TestRunReturnsStableReportContracts(t *testing.T) {
 				manager := identity.NewManager(resolved.Paths)
 				if _, err := manager.Save(identity.SaveInput{
 					IdentityName: "alice",
-					DID:          "did:wba:alice.example",
+					DID:          "did:wba:awiki.ai:alice:e1_alice",
 					UniqueID:     "e1_alice",
 					UserID:       "user-1",
 					Handle:       "alice",
@@ -102,7 +102,7 @@ INSERT INTO contact_handle_bindings (
 	last_seen_at,
 	credential_name
 ) VALUES (?, ?, ?, ?, ?, ?)
-`, "did:wba:alice.example", "bob", "did:wba:bob.example", "2026-04-18T09:00:00Z", "2026-04-18T09:00:00Z", "alice"); err != nil {
+`, "did:wba:awiki.ai:alice:e1_alice", "bob", "did:wba:bob.example", "2026-04-18T09:00:00Z", "2026-04-18T09:00:00Z", "alice"); err != nil {
 					t.Fatalf("insert contact_handle_bindings error = %v", err)
 				}
 
@@ -230,6 +230,33 @@ INSERT INTO contact_handle_bindings (
 				tc.verify(t, report)
 			}
 		})
+	}
+}
+
+func TestIdentityStoreCheckWarnsWhenIdentityDomainDiffersFromServicesDomain(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	resolved.DIDDomain = "b.example.com"
+	manager := identity.NewManager(resolved.Paths)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName: "alice",
+		DID:          "did:wba:a.example.com:alice:e1_alice",
+		UniqueID:     "e1_alice",
+		Handle:       "alice",
+		JWTToken:     "jwt-1",
+	}); err != nil {
+		t.Fatalf("manager.Save() error = %v", err)
+	}
+
+	check := identityStoreCheck(resolved)
+	if check.Status != "warn" {
+		t.Fatalf("identityStoreCheck().Status = %q, want warn", check.Status)
+	}
+	if check.Summary != "Identity DID domain differs from active services.did_domain" {
+		t.Fatalf("identityStoreCheck().Summary = %q", check.Summary)
+	}
+	mismatches, ok := check.Details["domain_mismatches"].([]string)
+	if !ok || len(mismatches) != 1 || mismatches[0] != "did:wba:a.example.com:alice:e1_alice" {
+		t.Fatalf("domain_mismatches = %#v", check.Details["domain_mismatches"])
 	}
 }
 

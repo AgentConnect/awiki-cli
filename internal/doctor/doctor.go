@@ -275,10 +275,14 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 	current, currentErr := manager.Current()
 	identities, listErr := manager.List()
 	legacyK1DIDs := make([]string, 0)
+	domainMismatches := make([]string, 0)
 	if listErr == nil {
 		for _, summaryItem := range identities {
 			if identity.IsK1DID(summaryItem.DID) {
 				legacyK1DIDs = append(legacyK1DIDs, summaryItem.DID)
+			}
+			if didDomain := didDomainFromWBA(summaryItem.DID); didDomain != "" && resolved.DIDDomain != "" && didDomain != resolved.DIDDomain {
+				domainMismatches = append(domainMismatches, summaryItem.DID)
 			}
 		}
 	}
@@ -288,6 +292,9 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 	} else if len(legacyK1DIDs) > 0 {
 		status = "warn"
 		summary = "Identity store still contains legacy k1 DID material"
+	} else if len(domainMismatches) > 0 {
+		status = "warn"
+		summary = "Identity DID domain differs from active services.did_domain"
 	} else if current != nil && !current.UserState.ReadyForMessaging {
 		status = "warn"
 		summary = "Default identity is local-only and cannot be used for messaging yet"
@@ -297,18 +304,29 @@ func identityStoreCheck(resolved *config.Resolved) Check {
 		Status:  status,
 		Summary: summary,
 		Details: map[string]any{
-			"identity_dir":     resolved.Paths.IdentityDir,
-			"dir_exists":       identityDirExists,
-			"index_path":       indexPath,
-			"index_exists":     indexExists,
-			"index_entries":    len(index.Credentials),
-			"default_identity": current,
-			"user_state":       defaultIdentityUserState(current),
-			"index_error":      errorText(indexErr),
-			"list_error":       errorText(listErr),
-			"legacy_k1_dids":   legacyK1DIDs,
+			"identity_dir":      resolved.Paths.IdentityDir,
+			"dir_exists":        identityDirExists,
+			"index_path":        indexPath,
+			"index_exists":      indexExists,
+			"index_entries":     len(index.Credentials),
+			"default_identity":  current,
+			"user_state":        defaultIdentityUserState(current),
+			"index_error":       errorText(indexErr),
+			"list_error":        errorText(listErr),
+			"legacy_k1_dids":    legacyK1DIDs,
+			"domain_mismatches": domainMismatches,
 		},
 	}
+}
+
+func didDomainFromWBA(did string) string {
+	trimmed := strings.TrimSpace(did)
+	if !strings.HasPrefix(trimmed, "did:wba:") {
+		return ""
+	}
+	remainder := strings.TrimPrefix(trimmed, "did:wba:")
+	parts := strings.SplitN(remainder, ":", 2)
+	return strings.ToLower(strings.TrimSpace(parts[0]))
 }
 
 func defaultIdentityUserState(current *identity.IdentitySummary) any {

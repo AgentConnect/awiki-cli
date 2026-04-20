@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/cmdmeta"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -143,4 +144,52 @@ func hasFlagSpec(flags []cmdmeta.FlagSpec, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestRunConfigServicesSetDoesNotRewriteIdentityStore(t *testing.T) {
+	workspaceHome := t.TempDir()
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+	if err := os.WriteFile(filepath.Join(workspaceHome, "config.yaml"), []byte(`schema_version: 1
+services:
+  did_domain: a.example.com
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	resolved, err := appconfig.Resolve(appconfig.Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	manager := identity.NewManager(resolved.Paths)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName: "alice",
+		DID:          "did:wba:a.example.com:alice:e1_alice",
+		UniqueID:     "e1_alice",
+		Handle:       "alice",
+		JWTToken:     "jwt-1",
+	}); err != nil {
+		t.Fatalf("manager.Save() error = %v", err)
+	}
+
+	app := &App{globals: GlobalOptions{Format: string(output.FormatJSON)}}
+	cmd := configCommandForTest(t, "config services set")
+	setFlag(t, cmd, "domain", "b.example.com")
+	if _, err := captureStdout(func() error {
+		return app.runConfigServicesSet(cmd, nil)
+	}); err != nil {
+		t.Fatalf("runConfigServicesSet() error = %v", err)
+	}
+	updated, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("manager.Load() error = %v", err)
+	}
+	if updated.DID != "did:wba:a.example.com:alice:e1_alice" {
+		t.Fatalf("identity DID = %q, want unchanged a.example.com DID", updated.DID)
+	}
+	fileConfig, exists, err := appconfig.ReadFileConfig(filepath.Join(workspaceHome, "config.yaml"))
+	if err != nil || !exists {
+		t.Fatalf("ReadFileConfig() = exists %v, err %v", exists, err)
+	}
+	if fileConfig.Services.DIDDomain != "b.example.com" {
+		t.Fatalf("config did_domain = %q, want b.example.com", fileConfig.Services.DIDDomain)
+	}
 }
