@@ -410,6 +410,101 @@ func TestReadHistoryFromCacheByPeerDIDsAggregatesHistoricalBindings(t *testing.T
 	}
 }
 
+func TestAllInboxMergesLocalMailNotifications(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	resolved.RuntimeMode = "websocket"
+	manager := identity.NewManager(resolved.Paths)
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "alice",
+		UserID:       "user-123",
+		DisplayName:  "Alice",
+		Handle:       "alice",
+	})
+	resolved.ActiveIdentity = "alice"
+
+	service, err := NewService(resolved)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	record, err := service.requireActiveIdentity("")
+	if err != nil {
+		t.Fatalf("requireActiveIdentity() error = %v", err)
+	}
+
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "direct-1",
+		OwnerDID:       record.DID,
+		ThreadID:       store.MakeThreadID(record.DID, "did:peer:bob", ""),
+		Direction:      0,
+		SenderDID:      "did:peer:bob",
+		ReceiverDID:    record.DID,
+		ContentType:    "text/plain",
+		Content:        "hello direct",
+		SentAt:         "2026-04-20T15:00:00Z",
+		IsRead:         false,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(direct) error = %v", err)
+	}
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "group-1",
+		OwnerDID:       record.DID,
+		ThreadID:       store.MakeThreadID(record.DID, "", "did:group:test"),
+		Direction:      0,
+		SenderDID:      "did:peer:carol",
+		ReceiverDID:    record.DID,
+		GroupDID:       "did:group:test",
+		ContentType:    "text/plain",
+		Content:        "hello group",
+		SentAt:         "2026-04-20T15:01:00Z",
+		IsRead:         false,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(group) error = %v", err)
+	}
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "mail-1",
+		OwnerDID:       record.DID,
+		ThreadID:       "mail:alice@awiki.ai",
+		Direction:      0,
+		ReceiverDID:    record.DID,
+		ContentType:    "mail.notification",
+		Content:        "[Mail] alice@awiki.ai",
+		Title:          "Mail subject",
+		SentAt:         "2026-04-20T15:02:00Z",
+		IsRead:         false,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(mail) error = %v", err)
+	}
+
+	result, err := service.allInbox(context.Background(), record, InboxRequest{IdentityName: "alice", Limit: 10})
+	if err != nil {
+		t.Fatalf("allInbox() error = %v", err)
+	}
+	messages := result.Data["messages"].([]map[string]any)
+	if len(messages) != 3 {
+		t.Fatalf("len(messages) = %d, want 3", len(messages))
+	}
+	if messages[0]["msg_id"] != "mail-1" {
+		t.Fatalf("messages[0].msg_id = %#v, want mail-1", messages[0]["msg_id"])
+	}
+	if result.Data["source"] != "remote_http+local_group_cache+local_mail_cache" {
+		t.Fatalf("source = %#v", result.Data["source"])
+	}
+}
+
 func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 	t.Helper()
 	root := t.TempDir()

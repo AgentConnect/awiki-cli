@@ -122,7 +122,7 @@ class HermesNotifyAdapterValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "host event received_at must be RFC3339 date-time"):
             hermes_notify_adapter.convert_host_event_to_surface(payload)
 
-    def test_convert_host_event_to_surface_maps_mail_topic(self) -> None:
+    def test_convert_host_event_to_surface_rewrites_mail_topic_into_im_message(self) -> None:
         payload = {
             "version": "1.0",
             "id": "mail-msg-001",
@@ -141,10 +141,46 @@ class HermesNotifyAdapterValidationTests(unittest.TestCase):
         surface = hermes_notify_adapter.convert_host_event_to_surface(payload)
 
         self.assertEqual(surface["kind"], "message")
-        self.assertEqual(surface["topic"], "mail.message.received")
-        self.assertEqual(surface["source"]["conversation_id"], "alice@example.com")
+        self.assertEqual(surface["topic"], "im.message.received")
+        self.assertEqual(surface["source"]["conversation_id"], "mail:alice@example.com")
         self.assertEqual(surface["source"]["thread_id"], "mail-msg-001")
-        self.assertEqual(surface["binding_key"], "awiki:mail:did:wba:test:alice:alice@example.com")
+        self.assertEqual(surface["binding_key"], "awiki:direct:did:wba:test:alice:mail:alice@example.com")
+        self.assertEqual(surface["data"]["sender_handle"], "sender@example.com")
+        self.assertEqual(surface["data"]["sender_did"], "mail:sender@example.com")
+        self.assertEqual(surface["data"]["recipient_handle"], "alice@example.com")
+        self.assertEqual(surface["data"]["content_type"], "text/plain")
+        self.assertIn("[邮件]", surface["data"]["text"])
+        self.assertIn("收件邮箱: alice@example.com", surface["data"]["text"])
+        self.assertIn("发件人: sender@example.com", surface["data"]["text"])
+        self.assertIn("主题: Mail Subject", surface["data"]["text"])
+
+    def test_adapt_host_event_for_hermes_keeps_original_mail_fields(self) -> None:
+        payload = {
+            "version": "1.0",
+            "id": "mail-msg-002",
+            "topic": "mail.message.received",
+            "received_at": "2026-04-12T10:31:00Z",
+            "data": {
+                "message_id": "mail-msg-002",
+                "mailbox_address": "alice@example.com",
+                "mailbox_did": "did:wba:test:alice",
+                "recipient_did": "did:wba:test:alice",
+                "from_addr": "sender@example.com",
+                "subject": "Mail Subject 2",
+                "preview": "Body preview",
+                "has_attachments": True,
+            },
+        }
+
+        adapted = hermes_notify_adapter.adapt_host_event_for_hermes(payload)
+
+        self.assertEqual(adapted["topic"], "im.message.received")
+        self.assertEqual(adapted["data"]["mailbox_address"], "alice@example.com")
+        self.assertEqual(adapted["data"]["from_addr"], "sender@example.com")
+        self.assertEqual(adapted["data"]["subject"], "Mail Subject 2")
+        self.assertEqual(adapted["data"]["preview"], "Body preview")
+        self.assertTrue(adapted["data"]["has_attachments"])
+        self.assertIn("(这封邮件包含附件)", adapted["data"]["text"])
 
 
 if __name__ == "__main__":

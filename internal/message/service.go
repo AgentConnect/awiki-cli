@@ -406,6 +406,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 	}
 	directIDs := make([]string, 0, len(request.MessageIDs))
 	groupIDs := make([]string, 0, len(request.MessageIDs))
+	localOnlyIDs := make([]string, 0, len(request.MessageIDs))
 	if db != nil {
 		rows, queryErr := store.ListMessagesByIDs(ctx, db, record.DID, request.MessageIDs)
 		if queryErr == nil {
@@ -415,6 +416,10 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 			}
 			for _, id := range request.MessageIDs {
 				row, ok := known[id]
+				if ok && stringFromAny(row["content_type"]) == "mail.notification" {
+					localOnlyIDs = append(localOnlyIDs, id)
+					continue
+				}
 				if ok && (stringFromAny(row["group_did"]) != "" || stringFromAny(row["group_id"]) != "") {
 					groupIDs = append(groupIDs, id)
 					continue
@@ -464,14 +469,14 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 		updatedCount += intValueFromAny(result["updated_count"], len(directIDs))
 	}
 	if db != nil {
-		localIDs := append(append([]string{}, directIDs...), groupIDs...)
+		localIDs := append(append(append([]string{}, directIDs...), groupIDs...), localOnlyIDs...)
 		if len(localIDs) > 0 {
 			if count, markErr := store.MarkMessagesRead(ctx, db, record.DID, localIDs); markErr != nil {
 				warnings = append(warnings, fmt.Sprintf("Failed to mark local messages read: %v", markErr))
 			} else if updatedCount == 0 {
 				updatedCount = int(count)
 			} else {
-				updatedCount += len(groupIDs)
+				updatedCount += len(groupIDs) + len(localOnlyIDs)
 			}
 		}
 	}
@@ -581,8 +586,16 @@ func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity,
 	if groupErr != nil {
 		warnings = append(warnings, fmt.Sprintf("Failed to read local group inbox cache: %v", groupErr))
 	}
-	directMessages := messagesFromResult(directResult.Data["messages"])
-	merged := mergeInboxMessages(request.Limit, directMessages, groupMessages)
+	mailNotifications, mailErr := s.readAllLocalMailNotifications(ctx, record, request.Limit, request.UnreadOnly)
+	if mailErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Failed to read local mail notification cache: %v", mailErr))
+	}
+	directMessages := normalizeMailNotificationMessages(messagesFromResult(directResult.Data["messages"]))
+	merged := mergeInboxMessages(
+		request.Limit,
+		mergeInboxMessages(request.Limit, directMessages, groupMessages),
+		normalizeMailNotificationMessages(mailNotifications),
+	)
 	if request.MarkRead {
 		ids := collectMessageIDs(merged)
 		if len(ids) > 0 {
@@ -597,7 +610,7 @@ func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity,
 		Data: map[string]any{
 			"messages": merged,
 			"total":    len(merged),
-			"source":   "remote_http+local_group_cache",
+			"source":   "remote_http+local_group_cache+local_mail_cache",
 		},
 		Summary:  fmt.Sprintf("Loaded %d inbox messages", len(merged)),
 		Warnings: compactWarnings(warnings),
@@ -863,6 +876,18 @@ func (s *Service) readInboxFromCache(ctx context.Context, record *identity.Store
 	return store.ListInboxMessages(ctx, db, record.DID, limit, peerDID, unreadOnly)
 }
 
+func (s *Service) readAllLocalMailNotifications(ctx context.Context, record *identity.StoredIdentity, limit int, unreadOnly bool) ([]map[string]any, error) {
+	db, err := store.Open(s.resolved.Paths)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(ctx, db); err != nil {
+		return nil, err
+	}
+	return store.ListNotificationInboxMessages(ctx, db, record.DID, limit, unreadOnly)
+}
+
 func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int) ([]map[string]any, error) {
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
@@ -915,6 +940,83 @@ func messagesFromResult(value any) []map[string]any {
 		}
 	}
 	return result
+}
+
+func normalizeMailNotificationMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return messages
+	}
+	normalized := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		normalized = append(normalized, normalizeMailNotificationMessage(message))
+	}
+	return normalized
+}
+
+func normalizeMailNotificationMessage(message map[string]any) map[string]any {
+	if stringFromAny(message["content_type"]) != "mail.notification" {
+		return message
+	}
+	metadata := parseMessageMetadata(message["metadata"])
+	mailboxAddress := defaultString(stringFromAny(metadata["mailbox_address"]), stringFromAny(message["thread_id"]))
+	if strings.HasPrefix(mailboxAddress, "mail:") {
+		mailboxAddress = strings.TrimPrefix(mailboxAddress, "mail:")
+	}
+	subject := defaultString(stringFromAny(metadata["subject"]), stringFromAny(message["title"]))
+	if strings.HasPrefix(subject, "[邮件] ") {
+		subject = strings.TrimPrefix(subject, "[邮件] ")
+	}
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	fromAddr := stringFromAny(metadata["from_addr"])
+	preview := stringFromAny(metadata["preview"])
+	hasAttachments := boolFromAny(metadata["has_attachments"])
+
+	normalized := make(map[string]any, len(message))
+	for key, value := range message {
+		normalized[key] = value
+	}
+	normalized["title"] = "[邮件] " + subject
+	normalized["content"] = buildNormalizedMailNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
+	return normalized
+}
+
+func parseMessageMetadata(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(typed), &parsed); err != nil {
+			return nil
+		}
+		return parsed
+	default:
+		return nil
+	}
+}
+
+func buildNormalizedMailNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 func collectMessageIDs(messages []map[string]any) []string {

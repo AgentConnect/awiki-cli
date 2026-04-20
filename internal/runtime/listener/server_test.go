@@ -111,11 +111,11 @@ func TestMessageRecordFromMailNotificationBuildsSystemMessage(t *testing.T) {
 	if record.ContentType != "mail.notification" {
 		t.Fatalf("record.ContentType = %q", record.ContentType)
 	}
-	if record.Title != "Mail Subject" {
+	if record.Title != "[邮件] Mail Subject" {
 		t.Fatalf("record.Title = %q", record.Title)
 	}
-	if !strings.Contains(record.Content, "alice@example.com") || !strings.Contains(record.Content, "Mail Subject") {
-		t.Fatalf("record.Content = %q, want summary with mailbox and subject", record.Content)
+	if !strings.Contains(record.Content, "[邮件] 收件邮箱: alice@example.com") || !strings.Contains(record.Content, "主题: Mail Subject") {
+		t.Fatalf("record.Content = %q, want mail summary with mailbox and subject", record.Content)
 	}
 	if record.CredentialName != "alice" {
 		t.Fatalf("record.CredentialName = %q", record.CredentialName)

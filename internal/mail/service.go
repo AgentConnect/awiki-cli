@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -64,6 +65,7 @@ func (s *Service) Notifications(ctx context.Context, identityName string, limit 
 	if err != nil {
 		return nil, err
 	}
+	rows = normalizeNotificationRows(rows)
 	summary := fmt.Sprintf("Loaded %d mail notification(s)", len(rows))
 	data := map[string]any{
 		"notifications": rows,
@@ -104,6 +106,83 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		summary = fmt.Sprintf("Loaded %d messages", total)
 	}
 	return &CommandResult{Data: result, Summary: summary}, nil
+}
+
+func normalizeNotificationRows(rows []map[string]any) []map[string]any {
+	if len(rows) == 0 {
+		return rows
+	}
+	normalized := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		normalized = append(normalized, normalizeNotificationRow(row))
+	}
+	return normalized
+}
+
+func normalizeNotificationRow(row map[string]any) map[string]any {
+	if strings.TrimSpace(stringFromAny(row["content_type"])) != "mail.notification" {
+		return row
+	}
+	metadata := parseNotificationMetadata(row["metadata"])
+	mailboxAddress := defaultString(stringFromAny(metadata["mailbox_address"]), stringFromAny(row["thread_id"]))
+	if strings.HasPrefix(mailboxAddress, "mail:") {
+		mailboxAddress = strings.TrimPrefix(mailboxAddress, "mail:")
+	}
+	subject := defaultString(stringFromAny(metadata["subject"]), stringFromAny(row["title"]))
+	if strings.HasPrefix(subject, "[邮件] ") {
+		subject = strings.TrimPrefix(subject, "[邮件] ")
+	}
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	fromAddr := stringFromAny(metadata["from_addr"])
+	preview := stringFromAny(metadata["preview"])
+	hasAttachments := boolFromAny(metadata["has_attachments"])
+
+	normalized := make(map[string]any, len(row))
+	for key, value := range row {
+		normalized[key] = value
+	}
+	normalized["title"] = "[邮件] " + subject
+	normalized["content"] = buildNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
+	return normalized
+}
+
+func parseNotificationMetadata(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(typed), &parsed); err != nil {
+			return nil
+		}
+		return parsed
+	default:
+		return nil
+	}
+}
+
+func buildNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 func (s *Service) Read(ctx context.Context, request ReadRequest) (*CommandResult, error) {

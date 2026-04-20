@@ -609,22 +609,7 @@ func messageRecordFromMailNotification(notification map[string]any, identityName
 		subject = "(no subject)"
 	}
 	sentAt := time.Now().UTC().Format(time.RFC3339)
-	contentLines := []string{
-		fmt.Sprintf("[Mail] %s", mailboxAddress),
-	}
-	if fromAddr != "" {
-		contentLines = append(contentLines, fmt.Sprintf("From: %s", fromAddr))
-	}
-	if subject != "" {
-		contentLines = append(contentLines, fmt.Sprintf("Subject: %s", subject))
-	}
-	if preview != "" {
-		contentLines = append(contentLines, "", preview)
-	}
-	if hasAttachments {
-		contentLines = append(contentLines, "", "(This message has attachments.)")
-	}
-	content := strings.Join(contentLines, "\n")
+	content := buildMailNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
 
 	return store.MessageRecord{
 		MsgID:          messageID,
@@ -635,7 +620,7 @@ func messageRecordFromMailNotification(notification map[string]any, identityName
 		ReceiverDID:    mailboxDID,
 		ContentType:    "mail.notification",
 		Content:        content,
-		Title:          subject,
+		Title:          "[邮件] " + subject,
 		ServerSeq:      nil,
 		SentAt:         sentAt,
 		IsE2EE:         false,
@@ -643,6 +628,25 @@ func messageRecordFromMailNotification(notification map[string]any, identityName
 		Metadata:       metadataValue(params),
 		CredentialName: identityName,
 	}, true
+}
+
+func buildMailNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 func messageRecordFromGroupIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
