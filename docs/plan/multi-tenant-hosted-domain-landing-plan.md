@@ -403,6 +403,8 @@ AWIKI_CLI_WORKSPACE_HOME_DIR=~/.awiki-cli-b awiki-cli init --domain b.example.co
 
 ## CLI-MTD-8：文档、schema 与系统测试同步
 
+**状态**：已完成（2026-04-20）。已同步 README / installation / command architecture / ANP discovery / 总实施计划 / built-in docs topic / system-test 规划，并确认 schema/help 已包含 `init --domain` 与 `config services show/set`。
+
 ### 目标
 
 让 CLI 产品面、内建 docs/schema、安装说明、系统测试规划与新配置入口一致。

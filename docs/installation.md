@@ -194,6 +194,33 @@ services:
 - `services.anp_service_endpoint` 默认推导为 `https://<did_domain>/anp-im/rpc`
 - `services.anp_service_did` 默认推导为 `did:wba:<did_domain>`
 
+### Hosted multi-domain workspace
+
+在 hosted multi-domain 部署下，一个 workspace 只激活一个 home domain。推荐为不同 domain 使用不同 workspace：
+
+```bash
+AWIKI_CLI_WORKSPACE_HOME_DIR=~/.awiki-cli-a awiki-cli init --domain a.example.com
+AWIKI_CLI_WORKSPACE_HOME_DIR=~/.awiki-cli-b awiki-cli init --domain b.example.com
+```
+
+`init --domain` 会写入：
+
+```yaml
+services:
+  service_base_url: https://a.example.com
+  did_domain: a.example.com
+  anp_service_endpoint: https://a.example.com/anp-im/rpc
+  anp_service_did: did:wba:a.example.com
+```
+
+如需高级网关部署，可使用：
+
+```bash
+awiki-cli config services set   --domain a.example.com   --service-base-url https://api.a.example.com   --anp-service-endpoint https://a.example.com/anp-im/rpc   --anp-service-did did:wba:a.example.com
+```
+
+`config services set` 只更新 `config.yaml.services.*`，不会迁移已有 identity DID domain。若需要切换 home domain，优先创建新 workspace；`doctor` 会在 identity DID domain 与 active `services.did_domain` 不一致时提示 warning。
+
 配置优先级固定为：
 
 ```text

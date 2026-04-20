@@ -212,6 +212,29 @@ awiki-cli completion <bash|zsh|fish|powershell>
 * 帮用户创建工作目录（默认是 `~/.awiki-cli`，仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区根目录覆盖）及其子目录；
 * 在首次需要时生成一份最小的 `config.yaml` 骨架；
 
+### 3.2.1 Hosted-domain services commands
+
+Hosted multi-domain 下，`init` 额外支持：
+
+```bash
+awiki-cli init --domain a.example.com
+awiki-cli init --domain a.example.com --service-base-url https://api.a.example.com
+```
+
+`config` 域增加：
+
+```bash
+awiki-cli config services show
+awiki-cli config services set --domain b.example.com
+```
+
+约束：
+
+* 一个 workspace 只激活一个 `services.did_domain`。
+* `config services set` 只修改 `config.yaml.services.*`，不迁移 identity store。
+* `service_base_url` 是 API gateway；`anp_service_endpoint` / `anp_service_did` 是 DID 文档公开发现字段。
+
+
 Cobra 本身就是面向现代 Go CLI 的命令树框架，支持子命令、flag、自动 help；官方文档也明确支持 shell completion，以及从命令树生成 Markdown/man page 文档。用它来做 awiki-cli，正好能把命令、帮助、completion、文档和 LLM 索引统一起来。([GitHub][1])
 
 ---

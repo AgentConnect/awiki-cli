@@ -113,3 +113,22 @@
 - `profiles` 只包含 direct base + attachment
 - `securityProfiles` 只包含 `transport-protected`
 - 无效 `anp_service_endpoint` / `anp_service_did` 会在 DID 生成和 `doctor` 中暴露
+
+## 7. Hosted multi-domain CLI 规则
+
+`awiki-cli` 不维护单 workspace 多 tenant 状态；每个 workspace 只选择一个 active domain。用户通过以下入口管理 `services.*`：
+
+```bash
+awiki-cli init --domain a.example.com
+awiki-cli config services show
+awiki-cli config services set --domain b.example.com
+```
+
+字段来源固定如下：
+
+- DID id host / proof domain：`services.did_domain`
+- API gateway：`services.service_base_url`
+- DID 文档 `ANPMessageService.serviceEndpoint`：`services.anp_service_endpoint`
+- DID 文档 `ANPMessageService.serviceDid`：`services.anp_service_did`
+
+`service_base_url` 不得用于反推 DID domain。`doctor` 会对 endpoint / service DID 格式错误给出 error，对高级网关 host mismatch 给出 warning。

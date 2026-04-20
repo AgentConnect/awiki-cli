@@ -909,3 +909,17 @@ v2 本地 SQLite 设计参考以下来源：
 - 当 `docs/architecture/awiki-v2-architecture.md` 或 `docs/architecture/awiki-command-v2.md` 发生影响实施范围的变化时，必须同步更新本文档。
 - 当 v1 SQLite schema 或凭证布局的参考基线发生变化时，需要同步更新“参考基线”章节。
 - 当新增一级命令或调整 canonical contract 时，必须同步更新 Phase、工作包、验收标准与测试计划。
+
+---
+
+## Hosted multi-domain 补充计划
+
+`docs/plan/multi-tenant-hosted-domain-landing-plan.md` 是 hosted multi-domain 的专项落地计划。当前已完成：
+
+- `init --domain` 与 services 高级覆盖 flags；
+- `config services show/set`；
+- DID 文档生成使用 `services.did_domain` / `services.anp_service_endpoint` / `services.anp_service_did`；
+- doctor services diagnostics 与 identity domain mismatch warning；
+- message/runtime/listener 保持单 workspace 单 active domain 边界。
+
+后续系统联调以多 workspace 方式覆盖 a/b/c domain，不引入单 workspace 多 tenant profile。

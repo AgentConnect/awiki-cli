@@ -36,6 +36,14 @@ Initialize the workspace:
 awiki-cli init
 ```
 
+For hosted-domain deployments, initialize one workspace per active domain:
+
+```bash
+AWIKI_CLI_WORKSPACE_HOME_DIR=~/.awiki-cli-a awiki-cli init --domain a.example.com
+AWIKI_CLI_WORKSPACE_HOME_DIR=~/.awiki-cli-b awiki-cli init --domain b.example.com
+awiki-cli config services show
+```
+
 For the full first-time flow (identity registration or recovery, runtime setup, and status checks), please follow the onboarding guide:
 
 - English onboarding: [onboarding.en.md](./onboarding.en.md)

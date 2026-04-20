@@ -43,6 +43,15 @@ func NewIndex() *Index {
 			},
 		},
 		{
+			Name:    "hosted-domains",
+			Summary: "Hosted multi-domain workspace and service configuration",
+			References: []string{
+				"docs/architecture/multi-tenant-hosted-domain-implementation.md",
+				"docs/plan/multi-tenant-hosted-domain-landing-plan.md",
+				"docs/architecture/anp-service-discovery.md",
+			},
+		},
+		{
 			Name:    "mail",
 			Summary: "Top-level mail command surface and service configuration",
 			References: []string{
