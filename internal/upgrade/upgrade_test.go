@@ -554,8 +554,13 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 			LegacyCredentialsDir: filepath.Join(root, "legacy-credentials"),
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
-		RuntimeMode:  runtimecfg.ModeHTTP,
-		OutputFormat: "json",
+		RuntimeMode:         runtimecfg.ModeHTTP,
+		OutputFormat:        "json",
+		ServiceBaseURL:      "https://awiki.ai",
+		DIDDomain:           "awiki.ai",
+		ANPServiceEndpoint:  appconfig.DeriveANPServiceEndpoint("https://awiki.ai"),
+		ANPServiceDID:       appconfig.DeriveANPServiceDID("https://awiki.ai"),
+		ConfigSchemaVersion: appconfig.ConfigSchemaVersion,
 	}
 }
 

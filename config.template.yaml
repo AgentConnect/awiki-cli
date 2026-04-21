@@ -22,8 +22,11 @@ output:
   format: json
   no_color: false
 services:
+  # Platform service URL used for User-Service and Message-Service APIs.
   service_base_url: https://awiki.ai
+  # DID provider domain. Tenant identities may set this to a.com while keeping service_base_url on awiki.ai.
   did_domain: awiki.ai
+  # Defaults derive from service_base_url, not did_domain; set explicitly when advertising a custom ANP service.
   anp_service_endpoint: https://awiki.ai/anp-im/rpc
   anp_service_did: did:wba:awiki.ai
   ca_bundle: ""
