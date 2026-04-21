@@ -2,17 +2,15 @@ package mail
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 type ServiceError struct {
@@ -48,7 +46,7 @@ func NewClient(resolved *appconfig.Resolved) (*Client, error) {
 	if strings.TrimSpace(resolved.MailServiceURL) == "" {
 		return nil, fmt.Errorf("mail service url is required")
 	}
-	httpClient, err := newHTTPClient(resolved.CABundle)
+	httpClient, err := transportcfg.NewHTTPClient(resolved.CABundle)
 	if err != nil {
 		return nil, err
 	}
@@ -59,14 +57,22 @@ func NewClient(resolved *appconfig.Resolved) (*Client, error) {
 }
 
 func (c *Client) AuthenticatedRPCCall(ctx context.Context, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
+	return c.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, endpoint, method, params, auth, out)
+}
+
+func (c *Client) AuthenticatedRPCCallProfile(ctx context.Context, profile transportcfg.Profile, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
 	if c == nil || c.client == nil {
 		return fmt.Errorf("mail client is not configured")
 	}
 	if auth == nil {
 		return fmt.Errorf("auth session is required")
 	}
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, profile)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, method)
+	defer finish()
 	requestURL := c.baseURL + endpoint
-	if err := auth.DoJSONRPC(ctx, c.client, requestURL, http.MethodPost, method, params, out); err != nil {
+	if err := auth.DoJSONRPC(timeoutCtx, c.client, requestURL, http.MethodPost, method, params, out); err != nil {
 		var rpcErr *authsdk.RPCError
 		if errors.As(err, &rpcErr) {
 			return &ServiceError{RPCCode: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
@@ -78,23 +84,4 @@ func (c *Client) AuthenticatedRPCCall(ctx context.Context, endpoint string, meth
 		return err
 	}
 	return nil
-}
-
-func newHTTPClient(caBundle string) (*http.Client, error) {
-	transport := &http.Transport{}
-	if strings.TrimSpace(caBundle) != "" {
-		rootCAs, err := x509.SystemCertPool()
-		if err != nil || rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
-		bundle, err := os.ReadFile(filepath.Clean(caBundle))
-		if err != nil {
-			return nil, fmt.Errorf("read ca bundle: %w", err)
-		}
-		if ok := rootCAs.AppendCertsFromPEM(bundle); !ok {
-			return nil, fmt.Errorf("invalid ca bundle: %s", caBundle)
-		}
-		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
-	}
-	return &http.Client{Transport: transport}, nil
 }

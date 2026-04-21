@@ -12,6 +12,8 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 var (
@@ -341,7 +343,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -453,8 +455,10 @@ func (s *Service) RefreshToken(ctx context.Context, identityName string) (*Comma
 	if err != nil {
 		return nil, err
 	}
-	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 	defer cancel()
+	finish := traceutil.EnsureJWTPhase(ctx, "identity_refresh_token")
+	defer finish()
 	if _, err := session.EnsureJWT(
 		refreshCtx,
 		s.remote.client,
@@ -484,7 +488,10 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	warnings := make([]string, 0)
 	if handle != "" {
 		var lookup map[string]any
-		if err := s.remote.rpcCall(ctx, handleRPCEndpoint, "lookup", map[string]any{"handle": handle}, "", &lookup); err != nil {
+		finish := traceutil.HandleLookupPhase(ctx, "handle_to_did")
+		err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": handle}, "", &lookup)
+		finish()
+		if err != nil {
 			return nil, err
 		}
 		data["lookup"] = lookup
@@ -493,7 +500,7 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, handle)
 		}
 		var profile map[string]any
-		if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", map[string]any{"handle": handle}, "", &profile); err == nil {
+		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"handle": handle}, "", &profile); err == nil {
 			data["public_profile"] = profile
 		} else {
 			warnings = append(warnings, fmt.Sprintf("Public profile lookup failed: %v", err))
@@ -501,19 +508,22 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	}
 	if did != "" {
 		var resolve map[string]any
-		if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "resolve", map[string]any{"did": did}, "", &resolve); err != nil {
+		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, didProfileRPCEndpoint, "resolve", map[string]any{"did": did}, "", &resolve); err != nil {
 			return nil, err
 		}
 		data["resolve"] = resolve
 		if handle == "" {
 			var lookup map[string]any
-			if err := s.remote.rpcCall(ctx, handleRPCEndpoint, "lookup", map[string]any{"did": did}, "", &lookup); err == nil {
+			finish := traceutil.HandleLookupPhase(ctx, "did_to_handle")
+			err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"did": did}, "", &lookup)
+			finish()
+			if err == nil {
 				data["lookup"] = lookup
 			} else {
 				warnings = append(warnings, fmt.Sprintf("Handle lookup failed: %v", err))
 			}
 			var profile map[string]any
-			if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
+			if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
 				data["public_profile"] = profile
 			} else {
 				warnings = append(warnings, fmt.Sprintf("Public profile lookup failed: %v", err))
@@ -747,7 +757,7 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -779,7 +789,7 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	}
 
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, didAuthRPCEndpoint, "replace_did", requestParams, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, didAuthRPCEndpoint, "replace_did", requestParams, auth, &result); err != nil {
 		return nil, err
 	}
 
@@ -825,12 +835,12 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		if err != nil {
 			return nil, err
 		}
-		auth, err := s.authSession(record)
+		auth, err := s.authSession(ctx, record)
 		if err != nil {
 			return nil, err
 		}
 		var result map[string]any
-		if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "get_me", map[string]any{}, auth, &result); err != nil {
+		if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_me", map[string]any{}, auth, &result); err != nil {
 			return nil, err
 		}
 		return &CommandResult{
@@ -849,7 +859,7 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		params["did"] = did
 	}
 	var result map[string]any
-	if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", params, "", &result); err != nil {
+	if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", params, "", &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -866,7 +876,7 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -901,7 +911,7 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 		return nil, fmt.Errorf("%w: no profile fields were provided", ErrInvalidInput)
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "update_me", payload, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, didProfileRPCEndpoint, "update_me", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(params.DisplayName) != "" {
@@ -964,7 +974,7 @@ func (s *Service) requireActiveIdentity() (*StoredIdentity, error) {
 	return record, nil
 }
 
-func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) {
+func (s *Service) authSession(ctx context.Context, record *StoredIdentity) (*authsdk.Session, error) {
 	session, err := s.newAuthSession(record, record.JWTToken)
 	if err != nil {
 		return nil, err
@@ -972,10 +982,12 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
 	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 		defer cancel()
+		finish := traceutil.EnsureJWTPhase(ctx, "identity_bootstrap")
+		defer finish()
 		if _, err := session.EnsureJWT(
-			ctx,
+			refreshCtx,
 			s.remote.client,
 			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
 		); err != nil {

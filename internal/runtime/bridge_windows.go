@@ -40,8 +40,8 @@ func prepareBridgeEndpoint(path string) error {
 	return nil
 }
 
-func dialBridge(path string) (net.Conn, error) {
-	return winio.DialPipe(path, nil)
+func dialBridge(path string, timeout time.Duration) (net.Conn, error) {
+	return winio.DialPipe(path, &timeout)
 }
 
 func ListenBridge(path string) (net.Listener, error) {
@@ -62,8 +62,7 @@ func tempDir() string {
 	return os.TempDir()
 }
 
-func BridgeHealthProbe(path string) error {
-	timeout := time.Duration(0)
+func BridgeHealthProbe(path string, timeout time.Duration) error {
 	conn, err := winio.DialPipe(path, &timeout)
 	if err != nil {
 		return err

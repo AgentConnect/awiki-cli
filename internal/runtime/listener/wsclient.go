@@ -15,6 +15,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/message"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 	"github.com/coder/websocket"
 )
 
@@ -55,6 +56,10 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 	}
 	targetWSURL := appconfig.DeriveWebSocketURL(resolved.ServiceBaseURL, message.MessageWSEndpoint)
 	didAuthURL := appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
+	httpClient, err := transportcfg.NewHTTPClient(resolved.CABundle)
+	if err != nil {
+		return nil, err
+	}
 	auth.RememberScope(resolved.ServiceBaseURL)
 	auth.RememberScope(didAuthURL)
 	auth.RememberScope(targetHTTPURL)
@@ -62,7 +67,7 @@ func NewWSClient(resolved *appconfig.Resolved, auth *authsdk.Session) (*WSClient
 		requestURL:    targetHTTPURL,
 		didAuthURL:    didAuthURL,
 		websocketURL:  targetWSURL,
-		httpClient:    &http.Client{},
+		httpClient:    httpClient,
 		auth:          auth,
 		pending:       map[string]chan map[string]any{},
 		notifications: make(chan map[string]any, 128),

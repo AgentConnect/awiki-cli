@@ -14,6 +14,8 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 type Service struct {
@@ -80,6 +82,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 			_ = s.refreshJWT(ctx, record)
 		}
 		if fallback, fallbackWarnings, fallbackErr := s.httpFallbackSend(ctx, record, request, targetDID); fallbackErr == nil {
+			traceutil.MarkFallback(ctx, "websocket_to_http", err)
 			warnings = append(warnings, fallbackWarnings...)
 			return s.persistSendResult(ctx, record, targetDID, targetHandle, request, fallback, warnings)
 		}
@@ -184,6 +187,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					return nil, err
 				}
 			}
+			traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
 			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
@@ -334,6 +338,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					return nil, err
 				}
 			}
+			traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
 			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
@@ -447,6 +452,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 					if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 						result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 						if markErr == nil {
+							traceutil.MarkFallback(ctx, "websocket_to_http", fallbackCause)
 							transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 							transportWarnings = append(transportWarnings, httpWarnings...)
 						}
@@ -456,6 +462,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 				if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 					result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 					if markErr == nil {
+						traceutil.MarkFallback(ctx, "websocket_to_http", fallbackCause)
 						transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 						transportWarnings = append(transportWarnings, httpWarnings...)
 					}
@@ -564,8 +571,10 @@ func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentit
 	)
 	didAuthURL := appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
 	rememberAuthScopes(session, s.resolved)
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctxWithTimeout, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 	defer cancel()
+	finish := traceutil.EnsureJWTPhase(ctx, "message_fallback_refresh")
+	defer finish()
 	if _, err := session.EnsureJWT(ctxWithTimeout, s.remote.Client(), didAuthURL); err != nil {
 		return err
 	}
@@ -722,6 +731,8 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 	if strings.HasPrefix(target, "did:") {
 		return target, "", nil
 	}
+	finish := traceutil.HandleLookupPhase(ctx, "target_resolve")
+	defer finish()
 	var lookup map[string]any
 	if err := s.remote.RPCCall(ctx, "/user-service/handle/rpc", "lookup", map[string]any{"handle": target}, "", &lookup); err != nil {
 		return "", "", err
@@ -730,10 +741,13 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 	if did == "" {
 		return "", "", fmt.Errorf("%w: %s", ErrTargetRequired, target)
 	}
-	return did, target, nil
+	resolvedHandle := normalizeHandleValue(defaultString(stringFromAny(lookup["handle"]), target))
+	return did, resolvedHandle, nil
 }
 
 func (s *Service) persistSendResult(ctx context.Context, record *identity.StoredIdentity, targetDID string, targetHandle string, request SendRequest, result *directSendResult, warnings []string) (*CommandResult, error) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_direct_send")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -781,6 +795,8 @@ func (s *Service) persistSendResult(ctx context.Context, record *identity.Stored
 }
 
 func (s *Service) persistInboxMessages(ctx context.Context, record *identity.StoredIdentity, raw map[string]any, knownHandle string) ([]map[string]any, int, []string) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_inbox_messages")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, 0, nil
@@ -818,11 +834,15 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
+	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
+	defer contactFinish()
 	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.inbox")
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 
 func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.StoredIdentity, peerDID string, knownHandle string, raw map[string]any) ([]map[string]any, int, []string) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_history_messages")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, 0, nil
@@ -860,11 +880,15 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
+	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
+	defer contactFinish()
 	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.history")
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 
 func (s *Service) readInboxFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_inbox_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -877,6 +901,8 @@ func (s *Service) readInboxFromCache(ctx context.Context, record *identity.Store
 }
 
 func (s *Service) readAllLocalMailNotifications(ctx context.Context, record *identity.StoredIdentity, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_mail_notification_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -889,6 +915,8 @@ func (s *Service) readAllLocalMailNotifications(ctx context.Context, record *ide
 }
 
 func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_history_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -902,6 +930,8 @@ func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.Sto
 }
 
 func (s *Service) readInboxFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_inbox_cache_by_peer_dids")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -914,6 +944,8 @@ func (s *Service) readInboxFromCacheByPeerDIDs(ctx context.Context, record *iden
 }
 
 func (s *Service) readHistoryFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_history_cache_by_peer_dids")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err

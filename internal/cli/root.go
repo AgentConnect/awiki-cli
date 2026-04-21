@@ -16,6 +16,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
 	"github.com/agentconnect/awiki-cli/internal/update"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
 	"github.com/spf13/cobra"
@@ -37,6 +38,8 @@ func newRootCommand(app *App) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			app.traceRun = traceutil.New(cmd.CommandPath())
+			cmd.SetContext(traceutil.WithRun(cmd.Context(), app.traceRun))
 			app.globals.FormatChanged = cmd.Flags().Changed("format")
 			app.globals.IdentityChanged = cmd.Flags().Changed("identity")
 			_, err := output.NormalizeFormat(app.globals.Format)
@@ -505,7 +508,7 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 	}
 
 	// Resolve config to get update-related knobs and cache paths.
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigRaw()
 	if err != nil {
 		// Config errors are surfaced by individual commands; do not double-fail here.
 		return nil

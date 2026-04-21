@@ -13,6 +13,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
 )
 
 func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (*CommandResult, error) {
@@ -251,6 +252,7 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 			return nil, err
 		}
 		sourceMode = runtime.ModeHTTP
+		traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
 		warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 		warnings = append(warnings, httpWarnings...)
 	}
@@ -294,6 +296,7 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 			return nil, err
 		}
 		sourceMode = runtime.ModeHTTP
+		traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
 		warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 		warnings = append(warnings, httpWarnings...)
 	}
@@ -326,6 +329,8 @@ func (s *Service) syncGroupState(ctx context.Context, record *identity.StoredIde
 }
 
 func (s *Service) persistGroupSendResult(ctx context.Context, record *identity.StoredIdentity, request SendRequest, result *groupSendResult, warnings []string, sourceMode string) (*CommandResult, error) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_group_send")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -367,6 +372,8 @@ func (s *Service) persistGroupSnapshot(ctx context.Context, record *identity.Sto
 	if len(snapshot) == 0 {
 		return nil
 	}
+	finish := traceutil.LocalDBPhase(ctx, "persist_group_snapshot")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for group snapshot: %v", err)}
@@ -414,6 +421,8 @@ func (s *Service) persistGroupMembers(ctx context.Context, record *identity.Stor
 	if len(members) == 0 {
 		return nil
 	}
+	finish := traceutil.LocalDBPhase(ctx, "persist_group_members")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for group members: %v", err)}
@@ -428,11 +437,16 @@ func (s *Service) persistGroupMembers(ctx context.Context, record *identity.Stor
 		if memberDID == "" {
 			continue
 		}
+		memberHandle := normalizeHandleValue(defaultString(
+			stringFromAny(member["handle"]),
+			defaultString(stringFromAny(member["member_handle"]), stringFromAny(member["agent_handle"])),
+		))
 		records = append(records, store.GroupMemberRecord{
 			OwnerDID:       record.DID,
 			GroupID:        groupStorageKey(groupDID),
 			UserID:         memberDID,
 			MemberDID:      memberDID,
+			MemberHandle:   memberHandle,
 			Role:           stringFromAny(member["role"]),
 			Status:         stringFromAny(member["status"]),
 			JoinedAt:       stringFromAny(member["joined_at"]),
@@ -451,6 +465,8 @@ func (s *Service) persistGroupMessages(ctx context.Context, record *identity.Sto
 	if len(messages) == 0 {
 		return nil
 	}
+	finish := traceutil.LocalDBPhase(ctx, "persist_group_messages")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for group messages: %v", err)}
@@ -514,6 +530,8 @@ func (s *Service) persistGroupMessages(ctx context.Context, record *identity.Sto
 }
 
 func (s *Service) touchCachedGroup(ctx context.Context, record *identity.StoredIdentity, groupDID string, sentAt string, groupEventSeq string, groupStateVersion string) []string {
+	finish := traceutil.LocalDBPhase(ctx, "touch_group_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for group cache update: %v", err)}
@@ -529,6 +547,8 @@ func (s *Service) touchCachedGroup(ctx context.Context, record *identity.StoredI
 }
 
 func (s *Service) markCachedGroupLeft(ctx context.Context, record *identity.StoredIdentity, groupDID string) []string {
+	finish := traceutil.LocalDBPhase(ctx, "mark_group_left")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for leave projection: %v", err)}
@@ -548,6 +568,8 @@ func (s *Service) markCachedGroupLeft(ctx context.Context, record *identity.Stor
 }
 
 func (s *Service) readCachedGroupSnapshot(ctx context.Context, record *identity.StoredIdentity, groupDID string) (map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_group_snapshot_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -567,6 +589,8 @@ func (s *Service) readCachedGroupSnapshot(ctx context.Context, record *identity.
 }
 
 func (s *Service) readCachedGroupMembers(ctx context.Context, record *identity.StoredIdentity, groupDID string, limit int) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_group_members_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -579,6 +603,8 @@ func (s *Service) readCachedGroupMembers(ctx context.Context, record *identity.S
 }
 
 func (s *Service) readCachedGroupMessages(ctx context.Context, record *identity.StoredIdentity, groupDID string, limit int, cursor string) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_group_messages_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -742,6 +768,8 @@ func encodeAnyString(value any) string {
 }
 
 func readGroupInboxFromCache(ctx context.Context, resolvedPathOpener func() (*sql.DB, error), ownerDID string, groupDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_group_inbox_cache")
+	defer finish()
 	db, err := resolvedPathOpener()
 	if err != nil {
 		return nil, err
@@ -758,6 +786,8 @@ func (s *Service) readGroupInboxFromCache(ctx context.Context, record *identity.
 }
 
 func readAllLocalGroupInbox(ctx context.Context, resolvedPathOpener func() (*sql.DB, error), ownerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_all_group_inbox_cache")
+	defer finish()
 	db, err := resolvedPathOpener()
 	if err != nil {
 		return nil, err

@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
-
-const listenerHandleLookupTimeout = 5 * time.Second
 
 func (s *Supervisor) syncIncomingContact(
 	ctx context.Context,
@@ -32,7 +31,7 @@ func (s *Supervisor) syncIncomingContact(
 	if s.remote == nil {
 		return "", nil
 	}
-	lookupCtx, cancel := context.WithTimeout(ctx, listenerHandleLookupTimeout)
+	lookupCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileRPCDefault)
 	defer cancel()
 	result, err := s.remote.LookupHandleByDID(lookupCtx, senderDID)
 	if err != nil || result == nil {

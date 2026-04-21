@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -258,7 +257,7 @@ func (a *App) runIDRegister(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.Register(context.Background(), params)
+	result, err := service.Register(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Ensure the handle, verification method, and local alias are valid.")
 	}
@@ -311,7 +310,7 @@ func (a *App) runIDBind(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.Bind(context.Background(), params)
+	result, err := service.Bind(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use an identity that already has a valid JWT.")
 	}
@@ -344,7 +343,7 @@ func (a *App) runIDRefreshToken(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.RefreshToken(context.Background(), a.globals.Identity)
+	result, err := service.RefreshToken(cmd.Context(), a.globals.Identity)
 	if err != nil {
 		return a.identityExit(err, "Use a registered identity with valid DID key material before retrying.")
 	}
@@ -358,7 +357,7 @@ func (a *App) runIDResolve(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the configured service endpoints.")
 	}
-	result, err := service.Resolve(context.Background(), handle, did)
+	result, err := service.Resolve(cmd.Context(), handle, did)
 	if err != nil {
 		return a.identityExit(err, "Provide either --handle or --did, and make sure the target exists.")
 	}
@@ -389,7 +388,7 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, identity.PublicData(result.Data), result.Summary, result.Warnings, nil)
 	}
-	result, err := service.Recover(context.Background(), params)
+	result, err := service.Recover(cmd.Context(), params)
 	if err != nil {
 		var recoverErr *identity.RecoverFinalizeError
 		if errors.As(err, &recoverErr) {
@@ -431,7 +430,7 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 	} else if summary, ok := result.Data["identity"].(map[string]any); ok {
 		newDID, _ = summary["did"].(string)
 	}
-	storeMergeCounts, e2eeCleanupCounts, err := store.MergeRecoveredHandleLocalState(context.Background(), service.Config().Paths, oldDIDs, newDID, finalIdentityName)
+	storeMergeCounts, e2eeCleanupCounts, err := store.MergeRecoveredHandleLocalState(cmd.Context(), service.Config().Paths, oldDIDs, newDID, finalIdentityName)
 	if err != nil {
 		return &output.ExitError{
 			Code: 1,
@@ -567,7 +566,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 		return a.renderIdentityResult(cmd, format, result)
 	}
 
-	result, err := service.ReplaceDID(context.Background(), params)
+	result, err := service.ReplaceDID(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use a handle-backed identity with valid DID credentials before retrying.")
 	}
@@ -580,7 +579,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 	result.Warnings = append([]string{replaceDIDDangerWarning}, result.Warnings...)
 	oldDID, _ := result.Data["old_did"].(string)
 	newDID, _ := result.Data["did"].(string)
-	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(context.Background(), service.Config().Paths, oldDID, newDID)
+	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(cmd.Context(), service.Config().Paths, oldDID, newDID)
 	result.Data["store_rebind"] = storeRebind
 	result.Data["e2ee_cleanup"] = e2eeCleanup
 	if rebindErr != nil {
@@ -597,7 +596,7 @@ func (a *App) runIDProfileGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the configured service endpoints.")
 	}
-	result, err := service.GetProfile(context.Background(), self, handle, did)
+	result, err := service.GetProfile(cmd.Context(), self, handle, did)
 	if err != nil {
 		return a.identityExit(err, "Use `--self`, `--handle`, or `--did` to select one profile target.")
 	}
@@ -642,7 +641,7 @@ func (a *App) runIDProfileSet(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.SetProfile(context.Background(), params)
+	result, err := service.SetProfile(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use an identity that already has a valid DID JWT.")
 	}

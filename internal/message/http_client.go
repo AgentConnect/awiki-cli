@@ -10,6 +10,8 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 type Transport interface {
@@ -345,8 +347,13 @@ func (t *HTTPTransport) rpcMapCall(ctx context.Context, method string, params ma
 }
 
 func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[string]any, out any) error {
+	finish := traceutil.RPCPhase(ctx, method)
+	defer finish()
+	profile := rpcTimeoutProfile(method)
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, profile)
+	defer cancel()
 	requestURL := t.rpcEndpointURL
-	err := t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
+	err := t.auth.session.DoJSONRPC(timeoutCtx, t.httpClient, requestURL, http.MethodPost, method, params, out)
 	if err == nil {
 		t.auth.record.JWTToken = t.auth.session.CurrentJWT()
 		return nil
@@ -357,9 +364,15 @@ func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[s
 		// try to refresh the JWT via did-auth once and then retry this RPC.
 		if rpcErr.Code == 1401 && t.resolved != nil && t.auth != nil && t.auth.session != nil {
 			didAuthURL := appconfig.JoinBaseURL(t.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
-			if _, refreshErr := t.auth.session.EnsureJWT(ctx, t.httpClient, didAuthURL); refreshErr == nil {
+			refreshCtx, refreshCancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
+			defer refreshCancel()
+			refreshFinish := traceutil.EnsureJWTPhase(ctx, "message_service_retry")
+			if _, refreshErr := t.auth.session.EnsureJWT(refreshCtx, t.httpClient, didAuthURL); refreshErr == nil {
+				refreshFinish()
 				t.auth.record.JWTToken = t.auth.session.CurrentJWT()
-				err = t.auth.session.DoJSONRPC(ctx, t.httpClient, requestURL, http.MethodPost, method, params, out)
+				retryCtx, retryCancel := transportcfg.WithProfileTimeout(ctx, profile)
+				defer retryCancel()
+				err = t.auth.session.DoJSONRPC(retryCtx, t.httpClient, requestURL, http.MethodPost, method, params, out)
 				if err == nil {
 					t.auth.record.JWTToken = t.auth.session.CurrentJWT()
 					return nil
@@ -367,6 +380,8 @@ func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[s
 				// Update rpcErr to reflect the latest failure, if it is still an RPCError.
 				rpcErr = nil
 				_ = errors.As(err, &rpcErr)
+			} else {
+				refreshFinish()
 			}
 		}
 		if rpcErr != nil {
@@ -378,4 +393,13 @@ func (t *HTTPTransport) rpcCall(ctx context.Context, method string, params map[s
 		return &ServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}
 	}
 	return err
+}
+
+func rpcTimeoutProfile(method string) transportcfg.Profile {
+	switch strings.TrimSpace(method) {
+	case "inbox.get", "direct.get_history", "group.list_members", "group.list_messages":
+		return transportcfg.ProfileRPCReadHeavy
+	default:
+		return transportcfg.ProfileRPCDefault
+	}
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"os"
 	"strings"
@@ -201,7 +200,7 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: message send planned", nil, a.identityMeta())
 	}
-	result, err := service.Send(context.Background(), request)
+	result, err := service.Send(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Ensure the target exists, the active identity is valid, and runtime mode is configured correctly.")
 	}
@@ -239,7 +238,7 @@ func (a *App) runMsgAttachmentDownload(cmd *cobra.Command, args []string) error 
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: attachment download planned", nil, a.identityMeta())
 	}
-	result, err := service.DownloadAttachment(context.Background(), request)
+	result, err := service.DownloadAttachment(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the message id, attachment id, and target context are correct.")
 	}
@@ -279,7 +278,7 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: inbox read planned", nil, a.identityMeta())
 	}
-	result, err := service.Inbox(context.Background(), request)
+	result, err := service.Inbox(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the active identity is valid and runtime mode is available.")
 	}
@@ -311,7 +310,7 @@ func (a *App) runMsgHistory(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: direct history read planned", nil, a.identityMeta())
 	}
-	result, err := service.History(context.Background(), request)
+	result, err := service.History(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the peer exists and runtime mode is available.")
 	}
@@ -339,7 +338,7 @@ func (a *App) runMsgMarkRead(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mark-read planned", nil, a.identityMeta())
 	}
-	result, err := service.MarkRead(context.Background(), request)
+	result, err := service.MarkRead(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the message ids are valid and runtime mode is available.")
 	}

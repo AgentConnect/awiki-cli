@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"os"
 	"strings"
@@ -100,7 +99,7 @@ func (a *App) runPageCreate(cmd *cobra.Command, args []string) error {
 			},
 		}}, "Dry run: page create planned", nil, a.identityMeta())
 	}
-	result, err := service.CreatePage(context.Background(), request)
+	result, err := service.CreatePage(cmd.Context(), request)
 	if err != nil {
 		return a.contentExit(err, "Make sure the active identity has a handle and the page slug is valid.")
 	}
@@ -120,7 +119,7 @@ func (a *App) runPageList(cmd *cobra.Command, args []string) error {
 			"rpc_method":   "list",
 		}}, "Dry run: page list planned", nil, a.identityMeta())
 	}
-	result, err := service.ListPages(context.Background())
+	result, err := service.ListPages(cmd.Context())
 	if err != nil {
 		return a.contentExit(err, "Make sure the active identity has a handle and can access content pages.")
 	}
@@ -142,7 +141,7 @@ func (a *App) runPageGet(cmd *cobra.Command, args []string) error {
 			"request":      map[string]any{"slug": strings.TrimSpace(slug)},
 		}}, "Dry run: page get planned", nil, a.identityMeta())
 	}
-	result, err := service.GetPage(context.Background(), slug)
+	result, err := service.GetPage(cmd.Context(), slug)
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the active identity can access it.")
 	}
@@ -193,7 +192,7 @@ func (a *App) runPageUpdate(cmd *cobra.Command, args []string) error {
 			},
 		}}, "Dry run: page update planned", nil, a.identityMeta())
 	}
-	result, err := service.UpdatePage(context.Background(), request)
+	result, err := service.UpdatePage(cmd.Context(), request)
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the updated fields are valid.")
 	}
@@ -217,7 +216,7 @@ func (a *App) runPageRename(cmd *cobra.Command, args []string) error {
 			"request":      map[string]any{"old_slug": strings.TrimSpace(slug), "new_slug": strings.TrimSpace(target)},
 		}}, "Dry run: page rename planned", nil, a.identityMeta())
 	}
-	result, err := service.RenamePage(context.Background(), request)
+	result, err := service.RenamePage(cmd.Context(), request)
 	if err != nil {
 		return a.contentExit(err, "Make sure the source page exists and the target slug is available.")
 	}
@@ -239,7 +238,7 @@ func (a *App) runPageDelete(cmd *cobra.Command, args []string) error {
 			"request":      map[string]any{"slug": strings.TrimSpace(slug)},
 		}}, "Dry run: page delete planned", nil, a.identityMeta())
 	}
-	result, err := service.DeletePage(context.Background(), slug)
+	result, err := service.DeletePage(cmd.Context(), slug)
 	if err != nil {
 		return a.contentExit(err, "Make sure the page exists and the active identity can delete it.")
 	}

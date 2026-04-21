@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -87,7 +86,7 @@ func (a *App) runMailInbox(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail inbox planned", nil, a.identityMeta())
 	}
 
-	result, err := service.Inbox(context.Background(), request)
+	result, err := service.Inbox(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the active identity is valid and mail service is reachable.")
 	}
@@ -113,7 +112,7 @@ func (a *App) runMailRead(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail read planned", nil, a.identityMeta())
 	}
-	result, err := service.Read(context.Background(), request)
+	result, err := service.Read(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the message id is valid and mail service is reachable.")
 	}
@@ -138,7 +137,7 @@ func (a *App) runMailMarkRead(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail mark-read planned", nil, a.identityMeta())
 	}
-	result, err := service.MarkRead(context.Background(), request)
+	result, err := service.MarkRead(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the message ids are valid and mail service is reachable.")
 	}
@@ -159,7 +158,7 @@ func (a *App) runMailAccount(cmd *cobra.Command, args []string) error {
 		}}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail account lookup planned", nil, a.identityMeta())
 	}
-	result, err := service.Account(context.Background(), request)
+	result, err := service.Account(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the mail service is reachable.")
 	}
@@ -210,7 +209,7 @@ func (a *App) runMailSend(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail send planned", nil, a.identityMeta())
 	}
 
-	result, err := service.Send(context.Background(), request)
+	result, err := service.Send(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the mail service is reachable and the active identity is valid.")
 	}
@@ -244,7 +243,7 @@ func (a *App) runMailAttachmentDownload(cmd *cobra.Command, args []string) error
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail attachment download planned", nil, a.identityMeta())
 	}
 
-	result, err := service.Attachment(context.Background(), request)
+	result, err := service.Attachment(cmd.Context(), request)
 	if err != nil {
 		return a.mailExit(err, "Ensure the message id is valid and mail service is reachable.")
 	}
@@ -305,7 +304,7 @@ func (a *App) runMailNotify(cmd *cobra.Command, args []string) error {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: mail notifications planned", nil, a.identityMeta())
 	}
 
-	result, err := service.Notifications(context.Background(), a.globals.Identity, limit)
+	result, err := service.Notifications(cmd.Context(), a.globals.Identity, limit)
 	if err != nil {
 		return a.mailExit(err, "Ensure the runtime listener is running in websocket mode and has received notifications.")
 	}

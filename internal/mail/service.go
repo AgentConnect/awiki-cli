@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 const didAuthRPCEndpoint = "/user-service/did-auth/rpc"
@@ -53,6 +54,8 @@ func (s *Service) Notifications(ctx context.Context, identityName string, limit 
 	if err != nil {
 		return nil, err
 	}
+	finish := traceutil.LocalDBPhase(ctx, "read_mail_notifications")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -85,7 +88,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +99,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		"unread_only": request.UnreadOnly,
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getInbox", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getInbox", params, auth, &result); err != nil {
 		return nil, err
 	}
 	total := intValueFromAny(result["total"], 0)
@@ -193,13 +196,13 @@ func (s *Service) Read(ctx context.Context, request ReadRequest) (*CommandResult
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	params := map[string]any{"message_id": request.MessageID}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getMessage", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getMessage", params, auth, &result); err != nil {
 		return nil, err
 	}
 	summary := fmt.Sprintf("Loaded message %s", request.MessageID)
@@ -214,13 +217,13 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	params := map[string]any{"message_ids": request.MessageIDs, "is_read": request.IsRead}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.markRead", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.markRead", params, auth, &result); err != nil {
 		return nil, err
 	}
 	updated := intValueFromAny(result["updated"], 0)
@@ -233,12 +236,12 @@ func (s *Service) Account(ctx context.Context, request AccountRequest) (*Command
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getMailbox", map[string]any{}, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.getMailbox", map[string]any{}, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{Data: result, Summary: "Loaded mailbox account"}, nil
@@ -255,7 +258,7 @@ func (s *Service) Attachment(ctx context.Context, request AttachmentRequest) (*C
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +267,7 @@ func (s *Service) Attachment(ctx context.Context, request AttachmentRequest) (*C
 		"attachment_index": request.AttachmentIndex,
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getAttachment", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getAttachment", params, auth, &result); err != nil {
 		return nil, err
 	}
 	filename := defaultString(stringFromAny(result["filename"]), fmt.Sprintf("attachment_%d", request.AttachmentIndex))
@@ -286,7 +289,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +304,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 		params["body_html"] = request.BodyHTML
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.send", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.send", params, auth, &result); err != nil {
 		return nil, err
 	}
 	summary := "Mail send request accepted"
@@ -332,7 +335,7 @@ func (s *Service) requireActiveIdentity(requested string) (*identity.StoredIdent
 	return record, nil
 }
 
-func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session, error) {
+func (s *Service) authSession(ctx context.Context, record *identity.StoredIdentity) (*authsdk.Session, error) {
 	if record == nil {
 		return nil, fmt.Errorf("active identity is required")
 	}
@@ -370,10 +373,12 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 		session.SetBearer(s.resolved.MailServiceURL, token)
 	}
 	if token == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 		defer cancel()
+		finish := traceutil.EnsureJWTPhase(ctx, "mail_bootstrap")
+		defer finish()
 		requestURL := appconfig.JoinBaseURL(baseURL, didAuthRPCEndpoint)
-		if _, err := session.EnsureJWT(ctx, s.client.client, requestURL); err != nil {
+		if _, err := session.EnsureJWT(refreshCtx, s.client.client, requestURL); err != nil {
 			return nil, fmt.Errorf("active identity does not have a JWT yet: %w", err)
 		}
 		record.JWTToken = session.CurrentJWT()
