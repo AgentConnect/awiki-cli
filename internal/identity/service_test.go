@@ -294,6 +294,182 @@ func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
 	}
 }
 
+func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
+	t.Parallel()
+
+	first := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng"})
+	second := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng", "archive"})
+	other := generateK1IdentityForTest(t, "awiki.test", []string{"lzc"})
+
+	var gotHandle string
+	var gotMethod string
+	var gotRecoveredDID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		gotMethod, _ = payload["method"].(string)
+		params, _ := payload["params"].(map[string]any)
+		gotHandle, _ = params["handle"].(string)
+		document, _ := params["did_document"].(map[string]any)
+		gotRecoveredDID, _ = document["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + gotRecoveredDID + `","user_id":"user-z","handle":"zhuocheng","full_handle":"zhuocheng.awiki.test","access_token":"recover-token"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if err := appconfig.WriteFileConfig(resolved.Paths.ConfigFile, appconfig.FileConfig{
+		Identity: struct {
+			Active string `json:"active" yaml:"active"`
+		}{Active: "zhuocheng-2"},
+	}); err != nil {
+		t.Fatalf("WriteFileConfig() error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "zhuocheng",
+		DID:                     first.DID,
+		UniqueID:                first.UniqueID,
+		UserID:                  "user-z",
+		DisplayName:             "zhuocheng",
+		Handle:                  "zhuocheng",
+		JWTToken:                "token-1",
+		DIDDocument:             first.DIDDocument,
+		Key1PrivatePEM:          first.Key1PrivatePEM,
+		Key1PublicPEM:           first.Key1PublicPEM,
+		E2EESigningPrivatePEM:   first.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: first.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(zhuocheng) error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "zhuocheng-2",
+		DID:                     second.DID,
+		UniqueID:                second.UniqueID,
+		UserID:                  "user-z",
+		DisplayName:             "zhuocheng",
+		Handle:                  "zhuocheng",
+		JWTToken:                "token-2",
+		DIDDocument:             second.DIDDocument,
+		Key1PrivatePEM:          second.Key1PrivatePEM,
+		Key1PublicPEM:           second.Key1PublicPEM,
+		E2EESigningPrivatePEM:   second.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: second.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(zhuocheng-2) error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "lzc",
+		DID:                     other.DID,
+		UniqueID:                other.UniqueID,
+		UserID:                  "user-lzc",
+		DisplayName:             "lzc",
+		Handle:                  "lzc",
+		JWTToken:                "token-lzc",
+		DIDDocument:             other.DIDDocument,
+		Key1PrivatePEM:          other.Key1PrivatePEM,
+		Key1PublicPEM:           other.Key1PublicPEM,
+		E2EESigningPrivatePEM:   other.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: other.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(lzc) error = %v", err)
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.Recover(context.Background(), identity.RecoverParams{
+		IdentityName: "ignored-by-recover",
+		Handle:       "zhuocheng",
+		Phone:        "13800138000",
+		OTP:          "123456",
+	})
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if gotMethod != "recover_handle" {
+		t.Fatalf("rpc method = %q, want recover_handle", gotMethod)
+	}
+	if gotHandle != "zhuocheng" {
+		t.Fatalf("recover handle = %q, want zhuocheng", gotHandle)
+	}
+	if gotRecoveredDID == "" {
+		t.Fatal("recovered DID is empty")
+	}
+
+	tempName, _ := result.Data["temp_identity_name"].(string)
+	finalName, _ := result.Data["final_identity_name"].(string)
+	backupPath, _ := result.Data["backup_path"].(string)
+	activeBefore, _ := result.Data["active_before"].(string)
+	archived, _ := result.Data["archived_identities"].([]string)
+	stagedSummary, _ := result.Data["identity"].(*identity.IdentitySummary)
+	if finalName != "zhuocheng" {
+		t.Fatalf("final_identity_name = %q, want zhuocheng", finalName)
+	}
+	if tempName == "" || tempName == "ignored-by-recover" {
+		t.Fatalf("temp_identity_name = %q, want generated temporary identity name", tempName)
+	}
+	if stagedSummary == nil || stagedSummary.DID != gotRecoveredDID {
+		t.Fatalf("staged identity = %#v, want recovered did %q", stagedSummary, gotRecoveredDID)
+	}
+	if activeBefore != "zhuocheng-2" {
+		t.Fatalf("active_before = %q, want zhuocheng-2", activeBefore)
+	}
+	stagedList, err := manager.List()
+	if err != nil {
+		t.Fatalf("List() staged error = %v", err)
+	}
+	if len(stagedList) != 4 {
+		t.Fatalf("staged live identities = %d, want 4", len(stagedList))
+	}
+
+	promoted, err := service.FinalizeRecoveredHandle(finalName, tempName, archived, activeBefore, backupPath, stagedSummary.DID)
+	if err != nil {
+		t.Fatalf("FinalizeRecoveredHandle() error = %v", err)
+	}
+	if promoted.IdentityName != "zhuocheng" {
+		t.Fatalf("promoted identity name = %q, want zhuocheng", promoted.IdentityName)
+	}
+	if promoted.DID != gotRecoveredDID {
+		t.Fatalf("promoted DID = %q, want %q", promoted.DID, gotRecoveredDID)
+	}
+
+	finalList, err := manager.List()
+	if err != nil {
+		t.Fatalf("List() final error = %v", err)
+	}
+	if len(finalList) != 2 {
+		t.Fatalf("final live identities = %d, want 2", len(finalList))
+	}
+	if findIdentitySummary(finalList, "zhuocheng-2") != nil {
+		t.Fatalf("zhuocheng-2 still present in live index: %#v", finalList)
+	}
+	if findIdentitySummary(finalList, "lzc") == nil {
+		t.Fatalf("lzc missing from final live identities: %#v", finalList)
+	}
+
+	for _, dirName := range []string{first.UniqueID, second.UniqueID} {
+		if _, err := os.Stat(filepath.Join(resolved.Paths.IdentityDir, dirName)); err != nil {
+			t.Fatalf("old identity dir %s missing after finalize: %v", dirName, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(backupPath, "backup_manifest.json")); err != nil {
+		t.Fatalf("backup manifest missing: %v", err)
+	}
+	configAfter, _, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() after finalize error = %v", err)
+	}
+	if configAfter.Identity.Active != "zhuocheng" {
+		t.Fatalf("config identity.active = %q, want zhuocheng", configAfter.Identity.Active)
+	}
+}
+
 func assertReplaceDIDBackup(t *testing.T, manager *identity.Manager, backupPath string, legacy *identity.GeneratedIdentity, plannedNewDID string) {
 	t.Helper()
 	if strings.TrimSpace(backupPath) == "" {
@@ -342,12 +518,23 @@ func readTestJSONMap(t *testing.T, path string) map[string]any {
 	return payload
 }
 
+func findIdentitySummary(items []identity.IdentitySummary, identityName string) *identity.IdentitySummary {
+	for idx := range items {
+		if items[idx].IdentityName == identityName {
+			summary := items[idx]
+			return &summary
+		}
+	}
+	return nil
+}
+
 func newReplaceTestWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Resolved, *identity.Manager) {
 	t.Helper()
 	root := t.TempDir()
 	resolved := &appconfig.Resolved{
 		Paths: appconfig.Paths{
 			WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
+			ConfigFile:           filepath.Join(root, ".awiki-cli", "config.yaml"),
 			ConfigDir:            filepath.Join(root, ".awiki-cli"),
 			IdentityDir:          filepath.Join(root, ".awiki-cli", "identities"),
 			DataDir:              filepath.Join(root, ".awiki-cli", "data"),

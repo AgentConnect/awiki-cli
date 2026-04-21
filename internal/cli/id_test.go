@@ -56,3 +56,48 @@ func TestRunIDReplaceDIDDryRunWarnsAndTargetsIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestRunIDRecoverDryRunUsesHandleAndWarnsWhenIdentityFlagIsIgnored(t *testing.T) {
+	initTestWorkspace(t)
+
+	app := &App{
+		globals: GlobalOptions{
+			DryRun:          true,
+			Identity:        "ignored-name",
+			IdentityChanged: true,
+		},
+	}
+	cmd := &cobra.Command{Use: "recover"}
+	cmd.Flags().String("handle", "", "")
+	cmd.Flags().String("phone", "", "")
+	cmd.Flags().String("otp", "", "")
+	if err := cmd.Flags().Set("handle", "zhuocheng"); err != nil {
+		t.Fatalf("Set(handle) error = %v", err)
+	}
+	if err := cmd.Flags().Set("phone", "13800138000"); err != nil {
+		t.Fatalf("Set(phone) error = %v", err)
+	}
+	if err := cmd.Flags().Set("otp", "123456"); err != nil {
+		t.Fatalf("Set(otp) error = %v", err)
+	}
+
+	rendered, err := captureStdout(func() error {
+		return app.runIDRecover(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("runIDRecover(--dry-run) error = %v", err)
+	}
+	for _, want := range []string{
+		`"target_handle": "zhuocheng"`,
+		`"final_identity_name": "zhuocheng"`,
+		`"same_handle_candidates": []`,
+		`"excluded_identities": []`,
+		`"backup_path":`,
+		`"did-auth.recover_handle"`,
+		recoverIdentityIgnoredWarning,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("dry-run output %q missing %q", rendered, want)
+		}
+	}
+}
