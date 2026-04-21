@@ -1,9 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/spf13/cobra"
 )
@@ -98,6 +104,68 @@ func TestRunIDRecoverDryRunUsesHandleAndWarnsWhenIdentityFlagIsIgnored(t *testin
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("dry-run output %q missing %q", rendered, want)
+		}
+	}
+}
+
+func TestRunIDRecoverWithoutOTPReturnsSendOTPSuccess(t *testing.T) {
+	initTestWorkspace(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/handle/rpc" {
+			t.Fatalf("r.URL.Path = %q, want /user-service/handle/rpc", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		if got, _ := payload["method"].(string); got != "send_otp" {
+			t.Fatalf("rpc method = %q, want send_otp", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"message":"OTP sent successfully"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	workspaceHome := os.Getenv("AWIKI_CLI_WORKSPACE_HOME_DIR")
+	configPath := filepath.Join(workspaceHome, "config.yaml")
+	fileConfig := appconfig.FileConfig{}
+	fileConfig.Services.ServiceBaseURL = server.URL
+	fileConfig.Services.DIDDomain = "awiki.test"
+	if err := appconfig.WriteFileConfig(configPath, fileConfig); err != nil {
+		t.Fatalf("WriteFileConfig() error = %v", err)
+	}
+
+	app := &App{
+		globals: GlobalOptions{
+			Format: "json",
+		},
+	}
+	cmd := &cobra.Command{Use: "recover"}
+	cmd.Flags().String("handle", "", "")
+	cmd.Flags().String("phone", "", "")
+	cmd.Flags().String("otp", "", "")
+	if err := cmd.Flags().Set("handle", "zhuocheng"); err != nil {
+		t.Fatalf("Set(handle) error = %v", err)
+	}
+	if err := cmd.Flags().Set("phone", "13800138000"); err != nil {
+		t.Fatalf("Set(phone) error = %v", err)
+	}
+
+	rendered, err := captureStdout(func() error {
+		return app.runIDRecover(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("runIDRecover() error = %v", err)
+	}
+	for _, want := range []string{
+		`"action": "send_recover_otp"`,
+		`"verification_state": "otp_sent"`,
+		`"identity_name": "zhuocheng"`,
+		`"summary": "OTP sent for handle zhuocheng recovery"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("recover send-otp output %q missing %q", rendered, want)
 		}
 	}
 }

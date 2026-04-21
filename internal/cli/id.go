@@ -377,6 +377,13 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 		}
 		return a.identityExit(err, "Make sure the handle exists and the recovery OTP is valid.")
 	}
+	action, _ := result.Data["action"].(string)
+	if action != "recover_handle" {
+		if a.globals.IdentityChanged {
+			result.Warnings = append(result.Warnings, recoverIdentityIgnoredWarning)
+		}
+		return a.renderIdentityResult(cmd, format, result)
+	}
 	finalIdentityName, _ := result.Data["final_identity_name"].(string)
 	tempIdentityName, _ := result.Data["temp_identity_name"].(string)
 	backupPath, _ := result.Data["backup_path"].(string)
