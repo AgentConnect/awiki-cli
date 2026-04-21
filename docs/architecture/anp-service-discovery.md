@@ -61,15 +61,27 @@
 
 职责拆分：
 
-- `did_domain`：决定本地生成的 DID 域
-- `service_base_url`：域内 awiki 服务基础地址
+- `did_domain`：决定本地生成的 DID provider domain；租户身份可设置为 `a.com`
+- `service_base_url`：CLI 连接 User-Service / Message-Service 的平台服务基础地址，默认 `https://awiki.ai`
 - `anp_service_endpoint`：写入 DID 文档的公开 RPC 地址
 - `anp_service_did`：写入 DID 文档的 service DID
 
 默认值：
 
-- `anp_service_endpoint = https://<did_domain>/anp-im/rpc`
-- `anp_service_did = did:wba:<did_domain>`
+- `anp_service_endpoint` 从 `service_base_url` 推导：`<service_base_url>/anp-im/rpc`
+- `anp_service_did` 从 `service_base_url` 的 hostname 推导：`did:wba:<service_base_url-host>`
+
+租户 DID 域名示例：
+
+```yaml
+services:
+  service_base_url: https://awiki.ai
+  did_domain: a.com
+  anp_service_endpoint: https://awiki.ai/anp-im/rpc
+  anp_service_did: did:wba:awiki.ai
+```
+
+该配置会生成 `did:wba:a.com:...`，但 DID 文档中的默认 `ANPMessageService` 仍指向平台服务。user-service 不强制该字段必须使用 awiki.ai；显式配置可声明其他公开消息服务。
 
 配置来源：
 
@@ -97,7 +109,7 @@
 
 - `internal/config/config.go`
   - 新增 `anp_service_endpoint` / `anp_service_did`
-  - 统一从 `config.yaml` 读取并在缺省时自动推导默认值
+  - 统一从 `config.yaml` 读取，并在缺省时从 `service_base_url` 自动推导默认值
 - `internal/identity/did.go`
   - 生成 DID 文档时自动写入 `ANPMessageService`
 - `internal/identity/anp_service.go`

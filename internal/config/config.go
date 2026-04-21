@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -418,10 +419,10 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 	)
 	if strings.TrimSpace(resolved.ANPServiceEndpoint) == "" {
-		resolved.ANPServiceEndpoint = defaultANPServiceEndpoint(resolved.DIDDomain)
+		resolved.ANPServiceEndpoint = DeriveANPServiceEndpoint(resolved.ServiceBaseURL)
 		resolved.Sources["anp_service_endpoint"] = ValueSource{
 			Source: "derived_default",
-			Key:    "did_domain",
+			Key:    "service_base_url",
 			Value:  resolved.ANPServiceEndpoint,
 		}
 	}
@@ -432,10 +433,10 @@ func Resolve(overrides Overrides) (*Resolved, error) {
 		"",
 	)
 	if strings.TrimSpace(resolved.ANPServiceDID) == "" {
-		resolved.ANPServiceDID = defaultANPServiceDID(resolved.DIDDomain)
+		resolved.ANPServiceDID = DeriveANPServiceDID(resolved.ServiceBaseURL)
 		resolved.Sources["anp_service_did"] = ValueSource{
 			Source: "derived_default",
-			Key:    "did_domain",
+			Key:    "service_base_url",
 			Value:  resolved.ANPServiceDID,
 		}
 	}
@@ -580,20 +581,32 @@ func expandHome(home string, value string) string {
 	return value
 }
 
-func defaultANPServiceEndpoint(didDomain string) string {
-	trimmedDomain := strings.TrimSpace(didDomain)
-	if trimmedDomain == "" {
-		trimmedDomain = defaultDIDDomain
+// DeriveANPServiceEndpoint returns the default public ANP RPC endpoint for a service base URL.
+func DeriveANPServiceEndpoint(serviceBaseURL string) string {
+	normalizedBaseURL := NormalizeBaseURL(serviceBaseURL)
+	if normalizedBaseURL == "" {
+		normalizedBaseURL = defaultServiceBaseURL
 	}
-	return "https://" + trimmedDomain + defaultANPPath
+	return JoinBaseURL(normalizedBaseURL, defaultANPPath)
 }
 
-func defaultANPServiceDID(didDomain string) string {
-	trimmedDomain := strings.TrimSpace(didDomain)
-	if trimmedDomain == "" {
-		trimmedDomain = defaultDIDDomain
+// DeriveANPServiceDID returns the default bare-domain service DID for a service base URL.
+func DeriveANPServiceDID(serviceBaseURL string) string {
+	return "did:wba:" + serviceHostFromBaseURL(serviceBaseURL)
+}
+
+func serviceHostFromBaseURL(serviceBaseURL string) string {
+	trimmed := NormalizeBaseURL(serviceBaseURL)
+	if trimmed == "" {
+		trimmed = defaultServiceBaseURL
 	}
-	return "did:wba:" + trimmedDomain
+	if parsed, err := url.Parse(trimmed); err == nil && parsed.Hostname() != "" {
+		return strings.ToLower(parsed.Hostname())
+	}
+	if parsed, err := url.Parse("//" + trimmed); err == nil && parsed.Hostname() != "" {
+		return strings.ToLower(parsed.Hostname())
+	}
+	return defaultDIDDomain
 }
 
 func defaultRuntimeBridgePath(paths Paths) string {

@@ -191,8 +191,8 @@ services:
 - `output.format` 默认是 `json`
 - `services.service_base_url` 默认是 `https://awiki.ai`
 - `services.did_domain` 默认是 `awiki.ai`
-- `services.anp_service_endpoint` 默认推导为 `https://<did_domain>/anp-im/rpc`
-- `services.anp_service_did` 默认推导为 `did:wba:<did_domain>`
+- `services.anp_service_endpoint` 默认从 `service_base_url` 推导为 `<service_base_url>/anp-im/rpc`
+- `services.anp_service_did` 默认从 `service_base_url` 的 hostname 推导为 `did:wba:<service_base_url-host>`
 
 配置优先级固定为：
 
@@ -203,11 +203,14 @@ flag > config.yaml > default
 > 该文件可选。未创建时所有配置使用默认值。  
 > `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
 >
-> - `service_base_url`：域内 user-service / content / group / message 的统一基础地址
+> - `service_base_url`：CLI 连接 user-service / content / group / message 的统一平台基础地址
 > - 域内 message RPC：`<service_base_url>/im/rpc`
 > - 域内 message WebSocket：`<service_base_url>/im/ws`
-> - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址
-> - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID
+> - `did_domain`：生成 DID 的 provider domain；多租户身份可与 `service_base_url` 不同
+> - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址，默认从 `service_base_url` 推导
+> - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID，默认从 `service_base_url` 推导
+>
+> 多租户示例：`service_base_url=https://awiki.ai`、`did_domain=a.com` 时，CLI 连接 awiki.ai 后端，但生成的 DID 使用 `a.com`。
 
 ### 3.3 本地开发配置
 

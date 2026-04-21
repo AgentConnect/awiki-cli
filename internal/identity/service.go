@@ -742,12 +742,14 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	if err != nil {
 		return nil, err
 	}
+	defaultServiceEndpoint := appconfig.DeriveANPServiceEndpoint(s.config.ServiceBaseURL)
+	defaultServiceDID := appconfig.DeriveANPServiceDID(s.config.ServiceBaseURL)
 	generated, err := GenerateIdentity(GenerateOptions{
 		Hostname:           didDomain,
 		PathPrefix:         pathPrefix,
 		ProofDomain:        didDomain,
-		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, DefaultANPServiceEndpoint(didDomain)),
-		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, DefaultANPServiceDID(didDomain)),
+		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, defaultServiceEndpoint),
+		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, defaultServiceDID),
 	})
 	if err != nil {
 		return nil, err

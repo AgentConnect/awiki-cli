@@ -46,12 +46,12 @@
 ## 成员清单
 
 **README.md**: 仓库入口说明文件。  
-**config.template.yaml**: 标准用户主配置模板，展示当前 canonical `config.yaml` 字段与默认值。  
+**config.template.yaml**: 标准用户主配置模板，展示当前 canonical `config.yaml` 字段与默认值；`service_base_url` 是平台服务入口，`did_domain` 可独立指定租户 DID provider domain。
 **go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.5`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
-**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为。  
+**internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为；默认 `ANPMessageService` 从 `service_base_url` 推导而不是从 `did_domain` 推导。
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。  
 **internal/docs/topics.go**: CLI 内建 docs 主题索引，`skills` 主题引用当前 single-entry `skills/SKILL.md` 与懒加载 `skills/references/*.md` 拓扑。  

@@ -330,12 +330,12 @@ func refreshResolvedConfig(current *appconfig.Resolved) (*appconfig.Resolved, er
 	if endpoint := strings.TrimSpace(fileConfig.Services.ANPServiceEndpoint); endpoint != "" {
 		refreshed.ANPServiceEndpoint = endpoint
 	} else if strings.TrimSpace(refreshed.ANPServiceEndpoint) == "" {
-		refreshed.ANPServiceEndpoint = identity.DefaultANPServiceEndpoint(refreshed.DIDDomain)
+		refreshed.ANPServiceEndpoint = appconfig.DeriveANPServiceEndpoint(refreshed.ServiceBaseURL)
 	}
 	if serviceDID := strings.TrimSpace(fileConfig.Services.ANPServiceDID); serviceDID != "" {
 		refreshed.ANPServiceDID = serviceDID
 	} else if strings.TrimSpace(refreshed.ANPServiceDID) == "" {
-		refreshed.ANPServiceDID = identity.DefaultANPServiceDID(refreshed.DIDDomain)
+		refreshed.ANPServiceDID = appconfig.DeriveANPServiceDID(refreshed.ServiceBaseURL)
 	}
 	// Keep mail_service_url in sync with config, defaulting to service_base_url when unset.
 	if mailURL := strings.TrimSpace(fileConfig.Services.MailServiceURL); mailURL != "" {

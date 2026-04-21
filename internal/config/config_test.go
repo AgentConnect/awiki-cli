@@ -35,11 +35,11 @@ func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 	}
 }
 
-func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
+func TestResolveDerivesANPServiceDefaultsFromServiceBaseURL(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("services:\n  did_domain: awiki.test\n"),
+		[]byte("services:\n  service_base_url: https://platform.awiki.test/\n  did_domain: tenant.example\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -51,17 +51,23 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ANPServiceEndpoint != "https://awiki.test/anp-im/rpc" {
-		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://awiki.test/anp-im/rpc")
+	if resolved.ServiceBaseURL != "https://platform.awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://platform.awiki.test")
 	}
-	if resolved.ANPServiceDID != "did:wba:awiki.test" {
-		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:awiki.test")
+	if resolved.DIDDomain != "tenant.example" {
+		t.Fatalf("resolved.DIDDomain = %q, want %q", resolved.DIDDomain, "tenant.example")
 	}
-	if source := resolved.Sources["anp_service_endpoint"]; source.Source != "derived_default" {
-		t.Fatalf("resolved.Sources[anp_service_endpoint].Source = %q, want %q", source.Source, "derived_default")
+	if resolved.ANPServiceEndpoint != "https://platform.awiki.test/anp-im/rpc" {
+		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://platform.awiki.test/anp-im/rpc")
 	}
-	if source := resolved.Sources["anp_service_did"]; source.Source != "derived_default" {
-		t.Fatalf("resolved.Sources[anp_service_did].Source = %q, want %q", source.Source, "derived_default")
+	if resolved.ANPServiceDID != "did:wba:platform.awiki.test" {
+		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:platform.awiki.test")
+	}
+	if source := resolved.Sources["anp_service_endpoint"]; source.Source != "derived_default" || source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[anp_service_endpoint] = %#v, want derived from service_base_url", source)
+	}
+	if source := resolved.Sources["anp_service_did"]; source.Source != "derived_default" || source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[anp_service_did] = %#v, want derived from service_base_url", source)
 	}
 }
 
