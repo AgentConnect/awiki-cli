@@ -241,6 +241,85 @@ func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
 	assertReplaceDIDBackup(t, manager, backupPath, &expectedBackup, gotNewDID)
 }
 
+func TestRefreshTokenUsesDIDAuthWithoutStoredBearerAndPersistsNewJWT(t *testing.T) {
+	t.Parallel()
+
+	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	var gotAuth string
+	var gotMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if r.Header.Get("Signature-Input") == "" || r.Header.Get("Signature") == "" {
+			t.Fatalf("refresh request missing HTTP signature headers: %#v", r.Header)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		gotMethod, _ = payload["method"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Authentication-Info", `access_token="fresh-token"`)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + legacy.DID + `","user_id":"user-1"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "alice",
+		DID:                     legacy.DID,
+		UniqueID:                legacy.UniqueID,
+		UserID:                  "user-1",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		JWTToken:                "stale-token",
+		DIDDocument:             legacy.DIDDocument,
+		Key1PrivatePEM:          legacy.Key1PrivatePEM,
+		Key1PublicPEM:           legacy.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacy.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: legacy.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.RefreshToken(context.Background(), "")
+	if err != nil {
+		t.Fatalf("RefreshToken() error = %v", err)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty bearer during explicit refresh", gotAuth)
+	}
+	if gotMethod != "get_me" {
+		t.Fatalf("rpc method = %q, want get_me", gotMethod)
+	}
+	updated, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if updated.JWTToken != "fresh-token" {
+		t.Fatalf("updated JWTToken = %q, want fresh-token", updated.JWTToken)
+	}
+	if got, _ := result.Data["action"].(string); got != "refresh_token" {
+		t.Fatalf("result action = %q, want refresh_token", got)
+	}
+	if got, _ := result.Data["auth_flow"].(string); got != "did_auth_get_me_without_stored_bearer" {
+		t.Fatalf("result auth_flow = %q, want did_auth_get_me_without_stored_bearer", got)
+	}
+	if got, _ := result.Data["previous_token_present"].(bool); !got {
+		t.Fatalf("previous_token_present = %v, want true", got)
+	}
+	identityData, _ := result.Data["identity"].(*identity.IdentitySummary)
+	if identityData == nil || !identityData.HasJWT {
+		t.Fatalf("result identity = %#v, want has_jwt=true", identityData)
+	}
+}
+
 func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
 	t.Parallel()
 

@@ -62,7 +62,7 @@ func (a *App) identityExit(err error, fallbackHint string) error {
 		case serviceErr.StatusCode == 400:
 			return output.NewExitError("invalid_argument", 2, serviceErr.Error(), fallbackHint)
 		case serviceErr.StatusCode == 401:
-			return output.NewExitError("auth_required", 3, serviceErr.Error(), "Use an identity with a valid JWT, or run `awiki-cli id register` / `awiki-cli id recover` first.")
+			return output.NewExitError("auth_required", 3, serviceErr.Error(), "Use an identity with valid DID key material, or run `awiki-cli id refresh-token` / `awiki-cli id register` / `awiki-cli id recover` first.")
 		case serviceErr.StatusCode == 404:
 			return output.NewExitError("not_found", 5, serviceErr.Error(), fallbackHint)
 		case serviceErr.StatusCode == 409:
@@ -91,7 +91,7 @@ func (a *App) identityExit(err error, fallbackHint string) error {
 	case errors.Is(err, identity.ErrIdentityConflict):
 		return output.NewExitError("conflict", 1, err.Error(), fallbackHint)
 	case errors.Is(err, identity.ErrAuthRequired):
-		return output.NewExitError("auth_required", 3, err.Error(), "Use an identity with a valid JWT, or run `awiki-cli id register` / `awiki-cli id recover` first.")
+		return output.NewExitError("auth_required", 3, err.Error(), "Use an identity with valid DID key material, or run `awiki-cli id refresh-token` / `awiki-cli id register` / `awiki-cli id recover` first.")
 	default:
 		return output.NewExitError("internal_error", 1, err.Error(), fallbackHint)
 	}
@@ -314,6 +314,39 @@ func (a *App) runIDBind(cmd *cobra.Command, args []string) error {
 	result, err := service.Bind(context.Background(), params)
 	if err != nil {
 		return a.identityExit(err, "Use an identity that already has a valid JWT.")
+	}
+	return a.renderIdentityResult(cmd, format, result)
+}
+
+func (a *App) runIDRefreshToken(cmd *cobra.Command, args []string) error {
+	service, format, err := a.identityService()
+	if err != nil {
+		return a.identityExit(err, "Run `awiki-cli id current` to confirm the active identity.")
+	}
+	if a.globals.DryRun {
+		identityName := a.globals.Identity
+		if strings.TrimSpace(identityName) == "" {
+			if current, currentErr := service.Manager().Current(); currentErr == nil && current != nil {
+				identityName = current.IdentityName
+			}
+		}
+		result := &identity.CommandResult{
+			Data: map[string]any{
+				"plan": map[string]any{
+					"action":        "refresh_token",
+					"identity_name": identityName,
+					"remote_calls":  []string{"did-auth.get_me"},
+					"local_writes":  []string{"auth.json"},
+					"auth_flow":     "did_auth_get_me_without_stored_bearer",
+				},
+			},
+			Summary: "Dry run: JWT refresh planned",
+		}
+		return a.renderIdentityResult(cmd, format, result)
+	}
+	result, err := service.RefreshToken(context.Background(), a.globals.Identity)
+	if err != nil {
+		return a.identityExit(err, "Use a registered identity with valid DID key material before retrying.")
 	}
 	return a.renderIdentityResult(cmd, format, result)
 }

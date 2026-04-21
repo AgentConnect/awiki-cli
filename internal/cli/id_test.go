@@ -108,6 +108,36 @@ func TestRunIDRecoverDryRunUsesHandleAndWarnsWhenIdentityFlagIsIgnored(t *testin
 	}
 }
 
+func TestRunIDRefreshTokenDryRunPlansDidAuthRefresh(t *testing.T) {
+	initTestWorkspace(t)
+
+	app := &App{
+		globals: GlobalOptions{
+			DryRun:   true,
+			Identity: "alice",
+		},
+	}
+	cmd := &cobra.Command{Use: "refresh-token"}
+
+	rendered, err := captureStdout(func() error {
+		return app.runIDRefreshToken(cmd, nil)
+	})
+	if err != nil {
+		t.Fatalf("runIDRefreshToken(--dry-run) error = %v", err)
+	}
+	for _, want := range []string{
+		`"action": "refresh_token"`,
+		`"identity_name": "alice"`,
+		`"did-auth.get_me"`,
+		`"auth.json"`,
+		`"auth_flow": "did_auth_get_me_without_stored_bearer"`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("dry-run output %q missing %q", rendered, want)
+		}
+	}
+}
+
 func TestRunIDRecoverWithoutOTPReturnsSendOTPSuccess(t *testing.T) {
 	initTestWorkspace(t)
 

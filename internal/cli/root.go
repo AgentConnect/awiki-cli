@@ -160,6 +160,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDRegister
 	case "id.bind":
 		return a.runIDBind
+	case "id.refresh-token":
+		return a.runIDRefreshToken
 	case "id.resolve":
 		return a.runIDResolve
 	case "id.recover":

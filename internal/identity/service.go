@@ -443,6 +443,37 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	}, nil
 }
 
+func (s *Service) RefreshToken(ctx context.Context, identityName string) (*CommandResult, error) {
+	record, err := s.loadIdentityForMutation(identityName)
+	if err != nil {
+		return nil, err
+	}
+	previousTokenPresent := strings.TrimSpace(record.JWTToken) != ""
+	session, err := s.authSessionWithoutStoredBearer(record)
+	if err != nil {
+		return nil, err
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if _, err := session.EnsureJWT(
+		refreshCtx,
+		s.remote.client,
+		appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+	); err != nil {
+		return nil, fmt.Errorf("%w: failed to refresh jwt for identity %s", ErrAuthRequired, record.IdentityName)
+	}
+	record.JWTToken = session.CurrentJWT()
+	return &CommandResult{
+		Data: map[string]any{
+			"action":                 "refresh_token",
+			"identity":               identitySummaryFromRecord(record),
+			"previous_token_present": previousTokenPresent,
+			"auth_flow":              "did_auth_get_me_without_stored_bearer",
+		},
+		Summary: fmt.Sprintf("JWT refreshed for identity %s", record.IdentityName),
+	}, nil
+}
+
 func (s *Service) Resolve(ctx context.Context, handle string, did string) (*CommandResult, error) {
 	handle = strings.TrimSpace(handle)
 	did = strings.TrimSpace(did)
@@ -934,6 +965,32 @@ func (s *Service) requireActiveIdentity() (*StoredIdentity, error) {
 }
 
 func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) {
+	session, err := s.newAuthSession(record, record.JWTToken)
+	if err != nil {
+		return nil, err
+	}
+	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
+	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
+	if strings.TrimSpace(record.JWTToken) == "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if _, err := session.EnsureJWT(
+			ctx,
+			s.remote.client,
+			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+		); err != nil {
+			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
+		}
+		record.JWTToken = session.CurrentJWT()
+	}
+	return session, nil
+}
+
+func (s *Service) authSessionWithoutStoredBearer(record *StoredIdentity) (*authsdk.Session, error) {
+	return s.newAuthSession(record, "")
+}
+
+func (s *Service) newAuthSession(record *StoredIdentity, jwtToken string) (*authsdk.Session, error) {
 	if record == nil {
 		return nil, fmt.Errorf("%w: active identity is required", ErrAuthRequired)
 	}
@@ -951,25 +1008,11 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 		paths.Key1PrivatePath,
 		record.IdentityName,
 		record.DID,
-		record.JWTToken,
+		jwtToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
 	session.RememberScope(s.config.ServiceBaseURL)
 	session.RememberScope(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint))
-	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
-	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
-	if strings.TrimSpace(record.JWTToken) == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if _, err := session.EnsureJWT(
-			ctx,
-			s.remote.client,
-			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
-		); err != nil {
-			return nil, fmt.Errorf("%w: active identity does not have a JWT yet", ErrAuthRequired)
-		}
-		record.JWTToken = session.CurrentJWT()
-	}
 	return session, nil
 }
 
