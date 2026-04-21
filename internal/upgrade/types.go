@@ -96,9 +96,12 @@ type Journal struct {
 }
 
 type lockMetadata struct {
+	LockScheme string `json:"lock_scheme,omitempty"`
 	PID        int    `json:"pid"`
 	AppVersion string `json:"app_version,omitempty"`
 	StartedAt  string `json:"started_at"`
+	Hostname   string `json:"hostname,omitempty"`
+	Executable string `json:"executable,omitempty"`
 }
 
 type Migration interface {

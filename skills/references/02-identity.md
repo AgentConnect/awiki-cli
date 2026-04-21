@@ -43,6 +43,7 @@
 - handle 丢失，但仍有恢复手机号 -> 使用 `awiki-cli id recover ...`
 - 需要查看多个本地身份 -> 使用 `awiki-cli id list`
 - 需要切换默认身份 -> 使用 `awiki-cli id use <identity>`
+- token 状态异常，或需要重新获取当前身份认证 -> 使用 `awiki-cli [--identity <identity>] id refresh-token`
 - 需要查看公开 profile 数据 -> 使用 `awiki-cli id profile get ...`
 - 只有在明确需要轮换/替换某个 handle identity 的 DID 时，才使用 `awiki-cli --identity <identity> id replace-did`；必须先 dry-run 并确认目标 identity
 
@@ -52,6 +53,7 @@
 - `awiki-cli id list`
 - `awiki-cli id current`
 - `awiki-cli id use <identity>`
+- `awiki-cli [--identity <identity>] id refresh-token`
 - `awiki-cli id register --handle <handle> (--phone <phone> [--otp <code>] | --email <email> [--wait])`
 - `awiki-cli id bind (--phone <phone> [--otp <code>] | --email <email> [--wait])`
 - `awiki-cli id resolve (--handle <handle> | --did <did>)`
@@ -78,6 +80,20 @@
 3. `awiki-cli id list`
 4. `awiki-cli id use <identity>`
 
+### token 异常时显式刷新 JWT
+
+适用场景：
+
+- 命令提示当前身份认证失效
+- 明明已经有身份，但访问需要认证的接口时仍然失败
+- 想先刷新当前身份认证，再继续执行后续命令
+
+推荐用法：
+
+1. `awiki-cli id current`
+2. `awiki-cli --identity <identity> id refresh-token --dry-run`
+3. 人类确认目标 identity 后，再执行 `awiki-cli --identity <identity> id refresh-token`
+
 ### 危险：替换 DID
 
 `id replace-did` 会为指定 identity 生成新的 e1 DID 和新密钥材料，并用远端 `did-auth.replace_did` 把旧 DID 替换掉。该操作会先把旧 DID document、旧私钥和旧 identity 目录备份到本地 `.legacy-backup/replace-did/`，然后更新本地 identity store、DID document、私钥文件，并重绑本地 SQLite 的 `owner_did`；使用错误目标可能造成身份、消息历史或通知路由混乱。
@@ -97,6 +113,7 @@
 - 需要显式确认：
   - `id register`
   - `id bind`
+  - `id refresh-token`
   - `id recover`
   - `id use`
   - `id profile set`
@@ -109,7 +126,7 @@
 ## 错误处理
 
 - register 或 bind 的命令形状不清楚 -> 检查 `awiki-cli schema id register` 或 `awiki-cli schema id bind`
-- auth 或 token 状态不清楚 -> 恢复或重新注册身份
+- auth 或 token 状态不清楚 -> 先尝试 `awiki-cli [--identity <identity>] id refresh-token`
 - 缺少身份 -> 使用 `awiki-cli id list` 和 `awiki-cli id current`
 - 本地 store 状态不清楚 -> 使用 `awiki-cli doctor`
 

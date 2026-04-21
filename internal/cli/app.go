@@ -13,6 +13,7 @@ import (
 	docindex "github.com/agentconnect/awiki-cli/internal/docs"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
 )
 
@@ -32,6 +33,7 @@ type App struct {
 	docs    *docindex.Index
 
 	updateWarning string
+	traceRun      *traceutil.Run
 }
 
 func Execute() int {
@@ -41,6 +43,7 @@ func Execute() int {
 		docs:    docindex.NewIndex(),
 	}
 	rootCmd := newRootCommand(app)
+	rootCmd.SetContext(context.Background())
 	if err := rootCmd.Execute(); err != nil {
 		return app.handleError(err)
 	}
@@ -76,6 +79,7 @@ func (a *App) handleError(err error) int {
 	if identity := a.identityMeta(); identity != nil {
 		envelope.Meta.Identity = identity
 	}
+	defer a.emitTrace()
 	if renderErr := output.RenderError(os.Stderr, format, a.globals.JQ, envelope); renderErr != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 	}
@@ -100,6 +104,7 @@ func (a *App) renderSuccess(command string, format output.Format, jqExpr string,
 			Format:   string(format),
 		},
 	}
+	defer a.emitTrace()
 	return output.RenderSuccess(os.Stdout, format, jqExpr, envelope)
 }
 
@@ -113,6 +118,12 @@ func commandResultMissing(command string) error {
 }
 
 func (a *App) resolveConfig() (*appconfig.Resolved, error) {
+	finish := traceutil.PhaseContext(a.traceContext(), "resolve_config")
+	defer finish()
+	return a.resolveConfigRaw()
+}
+
+func (a *App) resolveConfigRaw() (*appconfig.Resolved, error) {
 	resolved, err := appconfig.Resolve(appconfig.Overrides{
 		Identity:        a.globals.Identity,
 		IdentityChanged: a.globals.IdentityChanged,
@@ -143,6 +154,21 @@ func (a *App) resolveConfig() (*appconfig.Resolved, error) {
 	return resolved, nil
 }
 
+func (a *App) traceContext() context.Context {
+	if a == nil || a.traceRun == nil {
+		return context.Background()
+	}
+	return traceutil.WithRun(context.Background(), a.traceRun)
+}
+
+func (a *App) emitTrace() {
+	if a == nil || a.traceRun == nil {
+		return
+	}
+	_ = a.traceRun.Emit(os.Stderr)
+	a.traceRun = nil
+}
+
 func (a *App) configCommandExit(err error) error {
 	if err == nil {
 		return nil
@@ -155,17 +181,22 @@ func (a *App) configCommandExit(err error) error {
 }
 
 func (a *App) resolveConfigForWorkspace() (*appconfig.Resolved, error) {
-	resolved, err := a.resolveConfig()
+	finish := traceutil.PhaseContext(a.traceContext(), "resolve_config")
+	defer finish()
+	resolved, err := a.resolveConfigRaw()
 	if err != nil {
 		return nil, err
 	}
 	if a.globals.DryRun {
 		return resolved, nil
 	}
+	upgradeFinish := traceutil.PhaseContext(a.traceContext(), "workspace_upgrade")
 	if err := upgrade.UpgradeIfNeeded(context.Background(), resolved, buildinfo.Version); err != nil {
+		upgradeFinish()
 		return nil, err
 	}
-	return a.resolveConfig()
+	upgradeFinish()
+	return a.resolveConfigRaw()
 }
 
 func (a *App) identityMeta() *output.IdentityMeta {

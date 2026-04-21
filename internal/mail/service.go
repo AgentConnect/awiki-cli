@@ -2,14 +2,16 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 const didAuthRPCEndpoint = "/user-service/did-auth/rpc"
@@ -52,6 +54,8 @@ func (s *Service) Notifications(ctx context.Context, identityName string, limit 
 	if err != nil {
 		return nil, err
 	}
+	finish := traceutil.LocalDBPhase(ctx, "read_mail_notifications")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -64,6 +68,7 @@ func (s *Service) Notifications(ctx context.Context, identityName string, limit 
 	if err != nil {
 		return nil, err
 	}
+	rows = normalizeNotificationRows(rows)
 	summary := fmt.Sprintf("Loaded %d mail notification(s)", len(rows))
 	data := map[string]any{
 		"notifications": rows,
@@ -83,7 +88,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +99,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		"unread_only": request.UnreadOnly,
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getInbox", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getInbox", params, auth, &result); err != nil {
 		return nil, err
 	}
 	total := intValueFromAny(result["total"], 0)
@@ -106,6 +111,83 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	return &CommandResult{Data: result, Summary: summary}, nil
 }
 
+func normalizeNotificationRows(rows []map[string]any) []map[string]any {
+	if len(rows) == 0 {
+		return rows
+	}
+	normalized := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		normalized = append(normalized, normalizeNotificationRow(row))
+	}
+	return normalized
+}
+
+func normalizeNotificationRow(row map[string]any) map[string]any {
+	if strings.TrimSpace(stringFromAny(row["content_type"])) != "mail.notification" {
+		return row
+	}
+	metadata := parseNotificationMetadata(row["metadata"])
+	mailboxAddress := defaultString(stringFromAny(metadata["mailbox_address"]), stringFromAny(row["thread_id"]))
+	if strings.HasPrefix(mailboxAddress, "mail:") {
+		mailboxAddress = strings.TrimPrefix(mailboxAddress, "mail:")
+	}
+	subject := defaultString(stringFromAny(metadata["subject"]), stringFromAny(row["title"]))
+	if strings.HasPrefix(subject, "[邮件] ") {
+		subject = strings.TrimPrefix(subject, "[邮件] ")
+	}
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	fromAddr := stringFromAny(metadata["from_addr"])
+	preview := stringFromAny(metadata["preview"])
+	hasAttachments := boolFromAny(metadata["has_attachments"])
+
+	normalized := make(map[string]any, len(row))
+	for key, value := range row {
+		normalized[key] = value
+	}
+	normalized["title"] = "[邮件] " + subject
+	normalized["content"] = buildNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
+	return normalized
+}
+
+func parseNotificationMetadata(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(typed), &parsed); err != nil {
+			return nil
+		}
+		return parsed
+	default:
+		return nil
+	}
+}
+
+func buildNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
+}
+
 func (s *Service) Read(ctx context.Context, request ReadRequest) (*CommandResult, error) {
 	if strings.TrimSpace(request.MessageID) == "" {
 		return nil, ErrMessageIDRequired
@@ -114,13 +196,13 @@ func (s *Service) Read(ctx context.Context, request ReadRequest) (*CommandResult
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	params := map[string]any{"message_id": request.MessageID}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getMessage", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getMessage", params, auth, &result); err != nil {
 		return nil, err
 	}
 	summary := fmt.Sprintf("Loaded message %s", request.MessageID)
@@ -135,13 +217,13 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	params := map[string]any{"message_ids": request.MessageIDs, "is_read": request.IsRead}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.markRead", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.markRead", params, auth, &result); err != nil {
 		return nil, err
 	}
 	updated := intValueFromAny(result["updated"], 0)
@@ -154,12 +236,12 @@ func (s *Service) Account(ctx context.Context, request AccountRequest) (*Command
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getMailbox", map[string]any{}, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.getMailbox", map[string]any{}, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{Data: result, Summary: "Loaded mailbox account"}, nil
@@ -176,7 +258,7 @@ func (s *Service) Attachment(ctx context.Context, request AttachmentRequest) (*C
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +267,7 @@ func (s *Service) Attachment(ctx context.Context, request AttachmentRequest) (*C
 		"attachment_index": request.AttachmentIndex,
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.getAttachment", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, MailRPCEndpoint, "mail.getAttachment", params, auth, &result); err != nil {
 		return nil, err
 	}
 	filename := defaultString(stringFromAny(result["filename"]), fmt.Sprintf("attachment_%d", request.AttachmentIndex))
@@ -207,7 +289,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +304,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 		params["body_html"] = request.BodyHTML
 	}
 	var result map[string]any
-	if err := s.client.AuthenticatedRPCCall(ctx, MailRPCEndpoint, "mail.send", params, auth, &result); err != nil {
+	if err := s.client.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, MailRPCEndpoint, "mail.send", params, auth, &result); err != nil {
 		return nil, err
 	}
 	summary := "Mail send request accepted"
@@ -253,7 +335,7 @@ func (s *Service) requireActiveIdentity(requested string) (*identity.StoredIdent
 	return record, nil
 }
 
-func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session, error) {
+func (s *Service) authSession(ctx context.Context, record *identity.StoredIdentity) (*authsdk.Session, error) {
 	if record == nil {
 		return nil, fmt.Errorf("active identity is required")
 	}
@@ -271,6 +353,13 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 	)
 	baseURL := strings.TrimSpace(s.resolved.ServiceBaseURL)
 	token := strings.TrimSpace(record.JWTToken)
+	if baseURL != "" {
+		session.RememberScope(baseURL)
+		session.RememberScope(appconfig.JoinBaseURL(baseURL, didAuthRPCEndpoint))
+	}
+	if strings.TrimSpace(s.resolved.MailServiceURL) != "" {
+		session.RememberScope(s.resolved.MailServiceURL)
+	}
 	if token != "" && baseURL != "" {
 		// 统一的 service_base_url 与 did-auth 端点
 		session.SetBearer(baseURL, token)
@@ -284,10 +373,12 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 		session.SetBearer(s.resolved.MailServiceURL, token)
 	}
 	if token == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 		defer cancel()
+		finish := traceutil.EnsureJWTPhase(ctx, "mail_bootstrap")
+		defer finish()
 		requestURL := appconfig.JoinBaseURL(baseURL, didAuthRPCEndpoint)
-		if _, err := session.EnsureJWT(ctx, s.client.client, requestURL); err != nil {
+		if _, err := session.EnsureJWT(refreshCtx, s.client.client, requestURL); err != nil {
 			return nil, fmt.Errorf("active identity does not have a JWT yet: %w", err)
 		}
 		record.JWTToken = session.CurrentJWT()

@@ -191,8 +191,8 @@ run_tests() {
   fi
 
   require_command go
-  echo "Running go test ./..."
-  go test ./...
+  echo "Running CGO_ENABLED=0 go test ./..."
+  CGO_ENABLED=0 go test ./...
 }
 
 commit_package_change() {
@@ -207,11 +207,11 @@ commit_package_change() {
     git add package.json
 
     if [[ "${RUN_TESTS}" == "1" ]]; then
-      tested_summary="go test ./..."
+      tested_summary="CGO_ENABLED=0 go test ./..."
       not_tested_summary="External GitHub/Gitee/npm publication before this release commit is pushed."
     else
       tested_summary="Not run by this invocation (--skip-tests)."
-      not_tested_summary="go test ./...; external GitHub/Gitee/npm publication before this release commit is pushed."
+      not_tested_summary="CGO_ENABLED=0 go test ./...; external GitHub/Gitee/npm publication before this release commit is pushed."
     fi
 
     git commit -F - <<EOF
@@ -319,6 +319,9 @@ wait_for_github_actions_or_assets() {
   local timeout="${AWIKI_RELEASE_GITHUB_TIMEOUT_SECONDS:-3600}"
   local deadline=$(( $(date +%s) + timeout ))
   local run_id
+  local run_status
+  local run_conclusion
+  local run_mode
   local runs_json
 
   if [[ "${WAIT_GITHUB}" != "1" ]]; then
@@ -330,19 +333,52 @@ wait_for_github_actions_or_assets() {
     echo "Looking for GitHub Actions release workflow run for ${tag}..."
     while (( $(date +%s) < deadline )); do
       if runs_json="$(gh run list --limit 50 \
-        --json databaseId,headBranch,status,conclusion 2>/dev/null)"; then
-        run_id="$(RUN_TAG="${tag}" node -e '
+        --json databaseId,headBranch,status,conclusion,workflowName,createdAt 2>/dev/null)"; then
+        read -r run_mode run_id run_status run_conclusion < <(RUN_TAG="${tag}" node -e '
 const fs = require("fs");
 const tag = process.env.RUN_TAG;
 const runs = JSON.parse(fs.readFileSync(0, "utf8"));
-const run = runs.find(item => item.headBranch === tag);
-if (run && run.databaseId) {
-  process.stdout.write(String(run.databaseId));
+const releaseRuns = runs.filter(item => item.headBranch === tag && item.workflowName === "Release");
+const activeRun = releaseRuns.find(item => item.status && item.status !== "completed");
+const successfulRun = releaseRuns.find(item => item.status === "completed" && item.conclusion === "success");
+const fallbackRun = releaseRuns[0];
+let mode = "none";
+let run = null;
+if (activeRun) {
+  mode = "watch";
+  run = activeRun;
+} else if (successfulRun) {
+  mode = "assets";
+  run = successfulRun;
+} else if (fallbackRun) {
+  mode = "assets";
+  run = fallbackRun;
 }
-' <<<"${runs_json}")"
-        if [[ -n "${run_id}" && "${run_id}" != "null" ]]; then
+if (run && run.databaseId) {
+  console.log([
+    mode,
+    String(run.databaseId),
+    run.status || "unknown",
+    run.conclusion || "none",
+  ].join(" "));
+} else {
+  console.log("none none unknown none");
+}
+' <<<"${runs_json}")
+        if [[ "${run_mode}" == "watch" && -n "${run_id}" && "${run_id}" != "null" ]]; then
           echo "Waiting for GitHub Actions run ${run_id}..."
-          gh run watch "${run_id}" --interval 15 --exit-status
+          if ! gh run watch "${run_id}" --interval 15 --exit-status; then
+            echo "Warning: GitHub Actions run ${run_id} ended with '${run_conclusion}'; checking whether release assets are already available." >&2
+          fi
+          wait_for_github_release_assets "${tag}"
+          return
+        fi
+        if [[ "${run_mode}" == "assets" && -n "${run_id}" && "${run_id}" != "null" ]]; then
+          if [[ "${run_conclusion}" == "success" ]]; then
+            echo "Found completed successful GitHub Actions run ${run_id}; checking release assets."
+          else
+            echo "Latest visible release run ${run_id} completed with '${run_conclusion}'; checking whether release assets are already available."
+          fi
           wait_for_github_release_assets "${tag}"
           return
         fi

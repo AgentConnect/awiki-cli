@@ -45,6 +45,7 @@ type MessageRecord struct {
 	Title          string
 	ServerSeq      *int64
 	SentAt         string
+	StoredAt       string
 	IsE2EE         bool
 	IsRead         bool
 	SenderName     string
@@ -132,6 +133,7 @@ type GroupRecord struct {
 	LastMessageAt     string
 	RemoteCreatedAt   string
 	RemoteUpdatedAt   string
+	StoredAt          string
 	Metadata          string
 	CredentialName    string
 }
@@ -147,6 +149,7 @@ type GroupMemberRecord struct {
 	Status           string
 	JoinedAt         string
 	SentMessageCount *int64
+	LastSyncedAt     string
 	Metadata         string
 	CredentialName   string
 }

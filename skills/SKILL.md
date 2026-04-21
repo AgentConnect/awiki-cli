@@ -65,6 +65,7 @@ metadata:
 - `awiki-cli id status`：查看当前身份状态。
 - `awiki-cli id list`：列出本地身份。
 - `awiki-cli id current`：查看默认身份。
+- `awiki-cli id refresh-token`：在 token 状态异常时刷新当前身份认证。
 - `awiki-cli id resolve`：解析 handle 或 DID。
 - `awiki-cli id profile get`：读取 profile 数据。
 
@@ -155,7 +156,7 @@ metadata:
 ### 需要显式确认
 
 - `init`
-- 所有身份写操作：`id register`、`id bind`、`id recover`、`id use`、`id profile set`、`id import-v1`
+- 所有身份写操作：`id register`、`id bind`、`id refresh-token`、`id recover`、`id use`、`id profile set`、`id import-v1`
 - 隐藏的 bootstrap 路径：`id create`
 - 消息写操作：`msg send`、`msg attachment download`、`msg mark-read`
 - 群组写操作：`group create`、`group join`、`group add`、`group remove`、`group leave`、`group update`

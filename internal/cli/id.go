@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,6 +12,8 @@ import (
 )
 
 const replaceDIDDangerWarning = "Dangerous command: replace-did creates a new e1 DID and key material, replaces the selected identity's current DID, and rebinds local SQLite owner state. The old DID material is backed up locally and remains sensitive. Verify the target identity and prefer --dry-run first."
+
+const recoverIdentityIgnoredWarning = "The --identity flag is ignored by `awiki-cli id recover`; the recover target and final live identity are derived only from --handle."
 
 func (a *App) identityService() (*identity.Service, output.Format, error) {
 	resolved, err := a.resolveConfigForWorkspace()
@@ -60,7 +61,7 @@ func (a *App) identityExit(err error, fallbackHint string) error {
 		case serviceErr.StatusCode == 400:
 			return output.NewExitError("invalid_argument", 2, serviceErr.Error(), fallbackHint)
 		case serviceErr.StatusCode == 401:
-			return output.NewExitError("auth_required", 3, serviceErr.Error(), "Use an identity with a valid JWT, or run `awiki-cli id register` / `awiki-cli id recover` first.")
+			return output.NewExitError("auth_required", 3, serviceErr.Error(), "Use an identity with valid DID key material, or run `awiki-cli id refresh-token` / `awiki-cli id register` / `awiki-cli id recover` first.")
 		case serviceErr.StatusCode == 404:
 			return output.NewExitError("not_found", 5, serviceErr.Error(), fallbackHint)
 		case serviceErr.StatusCode == 409:
@@ -89,7 +90,7 @@ func (a *App) identityExit(err error, fallbackHint string) error {
 	case errors.Is(err, identity.ErrIdentityConflict):
 		return output.NewExitError("conflict", 1, err.Error(), fallbackHint)
 	case errors.Is(err, identity.ErrAuthRequired):
-		return output.NewExitError("auth_required", 3, err.Error(), "Use an identity with a valid JWT, or run `awiki-cli id register` / `awiki-cli id recover` first.")
+		return output.NewExitError("auth_required", 3, err.Error(), "Use an identity with valid DID key material, or run `awiki-cli id refresh-token` / `awiki-cli id register` / `awiki-cli id recover` first.")
 	default:
 		return output.NewExitError("internal_error", 1, err.Error(), fallbackHint)
 	}
@@ -256,7 +257,7 @@ func (a *App) runIDRegister(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.Register(context.Background(), params)
+	result, err := service.Register(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Ensure the handle, verification method, and local alias are valid.")
 	}
@@ -309,9 +310,42 @@ func (a *App) runIDBind(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.Bind(context.Background(), params)
+	result, err := service.Bind(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use an identity that already has a valid JWT.")
+	}
+	return a.renderIdentityResult(cmd, format, result)
+}
+
+func (a *App) runIDRefreshToken(cmd *cobra.Command, args []string) error {
+	service, format, err := a.identityService()
+	if err != nil {
+		return a.identityExit(err, "Run `awiki-cli id current` to confirm the active identity.")
+	}
+	if a.globals.DryRun {
+		identityName := a.globals.Identity
+		if strings.TrimSpace(identityName) == "" {
+			if current, currentErr := service.Manager().Current(); currentErr == nil && current != nil {
+				identityName = current.IdentityName
+			}
+		}
+		result := &identity.CommandResult{
+			Data: map[string]any{
+				"plan": map[string]any{
+					"action":        "refresh_token",
+					"identity_name": identityName,
+					"remote_calls":  []string{"did-auth.get_me"},
+					"local_writes":  []string{"auth.json"},
+					"auth_flow":     "did_auth_get_me_without_stored_bearer",
+				},
+			},
+			Summary: "Dry run: JWT refresh planned",
+		}
+		return a.renderIdentityResult(cmd, format, result)
+	}
+	result, err := service.RefreshToken(cmd.Context(), a.globals.Identity)
+	if err != nil {
+		return a.identityExit(err, "Use a registered identity with valid DID key material before retrying.")
 	}
 	return a.renderIdentityResult(cmd, format, result)
 }
@@ -323,7 +357,7 @@ func (a *App) runIDResolve(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the configured service endpoints.")
 	}
-	result, err := service.Resolve(context.Background(), handle, did)
+	result, err := service.Resolve(cmd.Context(), handle, did)
 	if err != nil {
 		return a.identityExit(err, "Provide either --handle or --did, and make sure the target exists.")
 	}
@@ -345,33 +379,117 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 		OTP:          otp,
 	}
 	if a.globals.DryRun {
-		existing, _ := service.Manager().List()
-		alias := identity.PreviewNamedIdentity(a.globals.Identity, existing, handle)
-		action := "recover_handle"
-		remoteCalls := []string{"did-auth.recover_handle"}
-		if strings.TrimSpace(otp) == "" {
-			action = "send_recover_otp"
-			remoteCalls = []string{"handle.send_otp"}
+		result, err := service.RecoverPreview(params)
+		if err != nil {
+			return a.identityExit(err, "Make sure the handle exists and the recovery OTP is valid.")
 		}
-		result := &identity.CommandResult{
-			Data: map[string]any{
-				"plan": map[string]any{
-					"action":        action,
-					"identity_name": alias,
-					"handle":        handle,
-					"phone":         phone,
-					"remote_calls":  remoteCalls,
+		if a.globals.IdentityChanged {
+			result.Warnings = append(result.Warnings, recoverIdentityIgnoredWarning)
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, identity.PublicData(result.Data), result.Summary, result.Warnings, nil)
+	}
+	result, err := service.Recover(cmd.Context(), params)
+	if err != nil {
+		var recoverErr *identity.RecoverFinalizeError
+		if errors.As(err, &recoverErr) {
+			return &output.ExitError{
+				Code: 1,
+				Detail: output.ErrorDetail{
+					Code:      "internal_error",
+					Message:   recoverErr.Error(),
+					Hint:      "Inspect the returned backup path and temporary identity, then repair the local workspace state before retrying.",
+					Retryable: false,
+					Details: map[string]any{
+						"backup_path":        recoverErr.BackupPath,
+						"temp_identity_name": recoverErr.TempIdentityName,
+						"new_did":            recoverErr.NewDID,
+					},
 				},
-			},
-			Summary: "Dry run: handle recovery planned",
+			}
+		}
+		return a.identityExit(err, "Make sure the handle exists and the recovery OTP is valid.")
+	}
+	action, _ := result.Data["action"].(string)
+	if action != "recover_handle" {
+		if a.globals.IdentityChanged {
+			result.Warnings = append(result.Warnings, recoverIdentityIgnoredWarning)
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.Recover(context.Background(), params)
+	finalIdentityName, _ := result.Data["final_identity_name"].(string)
+	tempIdentityName, _ := result.Data["temp_identity_name"].(string)
+	backupPath, _ := result.Data["backup_path"].(string)
+	activeBefore, _ := result.Data["active_before"].(string)
+	oldDIDs := stringSliceFromAny(result.Data["old_dids"])
+	archivedIdentities := stringSliceFromAny(result.Data["archived_identities"])
+	newDID := ""
+	if summary, ok := result.Data["identity"].(*identity.IdentitySummary); ok && summary != nil {
+		newDID = summary.DID
+	} else if summary, ok := result.Data["identity"].(identity.IdentitySummary); ok {
+		newDID = summary.DID
+	} else if summary, ok := result.Data["identity"].(map[string]any); ok {
+		newDID, _ = summary["did"].(string)
+	}
+	storeMergeCounts, e2eeCleanupCounts, err := store.MergeRecoveredHandleLocalState(cmd.Context(), service.Config().Paths, oldDIDs, newDID, finalIdentityName)
 	if err != nil {
+		return &output.ExitError{
+			Code: 1,
+			Detail: output.ErrorDetail{
+				Code:      "internal_error",
+				Message:   fmt.Sprintf("merge recovered handle local state: %v", err),
+				Hint:      "Inspect the returned backup path and temporary identity, then repair the local workspace state before retrying.",
+				Retryable: false,
+				Details: map[string]any{
+					"backup_path":        backupPath,
+					"temp_identity_name": tempIdentityName,
+					"new_did":            newDID,
+				},
+			},
+		}
+	}
+	promoted, err := service.FinalizeRecoveredHandle(finalIdentityName, tempIdentityName, archivedIdentities, activeBefore, backupPath, newDID)
+	if err != nil {
+		var recoverErr *identity.RecoverFinalizeError
+		if errors.As(err, &recoverErr) {
+			return &output.ExitError{
+				Code: 1,
+				Detail: output.ErrorDetail{
+					Code:      "internal_error",
+					Message:   recoverErr.Error(),
+					Hint:      "Inspect the returned backup path and temporary identity, then repair the local workspace state before retrying.",
+					Retryable: false,
+					Details: map[string]any{
+						"backup_path":        recoverErr.BackupPath,
+						"temp_identity_name": recoverErr.TempIdentityName,
+						"new_did":            recoverErr.NewDID,
+					},
+				},
+			}
+		}
 		return a.identityExit(err, "Make sure the handle exists and the recovery OTP is valid.")
 	}
-	return a.renderIdentityResult(cmd, format, result)
+	if summary := findIdentitySummaryByName(service, promoted.IdentityName); summary != nil {
+		result.Data["identity"] = summary
+	} else {
+		result.Data["identity"] = map[string]any{
+			"identity_name": promoted.IdentityName,
+			"did":           promoted.DID,
+			"handle":        promoted.Handle,
+			"created_at":    promoted.CreatedAt,
+		}
+	}
+	result.Data["store_merge_counts"] = storeMergeCounts
+	result.Data["e2ee_cleanup_counts"] = e2eeCleanupCounts
+	delete(result.Data, "temp_identity_name")
+	delete(result.Data, "active_before")
+	delete(result.Data, "old_dids")
+	if len(archivedIdentities) > 0 {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("Archived %d same-handle local identities; they were removed from the live index, while their original directories and the recover backup were kept.", len(archivedIdentities)))
+	}
+	if a.globals.IdentityChanged {
+		result.Warnings = append(result.Warnings, recoverIdentityIgnoredWarning)
+	}
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, identity.PublicData(result.Data), result.Summary, result.Warnings, identityMetaFromData(result.Data))
 }
 
 func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
@@ -448,7 +566,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 		return a.renderIdentityResult(cmd, format, result)
 	}
 
-	result, err := service.ReplaceDID(context.Background(), params)
+	result, err := service.ReplaceDID(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use a handle-backed identity with valid DID credentials before retrying.")
 	}
@@ -461,7 +579,7 @@ func (a *App) runIDReplaceDID(cmd *cobra.Command, args []string) error {
 	result.Warnings = append([]string{replaceDIDDangerWarning}, result.Warnings...)
 	oldDID, _ := result.Data["old_did"].(string)
 	newDID, _ := result.Data["did"].(string)
-	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(context.Background(), service.Config().Paths, oldDID, newDID)
+	storeRebind, e2eeCleanup, rebindErr := store.RebindLocalIdentityState(cmd.Context(), service.Config().Paths, oldDID, newDID)
 	result.Data["store_rebind"] = storeRebind
 	result.Data["e2ee_cleanup"] = e2eeCleanup
 	if rebindErr != nil {
@@ -478,7 +596,7 @@ func (a *App) runIDProfileGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the configured service endpoints.")
 	}
-	result, err := service.GetProfile(context.Background(), self, handle, did)
+	result, err := service.GetProfile(cmd.Context(), self, handle, did)
 	if err != nil {
 		return a.identityExit(err, "Use `--self`, `--handle`, or `--did` to select one profile target.")
 	}
@@ -523,7 +641,7 @@ func (a *App) runIDProfileSet(cmd *cobra.Command, args []string) error {
 		}
 		return a.renderIdentityResult(cmd, format, result)
 	}
-	result, err := service.SetProfile(context.Background(), params)
+	result, err := service.SetProfile(cmd.Context(), params)
 	if err != nil {
 		return a.identityExit(err, "Use an identity that already has a valid DID JWT.")
 	}
@@ -555,6 +673,48 @@ func (a *App) runIDImportV1(cmd *cobra.Command, args []string) error {
 		return a.identityExit(err, "Run `awiki-cli doctor` to inspect the detected v1 credential layout.")
 	}
 	return a.renderIdentityResult(cmd, format, result)
+}
+
+func findIdentitySummaryByName(service *identity.Service, identityName string) *identity.IdentitySummary {
+	if service == nil || strings.TrimSpace(identityName) == "" {
+		return nil
+	}
+	identities, err := service.Manager().List()
+	if err != nil {
+		return nil
+	}
+	for idx := range identities {
+		if identities[idx].IdentityName == identityName {
+			summary := identities[idx]
+			return &summary
+		}
+	}
+	return nil
+}
+
+func stringSliceFromAny(value any) []string {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []string:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if strings.TrimSpace(item) != "" {
+				result = append(result, item)
+			}
+		}
+		return result
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func identityMetaFromData(data map[string]any) *output.IdentityMeta {

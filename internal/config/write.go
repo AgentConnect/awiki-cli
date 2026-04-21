@@ -34,6 +34,13 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 	})
 }
 
+func UpdateActiveIdentity(paths Paths, identityName string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		fileConfig.Identity.Active = strings.TrimSpace(identityName)
+		return nil
+	})
+}
+
 func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool, autoStart *bool) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		if enabled != nil {

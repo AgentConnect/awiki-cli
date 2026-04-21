@@ -219,6 +219,87 @@ func TestEnsureRouteMigratesLegacyEnglishPromptToChineseDefault(t *testing.T) {
 	}
 }
 
+func TestEnsureRouteMigratesPreviousChinesePromptToCurrentDefault(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            你是 awiki 外部消息通知整理助手。
+
+            请根据收到的通知 topic 和 data，把它整理成一条简洁、稳定、适合目标 IM 平台阅读的中文消息。
+            规则：
+            1. 只输出最终通知正文，不要加解释。
+            2. 不要提问，不要添加无关寒暄。
+            3. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
+            4. 字段标题统一使用中文。
+            5. 不存在的字段不要臆造，缺失时直接省略对应行。
+            6. 摘要控制在 1 到 5 行短句内。
+            7. 如果有链接，放在最后单独列出。
+            8. topic=mail.message.received 时，优先使用邮箱地址字段，如 from_addr、mailbox_address、subject、preview。
+            9. IM 通知优先使用可读的人名、handle 或显示名；没有时再使用 DID。
+
+            如果 topic 是 mail.message.received，建议格式：
+            收到外部邮件通知
+            发件人：<邮箱地址或名称>
+            收件邮箱：<mailbox_address>
+            收件人 DID：<recipient_did，如存在>
+            时间：<Asia/Shanghai 时间>
+            邮件摘要：
+            主题：<subject，如存在>
+            <preview 1-5 行>
+            附件：<有附件时再展示，例如：有>
+
+            如果 topic 是 IM 相关事件，例如 im.message.received、im.group.message.received、im.group.state.changed，建议格式：
+            收到外部IM消息通知
+            发送者：<名称或 DID>
+            发送者 DID：<如存在>
+            接收者：<名称或 DID>
+            接收者 DID：<如存在>
+            类型：<私信/群消息/状态变更/事件>
+            时间：<Asia/Shanghai 时间>
+            消息内容摘要：
+            <1-5 行>
+
+            原始通知 JSON：
+            {notify_payload}
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "不强依赖 topic 名称") {
+		t.Fatalf("config.yaml prompt not migrated to topic-independent mail-aware default: %q", text)
+	}
+	if strings.Contains(text, "如果 topic 是 mail.message.received") {
+		t.Fatalf("config.yaml still contains previous topic-gated mail prompt: %q", text)
+	}
+}
+
 func TestEnsureRouteKeepsCustomPrompt(t *testing.T) {
 	t.Parallel()
 

@@ -15,7 +15,9 @@ func ListInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit i
 SELECT *
 FROM messages
 WHERE owner_did = ?
-  AND direction = 0`
+  AND direction = 0
+  AND COALESCE(group_did, group_id) IS NULL
+  AND COALESCE(content_type, '') != 'mail.notification'`
 	args := []any{normalizeOwnerDID(ownerDID)}
 	if unreadOnly {
 		query += " AND is_read = 0"
@@ -220,4 +222,23 @@ WHERE owner_did = ?
   AND content_type = 'mail.notification'
 ORDER BY COALESCE(sent_at, stored_at) DESC
 LIMIT ?`, normalizeOwnerDID(ownerDID), limit)
+}
+
+func ListNotificationInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND direction = 0
+  AND content_type = 'mail.notification'`
+	args := []any{normalizeOwnerDID(ownerDID)}
+	if unreadOnly {
+		query += " AND is_read = 0"
+	}
+	query += " ORDER BY COALESCE(sent_at, stored_at) DESC LIMIT ?"
+	args = append(args, limit)
+	return queryMaps(ctx, db, query, args...)
 }

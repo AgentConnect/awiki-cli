@@ -14,6 +14,8 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 type Service struct {
@@ -80,6 +82,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 			_ = s.refreshJWT(ctx, record)
 		}
 		if fallback, fallbackWarnings, fallbackErr := s.httpFallbackSend(ctx, record, request, targetDID); fallbackErr == nil {
+			traceutil.MarkFallback(ctx, "websocket_to_http", err)
 			warnings = append(warnings, fallbackWarnings...)
 			return s.persistSendResult(ctx, record, targetDID, targetHandle, request, fallback, warnings)
 		}
@@ -144,6 +147,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		transport := NewWSProxyTransport(s.resolved, record.IdentityName)
 		raw, err = transport.GetInbox(ctx, request)
 		if err != nil {
+			wsErr := err
 			cached, cacheErr := s.readInboxFromCache(ctx, record, peerDID, request.Limit, request.UnreadOnly)
 			if targetIsHandle {
 				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
@@ -160,7 +164,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded inbox from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{websocketCacheFallbackWarning(wsErr)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -183,7 +187,8 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
+			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -293,6 +298,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		transport := NewWSProxyTransport(s.resolved, record.IdentityName)
 		raw, err = transport.GetHistory(ctx, request)
 		if err != nil {
+			wsErr := err
 			cached, cacheErr := s.readHistoryFromCache(ctx, record, peerDID, request.Limit)
 			if targetIsHandle {
 				cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
@@ -309,7 +315,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 						"with":     peerHandleOrDid(peerHandle, peerDID),
 					},
 					Summary:  "Loaded history from local websocket cache",
-					Warnings: []string{websocketCacheFallbackWarning(err)},
+					Warnings: []string{websocketCacheFallbackWarning(wsErr)},
 				}, nil
 			}
 			httpTransport, httpWarnings, httpErr := s.httpTransport(record)
@@ -332,7 +338,8 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					return nil, err
 				}
 			}
-			warnings = append(warnings, websocketHTTPFallbackWarning(err))
+			traceutil.MarkFallback(ctx, "websocket_to_http", wsErr)
+			warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 			warnings = append(warnings, httpWarnings...)
 		}
 	default:
@@ -404,6 +411,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 	}
 	directIDs := make([]string, 0, len(request.MessageIDs))
 	groupIDs := make([]string, 0, len(request.MessageIDs))
+	localOnlyIDs := make([]string, 0, len(request.MessageIDs))
 	if db != nil {
 		rows, queryErr := store.ListMessagesByIDs(ctx, db, record.DID, request.MessageIDs)
 		if queryErr == nil {
@@ -413,6 +421,10 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 			}
 			for _, id := range request.MessageIDs {
 				row, ok := known[id]
+				if ok && stringFromAny(row["content_type"]) == "mail.notification" {
+					localOnlyIDs = append(localOnlyIDs, id)
+					continue
+				}
 				if ok && (stringFromAny(row["group_did"]) != "" || stringFromAny(row["group_id"]) != "") {
 					groupIDs = append(groupIDs, id)
 					continue
@@ -440,6 +452,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 					if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 						result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 						if markErr == nil {
+							traceutil.MarkFallback(ctx, "websocket_to_http", fallbackCause)
 							transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 							transportWarnings = append(transportWarnings, httpWarnings...)
 						}
@@ -449,6 +462,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 				if httpTransport, httpWarnings, httpErr := s.httpTransport(record); httpErr == nil {
 					result, markErr = httpTransport.MarkRead(ctx, MarkReadRequest{IdentityName: request.IdentityName, MessageIDs: directIDs})
 					if markErr == nil {
+						traceutil.MarkFallback(ctx, "websocket_to_http", fallbackCause)
 						transportWarnings = append(transportWarnings, websocketHTTPFallbackWarning(fallbackCause))
 						transportWarnings = append(transportWarnings, httpWarnings...)
 					}
@@ -462,14 +476,14 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 		updatedCount += intValueFromAny(result["updated_count"], len(directIDs))
 	}
 	if db != nil {
-		localIDs := append(append([]string{}, directIDs...), groupIDs...)
+		localIDs := append(append(append([]string{}, directIDs...), groupIDs...), localOnlyIDs...)
 		if len(localIDs) > 0 {
 			if count, markErr := store.MarkMessagesRead(ctx, db, record.DID, localIDs); markErr != nil {
 				warnings = append(warnings, fmt.Sprintf("Failed to mark local messages read: %v", markErr))
 			} else if updatedCount == 0 {
 				updatedCount = int(count)
 			} else {
-				updatedCount += len(groupIDs)
+				updatedCount += len(groupIDs) + len(localOnlyIDs)
 			}
 		}
 	}
@@ -556,8 +570,11 @@ func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentit
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
 	didAuthURL := appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc")
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 15*time.Second)
+	rememberAuthScopes(session, s.resolved)
+	ctxWithTimeout, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 	defer cancel()
+	finish := traceutil.EnsureJWTPhase(ctx, "message_fallback_refresh")
+	defer finish()
 	if _, err := session.EnsureJWT(ctxWithTimeout, s.remote.Client(), didAuthURL); err != nil {
 		return err
 	}
@@ -578,8 +595,16 @@ func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity,
 	if groupErr != nil {
 		warnings = append(warnings, fmt.Sprintf("Failed to read local group inbox cache: %v", groupErr))
 	}
-	directMessages := messagesFromResult(directResult.Data["messages"])
-	merged := mergeInboxMessages(request.Limit, directMessages, groupMessages)
+	mailNotifications, mailErr := s.readAllLocalMailNotifications(ctx, record, request.Limit, request.UnreadOnly)
+	if mailErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Failed to read local mail notification cache: %v", mailErr))
+	}
+	directMessages := normalizeMailNotificationMessages(messagesFromResult(directResult.Data["messages"]))
+	merged := mergeInboxMessages(
+		request.Limit,
+		mergeInboxMessages(request.Limit, directMessages, groupMessages),
+		normalizeMailNotificationMessages(mailNotifications),
+	)
 	if request.MarkRead {
 		ids := collectMessageIDs(merged)
 		if len(ids) > 0 {
@@ -594,7 +619,7 @@ func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity,
 		Data: map[string]any{
 			"messages": merged,
 			"total":    len(merged),
-			"source":   "remote_http+local_group_cache",
+			"source":   "remote_http+local_group_cache+local_mail_cache",
 		},
 		Summary:  fmt.Sprintf("Loaded %d inbox messages", len(merged)),
 		Warnings: compactWarnings(warnings),
@@ -615,23 +640,56 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 	if err != nil {
 		return nil, nil, err
 	}
+	if auth != nil && auth.session != nil {
+		rememberAuthScopes(auth.session, s.resolved)
+	}
 	if auth != nil && auth.session != nil && strings.TrimSpace(record.JWTToken) != "" {
-		auth.session.SetBearer(s.resolved.ServiceBaseURL, record.JWTToken)
+		token := strings.TrimSpace(record.JWTToken)
+		auth.session.SetBearer(s.resolved.ServiceBaseURL, token)
 		auth.session.SetBearer(
 			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
-			record.JWTToken,
+			token,
 		)
 		auth.session.SetBearer(
 			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, MessageRPCEndpoint),
-			record.JWTToken,
+			token,
 		)
-		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, record.JWTToken)
+		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, token)
 	}
 	client := http.DefaultClient
 	if s.remote != nil && s.remote.Client() != nil {
 		client = s.remote.Client()
 	}
 	return NewHTTPTransport(s.resolved, auth, client), nil, nil
+}
+
+func rememberAuthScopes(session *authsdk.Session, resolved *appconfig.Resolved) {
+	if session == nil || resolved == nil {
+		return
+	}
+	session.RememberScope(resolved.ServiceBaseURL)
+	session.RememberScope(appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc"))
+	session.RememberScope(appconfig.JoinBaseURL(resolved.ServiceBaseURL, MessageRPCEndpoint))
+	session.RememberScope(resolved.ANPServiceEndpoint)
+}
+
+func (s *Service) groupControlTransport(record *identity.StoredIdentity) (*HTTPTransport, []string, error) {
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.runtimeConfig().Mode == runtime.ModeWebSocket {
+		warnings = append(warnings, "Group lifecycle commands use HTTP transport even when runtime.mode is websocket.")
+	}
+	return transport, warnings, nil
+}
+
+func groupControlSource(result map[string]any) string {
+	return sourceWithDefault(result, runtime.ModeHTTP)
+}
+
+func transportSource(mode string) string {
+	return sourceWithDefault(nil, mode)
 }
 
 func (s *Service) httpFallbackSend(ctx context.Context, record *identity.StoredIdentity, request SendRequest, targetDID string) (*directSendResult, []string, error) {
@@ -673,6 +731,8 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 	if strings.HasPrefix(target, "did:") {
 		return target, "", nil
 	}
+	finish := traceutil.HandleLookupPhase(ctx, "target_resolve")
+	defer finish()
 	var lookup map[string]any
 	if err := s.remote.RPCCall(ctx, "/user-service/handle/rpc", "lookup", map[string]any{"handle": target}, "", &lookup); err != nil {
 		return "", "", err
@@ -681,10 +741,13 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 	if did == "" {
 		return "", "", fmt.Errorf("%w: %s", ErrTargetRequired, target)
 	}
-	return did, target, nil
+	resolvedHandle := normalizeHandleValue(defaultString(stringFromAny(lookup["handle"]), target))
+	return did, resolvedHandle, nil
 }
 
 func (s *Service) persistSendResult(ctx context.Context, record *identity.StoredIdentity, targetDID string, targetHandle string, request SendRequest, result *directSendResult, warnings []string) (*CommandResult, error) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_direct_send")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -732,6 +795,8 @@ func (s *Service) persistSendResult(ctx context.Context, record *identity.Stored
 }
 
 func (s *Service) persistInboxMessages(ctx context.Context, record *identity.StoredIdentity, raw map[string]any, knownHandle string) ([]map[string]any, int, []string) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_inbox_messages")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, 0, nil
@@ -769,11 +834,15 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
+	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
+	defer contactFinish()
 	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.inbox")
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 
 func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.StoredIdentity, peerDID string, knownHandle string, raw map[string]any) ([]map[string]any, int, []string) {
+	finish := traceutil.LocalDBPhase(ctx, "persist_history_messages")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, 0, nil
@@ -811,11 +880,15 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 		})
 	}
 	_ = store.StoreMessagesBatch(ctx, db, storable)
+	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
+	defer contactFinish()
 	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.history")
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 
 func (s *Service) readInboxFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_inbox_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -827,7 +900,23 @@ func (s *Service) readInboxFromCache(ctx context.Context, record *identity.Store
 	return store.ListInboxMessages(ctx, db, record.DID, limit, peerDID, unreadOnly)
 }
 
+func (s *Service) readAllLocalMailNotifications(ctx context.Context, record *identity.StoredIdentity, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_mail_notification_cache")
+	defer finish()
+	db, err := store.Open(s.resolved.Paths)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(ctx, db); err != nil {
+		return nil, err
+	}
+	return store.ListNotificationInboxMessages(ctx, db, record.DID, limit, unreadOnly)
+}
+
 func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_history_cache")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -841,6 +930,8 @@ func (s *Service) readHistoryFromCache(ctx context.Context, record *identity.Sto
 }
 
 func (s *Service) readInboxFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_inbox_cache_by_peer_dids")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -853,6 +944,8 @@ func (s *Service) readInboxFromCacheByPeerDIDs(ctx context.Context, record *iden
 }
 
 func (s *Service) readHistoryFromCacheByPeerDIDs(ctx context.Context, record *identity.StoredIdentity, peerDIDs []string, limit int) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_history_cache_by_peer_dids")
+	defer finish()
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -879,6 +972,83 @@ func messagesFromResult(value any) []map[string]any {
 		}
 	}
 	return result
+}
+
+func normalizeMailNotificationMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return messages
+	}
+	normalized := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		normalized = append(normalized, normalizeMailNotificationMessage(message))
+	}
+	return normalized
+}
+
+func normalizeMailNotificationMessage(message map[string]any) map[string]any {
+	if stringFromAny(message["content_type"]) != "mail.notification" {
+		return message
+	}
+	metadata := parseMessageMetadata(message["metadata"])
+	mailboxAddress := defaultString(stringFromAny(metadata["mailbox_address"]), stringFromAny(message["thread_id"]))
+	if strings.HasPrefix(mailboxAddress, "mail:") {
+		mailboxAddress = strings.TrimPrefix(mailboxAddress, "mail:")
+	}
+	subject := defaultString(stringFromAny(metadata["subject"]), stringFromAny(message["title"]))
+	if strings.HasPrefix(subject, "[邮件] ") {
+		subject = strings.TrimPrefix(subject, "[邮件] ")
+	}
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	fromAddr := stringFromAny(metadata["from_addr"])
+	preview := stringFromAny(metadata["preview"])
+	hasAttachments := boolFromAny(metadata["has_attachments"])
+
+	normalized := make(map[string]any, len(message))
+	for key, value := range message {
+		normalized[key] = value
+	}
+	normalized["title"] = "[邮件] " + subject
+	normalized["content"] = buildNormalizedMailNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
+	return normalized
+}
+
+func parseMessageMetadata(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return nil
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(typed), &parsed); err != nil {
+			return nil
+		}
+		return parsed
+	default:
+		return nil
+	}
+}
+
+func buildNormalizedMailNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
 }
 
 func collectMessageIDs(messages []map[string]any) []string {

@@ -326,6 +326,7 @@ def validate_notification_surface(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def convert_host_event_to_surface(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = adapt_host_event_for_hermes(payload)
     missing = sorted(_HOST_EVENT_REQUIRED_FIELDS - set(payload.keys()))
     if missing:
         raise ValueError(f"host event missing fields: {', '.join(missing)}")
@@ -361,6 +362,76 @@ def convert_host_event_to_surface(payload: dict[str, Any]) -> dict[str, Any]:
         "data": data,
     }
     return validate_notification_surface(surface)
+
+
+def adapt_host_event_for_hermes(payload: dict[str, Any]) -> dict[str, Any]:
+    if str(payload.get("topic", "")).strip() != "mail.message.received":
+        return payload
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return payload
+
+    message_id = str(data.get("message_id", "")).strip() or str(payload.get("id", "")).strip() or "unknown"
+    mailbox_address = str(data.get("mailbox_address", "")).strip()
+    mailbox_did = str(data.get("mailbox_did", "")).strip()
+    recipient_did = str(data.get("recipient_did", "")).strip() or mailbox_did or "unknown"
+    from_addr = str(data.get("from_addr", "")).strip()
+    subject = str(data.get("subject", "")).strip()
+    preview = str(data.get("preview", "")).strip()
+    has_attachments = bool(data.get("has_attachments", False))
+
+    synthetic_data = dict(data)
+    synthetic_data.update(
+        {
+            "channel": "direct",
+            "message_id": message_id,
+            "conversation_id": resolve_mail_conversation_id(mailbox_address, recipient_did, message_id),
+            "sender_handle": from_addr,
+            "sender_did": resolve_mail_sender_id(from_addr),
+            "recipient_handle": mailbox_address,
+            "recipient_did": recipient_did,
+            "content_type": "text/plain",
+            "text": build_mail_im_text(mailbox_address, from_addr, subject, preview, has_attachments),
+            "created_at": str(payload.get("received_at", "")).strip(),
+        }
+    )
+
+    synthetic_event = dict(payload)
+    synthetic_event["topic"] = "im.message.received"
+    synthetic_event["data"] = synthetic_data
+    return synthetic_event
+
+
+def resolve_mail_conversation_id(mailbox_address: str, recipient_did: str, fallback: str) -> str:
+    base = mailbox_address or recipient_did or fallback or "unknown"
+    return f"mail:{base}"
+
+
+def resolve_mail_sender_id(from_addr: str) -> str:
+    sender = from_addr or "unknown"
+    return f"mail:{sender}"
+
+
+def build_mail_im_text(
+    mailbox_address: str,
+    from_addr: str,
+    subject: str,
+    preview: str,
+    has_attachments: bool,
+) -> str:
+    lines = ["[邮件]"]
+    if mailbox_address:
+        lines.append(f"收件邮箱: {mailbox_address}")
+    if from_addr:
+        lines.append(f"发件人: {from_addr}")
+    if subject:
+        lines.append(f"主题: {subject}")
+    if preview:
+        lines.extend(["", preview])
+    if has_attachments:
+        lines.extend(["", "(这封邮件包含附件)"])
+    return "\n".join(lines)
 
 
 def normalize_notify_id(host_event_id: str) -> str:

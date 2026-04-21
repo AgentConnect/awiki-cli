@@ -20,14 +20,13 @@ TAG="v${VERSION}"
 
 release_require_clean_worktree
 BRANCH="$(release_require_branch_with_upstream)"
-release_require_tag_absent "${TAG}"
 
-echo "Creating stable release tag ${TAG} on branch ${BRANCH}..."
-release_create_and_push_tag "${TAG}" "Release ${TAG}"
+echo "Ensuring stable release tag ${TAG} on branch ${BRANCH}..."
+release_ensure_tag_on_remote "${TAG}" "Release ${TAG}" origin
 
 cat <<EOF
 
-Done. CI should pick up tag ${TAG} and run the release workflow.
+Done. Tag ${TAG} is ensured on origin; CI should pick it up and run or reuse the release workflow.
 
 After the GitHub release finishes, mirror the release assets to Gitee from your local machine:
 
