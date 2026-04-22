@@ -15,22 +15,22 @@
 
 ## 升级 `awiki-cli`
 
-`awiki-cli upgrade` 会先检查版本；当存在新版本或当前版本低于最小支持版本时，会直接执行：
-
-```bash
-npm install -g @awiki/cli@latest
-```
-
 推荐路径：
 
 ```bash
 awiki-cli upgrade
 ```
 
-如果你希望直接执行 npm 全局升级，也可以使用：
+这行命令会先检查版本；当存在新版本或当前版本低于最小支持版本时，会执行下面的命令（如果你希望直接执行 npm 全局升级，也可以使用）：
 
 ```bash
 npm install -g @awiki/cli@latest
+```
+
+如果你所在网络无法访问 `registry.npmjs.org`，请改用：
+
+```bash
+npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
 ```
 
 升级完成后，新开一个 shell，再执行：
@@ -55,7 +55,7 @@ npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <你的-age
 npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <你的-agent-id> -y -g
 ```
 
-如果你不确定 `--agent` 的值，回到 `00-installation.md` 查表。
+如果你不确定 `--agent` 的值，务必回到 `00-installation.md` 查表。
 
 ## 验证
 

@@ -1,10 +1,12 @@
 package update
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -13,12 +15,19 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
 )
 
 const (
 	defaultMetadataCacheTTLSeconds = 43200 // 12h
 	npmLatestURL                   = "https://registry.npmjs.org/@awiki%2Fcli/latest"
+	npmMirrorLatestURL             = "https://registry.npmmirror.com/@awiki/cli/latest"
 )
+
+var npmLatestURLs = []string{
+	npmLatestURL,
+	npmMirrorLatestURL,
+}
 
 // Metadata captures the remote version strategy state that we cache locally.
 type Metadata struct {
@@ -33,11 +42,16 @@ type Decision struct {
 	CurrentVersion      string `json:"current_version"`
 	LatestVersion       string `json:"latest_version"`
 	MinSupportedVersion string `json:"min_supported_version"`
+	MetadataSource      string `json:"metadata_source,omitempty"`
 
 	StrictDisabled  bool `json:"strict_disabled"`
 	DevBuild        bool `json:"dev_build"`
 	HasNewerVersion bool `json:"has_newer_version"`
 	Blocked         bool `json:"blocked"`
+}
+
+type checkOptions struct {
+	preferFresh bool
 }
 
 // Check resolves the effective version policy (including config + env overrides),
@@ -48,6 +62,17 @@ type Decision struct {
 // - Network / cache errors never crash the CLI; callers can choose how hard to fail.
 // - When metadata is missing or unparsable, the Decision falls back to "no block".
 func Check(resolved *appconfig.Resolved) (Decision, error) {
+	return check(context.Background(), resolved, checkOptions{})
+}
+
+// CheckFresh behaves like Check, but for explicit user-initiated upgrade flows
+// it prefers fresh network metadata and falls back to cached metadata only when
+// both registries are unavailable.
+func CheckFresh(ctx context.Context, resolved *appconfig.Resolved) (Decision, error) {
+	return check(ctx, resolved, checkOptions{preferFresh: true})
+}
+
+func check(ctx context.Context, resolved *appconfig.Resolved, opts checkOptions) (Decision, error) {
 	current := strings.TrimSpace(buildinfo.Version)
 	if current == "" {
 		current = "dev"
@@ -76,7 +101,10 @@ func Check(resolved *appconfig.Resolved) (Decision, error) {
 		DevBuild:       devBuild,
 	}
 
-	meta, err := loadMetadata(resolved, ttlSeconds)
+	finish := traceutil.PhaseContextWithDetail(ctx, "update_check", updateCheckPhaseDetail(opts.preferFresh))
+	defer finish()
+
+	meta, err := loadMetadata(ctx, resolved, ttlSeconds, opts.preferFresh)
 	if err != nil {
 		// Propagate the error so callers can log or surface it, but keep the
 		// decision usable (no block by default).
@@ -85,6 +113,7 @@ func Check(resolved *appconfig.Resolved) (Decision, error) {
 
 	decision.LatestVersion = meta.LatestVersion
 	decision.MinSupportedVersion = meta.MinSupportedVersion
+	decision.MetadataSource = meta.Source
 
 	// Dev builds should never be blocked, but they can still see "newer available".
 	if devBuild {
@@ -138,7 +167,7 @@ func cachePath(resolved *appconfig.Resolved) (string, error) {
 	return filepath.Join(cacheDir, "update", "metadata.json"), nil
 }
 
-func loadMetadata(resolved *appconfig.Resolved, ttlSeconds int) (Metadata, error) {
+func loadMetadata(ctx context.Context, resolved *appconfig.Resolved, ttlSeconds int, preferFresh bool) (Metadata, error) {
 	var zero Metadata
 
 	var cached Metadata
@@ -146,23 +175,28 @@ func loadMetadata(resolved *appconfig.Resolved, ttlSeconds int) (Metadata, error
 	if cacheErr == nil {
 		if m, ok, err := readCache(cacheFile, ttlSeconds); err == nil {
 			if ok {
-				return m, nil
+				if !preferFresh {
+					return m, nil
+				}
+				cached = m
+			} else {
+				// ok == false -> expired or empty cache; fall through to network,
+				// but remember the last good snapshot in case the network is down.
+				cached = m
 			}
-			// ok == false -> expired or empty cache; fall through to network,
-			// but remember the last good snapshot in case the network is down.
-			cached = m
 		} else {
 			// Any cache read error is treated as soft; we still try network.
 			cached = Metadata{}
 		}
 	}
 
-	network, err := fetchFromRegistry()
+	network, err := fetchFromRegistry(ctx)
 	if err != nil {
 		// If we had a usable cached value (even if TTL expired), fall back to it
 		// rather than failing hard.
 		if cached.LatestVersion != "" {
 			cached.Source = "cache_stale"
+			traceutil.MarkFallback(ctx, "update_check:cache_stale", err)
 			return cached, nil
 		}
 		return zero, err
@@ -207,11 +241,42 @@ func writeCache(path string, meta Metadata) error {
 	return os.WriteFile(path, raw, 0o600)
 }
 
-func fetchFromRegistry() (Metadata, error) {
+func fetchFromRegistry(ctx context.Context) (Metadata, error) {
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 	}
-	req, err := http.NewRequest(http.MethodGet, npmLatestURL, nil)
+	return fetchFromRegistryURLs(ctx, client, npmLatestURLs)
+}
+
+func fetchFromRegistryURLs(ctx context.Context, client *http.Client, urls []string) (Metadata, error) {
+	if len(urls) == 0 {
+		return Metadata{}, errors.New("no npm registry URLs configured")
+	}
+	if client == nil {
+		client = &http.Client{
+			Timeout: 3 * time.Second,
+		}
+	}
+
+	var errs []string
+	for i, url := range urls {
+		meta, err := fetchFromRegistryURL(ctx, client, url)
+		if err == nil {
+			return meta, nil
+		}
+		if i < len(urls)-1 {
+			traceutil.MarkFallback(ctx, "update_registry_fetch:"+registryHost(url), err)
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+	}
+	return Metadata{}, fmt.Errorf("failed to fetch awiki-cli metadata from npm registries: %s", strings.Join(errs, "; "))
+}
+
+func fetchFromRegistryURL(ctx context.Context, client *http.Client, url string) (Metadata, error) {
+	finish := traceutil.PhaseContextWithDetail(ctx, "update_registry_fetch", registryHost(url))
+	defer finish()
+
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -223,7 +288,7 @@ func fetchFromRegistry() (Metadata, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return Metadata{}, fmt.Errorf("npm registry responded with status %d", resp.StatusCode)
+		return Metadata{}, fmt.Errorf("registry responded with status %d", resp.StatusCode)
 	}
 
 	var body struct {
@@ -254,6 +319,25 @@ func fetchFromRegistry() (Metadata, error) {
 		RetrievedAt:         time.Now().UTC(),
 		Source:              "network",
 	}, nil
+}
+
+func updateCheckPhaseDetail(preferFresh bool) string {
+	if preferFresh {
+		return "fresh"
+	}
+	return "cached"
+}
+
+func registryHost(rawURL string) string {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	host := strings.TrimSpace(parsed.Host)
+	if host == "" {
+		return rawURL
+	}
+	return host
 }
 
 type semVersion struct {

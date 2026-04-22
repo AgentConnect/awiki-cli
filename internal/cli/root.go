@@ -529,7 +529,11 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 			decision.CurrentVersion,
 			decision.MinSupportedVersion,
 		)
-		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` or `npm install -g @awiki/cli@latest`."
+		hint := fmt.Sprintf(
+			"Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade`, or install directly with `%s` (`%s` if registry.npmjs.org is unreachable).",
+			directNpmInstallCommand(),
+			mirrorNpmInstallCommand(),
+		)
 		return output.NewExitError("version_unsupported", 3, summary, hint)
 	}
 

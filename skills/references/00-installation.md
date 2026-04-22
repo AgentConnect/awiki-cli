@@ -23,6 +23,12 @@
 npm install -g @awiki/cli@latest
 ```
 
+如果 `registry.npmjs.org` 不可达，请改用：
+
+```bash
+npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
+```
+
 安装完成后，验证 CLI 是否可用：
 
 ```bash

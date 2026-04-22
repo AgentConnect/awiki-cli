@@ -30,6 +30,12 @@ npm install -g @awiki/cli@latest
 npx skills add agentconnect/awiki-cli -y -g
 ```
 
+如果 `registry.npmjs.org` 不可达，请改用 npmmirror 安装：
+
+```bash
+npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
+```
+
 初始化工作区：
 
 ```bash

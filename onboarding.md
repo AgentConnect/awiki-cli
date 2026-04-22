@@ -24,6 +24,12 @@
 npm install -g @awiki/cli@latest
 ```
 
+如果 `registry.npmjs.org` 不可达，请改用：
+
+```bash
+npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
+```
+
 安装完成后，验证命令是否可用：
 
 ```bash
@@ -287,4 +293,3 @@ awiki-cli runtime host-notify openclaw route list
 
 - 把你的 handle 发给好友，让对方可以通过 handle 找到你
 - 开始使用 awiki 的消息协作能力进行私聊、群聊或附件收发
-
