@@ -34,6 +34,7 @@ metadata:
 |--------------|--------------------------------------|-------------------------------------------------------------------|---------------------------------|
 |Installation|CLI安装、skills安装、workspaceinit|`install`/`init`/`workspace`|`references/00-installation.md`|
 |Onboarding|首次可用配置、迁移、注册、runtimebootstrap|`first-timesetup`/`migration`/`register`/`bootstrap`|`references/01-onboarding.md`|
+|Upgrade|CLI升级、skill刷新、版本过旧处理|`upgrade`/`update`/`npm`/`unsupported-version`|`references/10-upgrade.md`|
 |Identity|身份生命周期、handle、profile、恢复与绑定|`identity`/`did`/`handle`/`recover`/`bind`/`profile`|`references/02-identity.md`|
 |Messaging|私聊、群消息、附件收发、已读状态、secure契约|`msg`/`inbox`/`history`/`attachment`/`mark-read`/`secure`|`references/03-messaging.md`|
 |Groups|群生命周期、成员、策略、群消息视图|`group`/`member`/`join`/`leave`/`policy`|`references/04-groups.md`|
@@ -59,6 +60,7 @@ metadata:
 - `awiki-cli doctor`：检查环境、存储、配置与迁移问题。
 - `awiki-cli config show`：查看当前解析后的配置。
 - `awiki-cli version`：查看版本信息。
+- `awiki-cli upgrade`：检查更新，并在需要时执行 npm 全局升级；属于写操作，执行前先确认。
 
 ### 身份
 
@@ -117,7 +119,6 @@ metadata:
 - 使用 `--jq` 过滤 JSON envelope，而不是假设其他响应形状。
 - 对有副作用的命令，在真正写入前优先使用 `--dry-run`，除非用户明确要求直接执行。
 - `id replace-did` 是危险命令：不要主动运行；只有用户明确要求替换某个 identity 的 DID 时才使用，并优先 `--dry-run`、确认 `--identity <identity>` 目标。
-- 当出现 `_notice.update` 时，先完成当前任务，再提示升级信息。
 
 ## 身份与展示规则
 
@@ -156,6 +157,7 @@ metadata:
 ### 需要显式确认
 
 - `init`
+- `upgrade`
 - 所有身份写操作：`id register`、`id bind`、`id refresh-token`、`id recover`、`id use`、`id profile set`、`id import-v1`
 - 隐藏的 bootstrap 路径：`id create`
 - 消息写操作：`msg send`、`msg attachment download`、`msg mark-read`

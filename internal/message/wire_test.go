@@ -298,6 +298,7 @@ func TestBuildHistoryRPCParamsValidatesTargetAndCursor(t *testing.T) {
 		With:   "did:wba:awiki.ai:user:bob:e1_bob",
 		Limit:  0,
 		Cursor: "42",
+		Skip:   3,
 	})
 	if err != nil {
 		t.Fatalf("BuildHistoryRPCParams() error = %v", err)
@@ -316,6 +317,9 @@ func TestBuildHistoryRPCParamsValidatesTargetAndCursor(t *testing.T) {
 	}
 	if got := stringFromAny(body["since_seq"]); got != "42" {
 		t.Fatalf("body.since_seq = %q, want 42", got)
+	}
+	if got := intValueFromAny(body["skip"], 0); got != 3 {
+		t.Fatalf("body.skip = %d, want 3", got)
 	}
 }
 

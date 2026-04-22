@@ -225,6 +225,7 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			With:   stringValue(request.Params["with"]),
 			Limit:  intValue(request.Params["limit"]),
 			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
 		})
 		if err != nil {
 			return nil, err
@@ -350,7 +351,12 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		}
 		return client.SendRPC(context.Background(), "group.list_members", params)
 	case "group.list_messages":
-		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
+		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{
+			Group:  stringValue(request.Params["group"]),
+			Limit:  intValue(request.Params["limit"]),
+			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
+		})
 		if err != nil {
 			return nil, err
 		}
