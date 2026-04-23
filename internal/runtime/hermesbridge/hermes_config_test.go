@@ -52,6 +52,9 @@ func TestEnsureRouteCreatesWebhookNotifyRouteAndUsesHomeChannel(t *testing.T) {
 	if !strings.Contains(text, "收到外部IM消息通知") {
 		t.Fatalf("config.yaml missing IM notification prompt section: %q", text)
 	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml unexpectedly contains legacy skills stanza: %q", text)
+	}
 	if strings.Contains(text, "chat_id:") {
 		t.Fatalf("config.yaml unexpectedly contains fixed chat_id: %q", text)
 	}
@@ -105,6 +108,9 @@ FEISHU_HOME_CHANNEL: oc_home
 	text := string(raw)
 	if strings.Contains(text, "chat_id:") {
 		t.Fatalf("config.yaml still contains fixed chat_id: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
 	}
 	if !strings.Contains(text, "keep_me:") {
 		t.Fatalf("config.yaml unexpectedly removed unrelated deliver_extra field: %q", text)
@@ -214,6 +220,9 @@ func TestEnsureRouteMigratesLegacyEnglishPromptToChineseDefault(t *testing.T) {
 	if !strings.Contains(text, "收到外部IM消息通知") {
 		t.Fatalf("config.yaml prompt not migrated to Chinese default: %q", text)
 	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
 	if strings.Contains(text, "Received External IM Notification") {
 		t.Fatalf("config.yaml still contains legacy English prompt: %q", text)
 	}
@@ -295,6 +304,12 @@ func TestEnsureRouteMigratesPreviousChinesePromptToCurrentDefault(t *testing.T) 
 	if !strings.Contains(text, "不强依赖 topic 名称") {
 		t.Fatalf("config.yaml prompt not migrated to topic-independent mail-aware default: %q", text)
 	}
+	if !strings.Contains(text, "source_kind=mail") {
+		t.Fatalf("config.yaml prompt not migrated to source_kind-aware default: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
 	if strings.Contains(text, "如果 topic 是 mail.message.received") {
 		t.Fatalf("config.yaml still contains previous topic-gated mail prompt: %q", text)
 	}
@@ -338,5 +353,49 @@ func TestEnsureRouteKeepsCustomPrompt(t *testing.T) {
 	text := string(raw)
 	if !strings.Contains(text, "自定义提示词：请保持这一段不被覆盖。") {
 		t.Fatalf("config.yaml custom prompt was unexpectedly changed: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+}
+
+func TestEnsureRouteKeepsCustomNonNotifySkills(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            自定义提示词：保留其它自定义 skills。
+          skills: ["custom-skill", "formatter"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "custom-skill") || !strings.Contains(text, "formatter") {
+		t.Fatalf("config.yaml unexpectedly removed custom skills: %q", text)
 	}
 }

@@ -109,8 +109,11 @@ func TestMessageRecordFromMailNotificationBuildsSystemMessage(t *testing.T) {
 	if record.Direction != 0 {
 		t.Fatalf("record.Direction = %d, want 0 (inbound)", record.Direction)
 	}
-	if record.ContentType != "mail.notification" {
+	if record.ContentType != "text/plain" {
 		t.Fatalf("record.ContentType = %q", record.ContentType)
+	}
+	if !strings.Contains(record.Metadata, `"source_kind":"mail"`) {
+		t.Fatalf("record.Metadata = %q, want source_kind marker", record.Metadata)
 	}
 	if record.Title != "[邮件] Mail Subject" {
 		t.Fatalf("record.Title = %q", record.Title)

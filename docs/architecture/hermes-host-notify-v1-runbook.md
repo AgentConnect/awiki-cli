@@ -47,7 +47,6 @@ platforms:
           secret: "${HERMES_ROUTE_SECRET}"
           events: []
           prompt: "{notify_payload}"
-          skills: ["notify"]
           deliver: "feishu"
 ```
 
@@ -56,6 +55,11 @@ Feishu 目标建议：
 - 优先设置 `FEISHU_HOME_CHANNEL`
 - 或在 Feishu 中给 Hermes 发送 `/sethome` 或 `/set-home`
 - 只有当你明确要把所有通知固定投递到某个会话时，才使用 `deliver_extra.chat_id`
+
+补充说明：
+
+- 邮件通知当前会沿用统一消息主 topic 进入 Hermes
+- route prompt 应优先根据 `data.source_kind=mail` 以及 `mailbox_address`、`from_addr`、`subject`、`preview` 等字段判断邮件通知
 
 ### 2.2 启动 adapter
 

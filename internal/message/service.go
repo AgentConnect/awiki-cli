@@ -421,7 +421,7 @@ func (s *Service) MarkRead(ctx context.Context, request MarkReadRequest) (*Comma
 			}
 			for _, id := range request.MessageIDs {
 				row, ok := known[id]
-				if ok && stringFromAny(row["content_type"]) == "mail.notification" {
+				if ok && isLocalMailNotificationMessage(row) {
 					localOnlyIDs = append(localOnlyIDs, id)
 					continue
 				}
@@ -583,28 +583,39 @@ func (s *Service) refreshJWT(ctx context.Context, record *identity.StoredIdentit
 }
 
 func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity, request InboxRequest) (*CommandResult, error) {
-	directRequest := request
-	directRequest.Scope = "direct"
-	directRequest.Group = ""
-	directResult, err := s.Inbox(ctx, directRequest)
-	if err != nil {
-		return nil, err
-	}
 	groupMessages, groupErr := s.readAllLocalGroupInbox(ctx, record, request.Limit, request.UnreadOnly)
 	warnings := make([]string, 0)
 	if groupErr != nil {
 		warnings = append(warnings, fmt.Sprintf("Failed to read local group inbox cache: %v", groupErr))
 	}
-	mailNotifications, mailErr := s.readAllLocalMailNotifications(ctx, record, request.Limit, request.UnreadOnly)
-	if mailErr != nil {
-		warnings = append(warnings, fmt.Sprintf("Failed to read local mail notification cache: %v", mailErr))
+	directMessages := []map[string]any(nil)
+	source := "local_direct_cache+local_group_cache"
+	if s.runtimeConfig().Mode == runtime.ModeWebSocket {
+		cachedDirect, directErr := s.readUnifiedDirectInboxFromCache(ctx, record, request.Limit, request.UnreadOnly)
+		if directErr == nil {
+			directMessages = normalizeMailNotificationMessages(cachedDirect)
+		} else {
+			warnings = append(warnings, fmt.Sprintf("Failed to read local direct inbox cache: %v", directErr))
+		}
 	}
-	directMessages := normalizeMailNotificationMessages(messagesFromResult(directResult.Data["messages"]))
-	merged := mergeInboxMessages(
-		request.Limit,
-		mergeInboxMessages(request.Limit, directMessages, groupMessages),
-		normalizeMailNotificationMessages(mailNotifications),
-	)
+	if directMessages == nil {
+		directRequest := request
+		directRequest.Scope = "direct"
+		directRequest.Group = ""
+		directResult, err := s.Inbox(ctx, directRequest)
+		if err != nil {
+			return nil, err
+		}
+		mailNotifications, mailErr := s.readAllLocalMailNotifications(ctx, record, request.Limit, request.UnreadOnly)
+		if mailErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to read local mail notification cache: %v", mailErr))
+		}
+		directMessages = normalizeMailNotificationMessages(messagesFromResult(directResult.Data["messages"]))
+		directMessages = mergeInboxMessages(request.Limit, directMessages, normalizeMailNotificationMessages(mailNotifications))
+		warnings = append(warnings, directResult.Warnings...)
+		source = "remote_http+local_group_cache+local_mail_cache"
+	}
+	merged := mergeInboxMessages(request.Limit, directMessages, groupMessages)
 	if request.MarkRead {
 		ids := collectMessageIDs(merged)
 		if len(ids) > 0 {
@@ -614,12 +625,11 @@ func (s *Service) allInbox(ctx context.Context, record *identity.StoredIdentity,
 			}
 		}
 	}
-	warnings = append(warnings, directResult.Warnings...)
 	return &CommandResult{
 		Data: map[string]any{
 			"messages": merged,
 			"total":    len(merged),
-			"source":   "remote_http+local_group_cache+local_mail_cache",
+			"source":   source,
 		},
 		Summary:  fmt.Sprintf("Loaded %d inbox messages", len(merged)),
 		Warnings: compactWarnings(warnings),
@@ -889,6 +899,16 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 func (s *Service) readInboxFromCache(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
 	finish := traceutil.LocalDBPhase(ctx, "read_inbox_cache")
 	defer finish()
+	return s.readInboxFromCacheWithOptions(ctx, record, peerDID, limit, unreadOnly, false)
+}
+
+func (s *Service) readUnifiedDirectInboxFromCache(ctx context.Context, record *identity.StoredIdentity, limit int, unreadOnly bool) ([]map[string]any, error) {
+	finish := traceutil.LocalDBPhase(ctx, "read_unified_direct_inbox_cache")
+	defer finish()
+	return s.readInboxFromCacheWithOptions(ctx, record, "", limit, unreadOnly, true)
+}
+
+func (s *Service) readInboxFromCacheWithOptions(ctx context.Context, record *identity.StoredIdentity, peerDID string, limit int, unreadOnly bool, includeLocalNotifications bool) ([]map[string]any, error) {
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -897,7 +917,7 @@ func (s *Service) readInboxFromCache(ctx context.Context, record *identity.Store
 	if err := store.EnsureSchema(ctx, db); err != nil {
 		return nil, err
 	}
-	return store.ListInboxMessages(ctx, db, record.DID, limit, peerDID, unreadOnly)
+	return store.ListInboxMessages(ctx, db, record.DID, limit, peerDID, unreadOnly, includeLocalNotifications)
 }
 
 func (s *Service) readAllLocalMailNotifications(ctx context.Context, record *identity.StoredIdentity, limit int, unreadOnly bool) ([]map[string]any, error) {
@@ -986,7 +1006,7 @@ func normalizeMailNotificationMessages(messages []map[string]any) []map[string]a
 }
 
 func normalizeMailNotificationMessage(message map[string]any) map[string]any {
-	if stringFromAny(message["content_type"]) != "mail.notification" {
+	if !isLocalMailNotificationMessage(message) {
 		return message
 	}
 	metadata := parseMessageMetadata(message["metadata"])
@@ -1009,9 +1029,21 @@ func normalizeMailNotificationMessage(message map[string]any) map[string]any {
 	for key, value := range message {
 		normalized[key] = value
 	}
+	normalized["source_kind"] = "mail"
 	normalized["title"] = "[邮件] " + subject
 	normalized["content"] = buildNormalizedMailNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
 	return normalized
+}
+
+func isLocalMailNotificationMessage(message map[string]any) bool {
+	if message == nil {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(message["content_type"])) == "mail.notification" {
+		return true
+	}
+	metadata := parseMessageMetadata(message["metadata"])
+	return strings.TrimSpace(stringFromAny(metadata["source_kind"])) == "mail"
 }
 
 func parseMessageMetadata(value any) map[string]any {
