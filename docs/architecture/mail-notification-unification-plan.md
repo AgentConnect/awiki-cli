@@ -91,21 +91,89 @@ mail.notification -> message-style notification -> websocket/inbox/webhook/Herme
 - 下游只为 mail 额外存在的桥接或格式化分支
 - `msg inbox` 中仅用于过渡期的 mail 合并逻辑
 
-## 当前实施范围
+## 当前已完成状态
 
-本次代码变更只启动 **阶段 1**：
+当前代码已经完成了比最初计划更完整的一轮收口，不再只停留在阶段 1。
 
-- 增加统一语义文档
-- 修改 `listener/host_notify` 的邮件标准化输出
-- 修改 OpenClaw 对新 payload 的兼容格式化
-- 保留现有普通私信行为和旧 mail payload 兼容能力
+### 已完成的收口
 
-## 验收标准
+1. host-notify 主语义已统一
 
-至少需要满足以下回归项：
+- `mail.notification` 进入 `awiki-cli` 后，会统一标准化为：
+  - `topic = im.message.received`
+  - `data = DirectMessageNotificationData`
+  - `data.source_kind = mail`
+- 同时保留邮件字段：
+  - `mailbox_address`
+  - `from_addr`
+  - `subject`
+  - `preview`
+  - `has_attachments`
 
-1. `direct.incoming` 仍然标准化为 `im.message.received`
-2. `mail.notification` 现在也进入 `im.message.received`
-3. 邮件事件中仍然保留 `mailbox_address` / `from_addr` / `subject` / `preview`
-4. OpenClaw 对新邮件 payload 仍能输出“邮件格式”文本
-5. Hermes host-notify 构建和已有测试不回归
+2. `msg inbox --scope all` 已统一聚合
+
+- websocket 模式下，`allInbox()` 优先读取本地 unified direct inbox cache
+- 邮件通知会直接作为 direct-like 本地消息一起聚合
+- 不再依赖“direct inbox 结果 + 独立 mail cache 再拼一次”作为主路径
+
+3. 本地展示结果已统一标识
+
+- 归一化后的本地邮件通知结果会显式带：
+  - `source_kind = mail`
+- 展示层可以优先用 `source_kind` 判断“这是邮件”，不再只依赖 `content_type`
+
+4. Hermes / OpenClaw 契约已统一
+
+- Hermes 默认 prompt 优先根据 `source_kind=mail` 和邮件字段识别邮件通知
+- OpenClaw 只保留一套 mail-like 提取和渲染逻辑
+- 旧的 `MailNotificationData` Go 内部 legacy payload 已移除
+
+5. 本地存储表达已进入过渡完成态
+
+- 新落库的邮件通知现在使用：
+  - `content_type = "text/plain"`
+  - `metadata.source_kind = "mail"`
+- 历史数据如果仍是：
+  - `content_type = "mail.notification"`
+  仍然可以被兼容识别和读取
+
+### 当前等价结构
+
+当前真实结构可以理解为：
+
+```text
+message-service websocket
+  -> awiki-cli listener 收到 mail.notification
+  -> 本地存储为 text/plain + metadata.source_kind=mail
+  -> host-notify 标准化为 im.message.received + data.source_kind=mail
+  -> msg inbox / Hermes / OpenClaw 按统一消息链路消费
+```
+
+## 当前保留的兼容层
+
+虽然主链路已经收口，但以下兼容层仍然保留：
+
+1. 旧本地数据的兼容读取
+
+- 历史 sqlite 数据里可能还存在 `content_type = "mail.notification"`
+- 读取逻辑仍兼容这批旧数据
+
+2. `mail notify` 命令
+
+- `awiki-cli mail notify` 仍然保留
+- 它读取本地 mail notification 视图，不是本次清理的删除目标
+
+3. fallback mail cache 读取路径
+
+- `readAllLocalMailNotifications()` / `ListNotificationInboxMessages()` 仍保留
+- 主要用于非 websocket / fallback 场景，避免邮件通知丢失
+
+更细的可删/不可删结论，见：
+
+- `docs/architecture/mail-notification-compatibility-checklist.md`
+
+## 验证入口
+
+如果你要去另一台机器做真实链路验证，直接看：
+
+- `docs/architecture/mail-notification-validation-runbook.md`

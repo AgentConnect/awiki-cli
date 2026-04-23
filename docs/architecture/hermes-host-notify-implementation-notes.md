@@ -7,6 +7,7 @@
 关于“邮件通知如何低风险收口到普通消息通知链路”的后续方案，见：
 
 - `docs/architecture/mail-notification-unification-plan.md`
+- `docs/architecture/mail-notification-validation-runbook.md`
 
 目标场景：
 
