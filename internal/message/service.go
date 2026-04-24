@@ -61,7 +61,7 @@ func (s *Service) Send(ctx context.Context, request SendRequest) (*CommandResult
 		return nil, ErrTextRequired
 	}
 	if request.SecureMode == "on" {
-		return nil, ErrSecureNotSupported
+		return s.sendSecureDirect(ctx, request)
 	}
 	record, err := s.requireActiveIdentity(request.IdentityName)
 	if err != nil {
@@ -105,8 +105,13 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	if err != nil {
 		return nil, err
 	}
+	publishWarnings := s.maybePublishSecurePrekeys(ctx, record)
 	if request.Scope == "all" {
-		return s.allInbox(ctx, record, request)
+		result, err := s.allInbox(ctx, record, request)
+		if result != nil {
+			result.Warnings = append(result.Warnings, publishWarnings...)
+		}
+		return result, err
 	}
 	originalWith := strings.TrimSpace(request.With)
 	targetIsHandle := originalWith != "" && !strings.HasPrefix(originalWith, "did:")
@@ -140,7 +145,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	}
 
 	mode := s.runtimeConfig()
-	warnings := make([]string, 0)
+	warnings := append([]string(nil), publishWarnings...)
 	var raw map[string]any
 	switch mode.Mode {
 	case runtime.ModeWebSocket:
@@ -262,6 +267,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 	if err != nil {
 		return nil, err
 	}
+	publishWarnings := s.maybePublishSecurePrekeys(ctx, record)
 	originalWith := strings.TrimSpace(request.With)
 	targetIsHandle := originalWith != "" && !strings.HasPrefix(originalWith, "did:")
 	peerDID, peerHandle, err := s.resolveTarget(ctx, request.With)
@@ -291,7 +297,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 	request.With = peerDID
 
 	mode := s.runtimeConfig()
-	warnings := make([]string, 0)
+	warnings := append([]string(nil), publishWarnings...)
 	var raw map[string]any
 	switch mode.Mode {
 	case runtime.ModeWebSocket:
@@ -640,27 +646,33 @@ func (s *Service) httpTransport(record *identity.StoredIdentity) (*HTTPTransport
 	if err != nil {
 		return nil, nil, err
 	}
-	if auth != nil && auth.session != nil {
-		rememberAuthScopes(auth.session, s.resolved)
-	}
-	if auth != nil && auth.session != nil && strings.TrimSpace(record.JWTToken) != "" {
-		token := strings.TrimSpace(record.JWTToken)
-		auth.session.SetBearer(s.resolved.ServiceBaseURL, token)
-		auth.session.SetBearer(
-			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
-			token,
-		)
-		auth.session.SetBearer(
-			appconfig.JoinBaseURL(s.resolved.ServiceBaseURL, MessageRPCEndpoint),
-			token,
-		)
-		auth.session.SetBearer(s.resolved.ANPServiceEndpoint, token)
-	}
+	primeAuthSession(auth, s.resolved)
 	client := http.DefaultClient
 	if s.remote != nil && s.remote.Client() != nil {
 		client = s.remote.Client()
 	}
 	return NewHTTPTransport(s.resolved, auth, client), nil, nil
+}
+
+func primeAuthSession(auth *authContext, resolved *appconfig.Resolved) {
+	if auth == nil || auth.session == nil || resolved == nil {
+		return
+	}
+	rememberAuthScopes(auth.session, resolved)
+	if strings.TrimSpace(auth.record.JWTToken) == "" {
+		return
+	}
+	token := strings.TrimSpace(auth.record.JWTToken)
+	auth.session.SetBearer(resolved.ServiceBaseURL, token)
+	auth.session.SetBearer(
+		appconfig.JoinBaseURL(resolved.ServiceBaseURL, "/user-service/did-auth/rpc"),
+		token,
+	)
+	auth.session.SetBearer(
+		appconfig.JoinBaseURL(resolved.ServiceBaseURL, MessageRPCEndpoint),
+		token,
+	)
+	auth.session.SetBearer(resolved.ANPServiceEndpoint, token)
 }
 
 func rememberAuthScopes(session *authsdk.Session, resolved *appconfig.Resolved) {
@@ -748,6 +760,10 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 func (s *Service) persistSendResult(ctx context.Context, record *identity.StoredIdentity, targetDID string, targetHandle string, request SendRequest, result *directSendResult, warnings []string) (*CommandResult, error) {
 	finish := traceutil.LocalDBPhase(ctx, "persist_direct_send")
 	defer finish()
+	messageType := strings.TrimSpace(request.MessageType)
+	if messageType == "" {
+		messageType = "text"
+	}
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return nil, err
@@ -768,6 +784,7 @@ func (s *Service) persistSendResult(ctx context.Context, record *identity.Stored
 		ServerSeq:      nil,
 		SentAt:         result.AcceptedAt,
 		IsRead:         true,
+		IsE2EE:         strings.TrimSpace(request.SecureMode) == "on",
 		Metadata:       metadataString(map[string]any{"delivery_state": result.DeliveryState, "operation_id": result.OperationID, "target_handle": targetHandle}),
 		CredentialName: record.IdentityName,
 	}); err != nil {
@@ -783,13 +800,13 @@ func (s *Service) persistSendResult(ctx context.Context, record *identity.Stored
 			},
 			"message": map[string]any{
 				"id":      result.MessageID,
-				"type":    request.MessageType,
-				"secure":  false,
+				"type":    messageType,
+				"secure":  strings.TrimSpace(request.SecureMode) == "on",
 				"sent_at": result.AcceptedAt,
 			},
 			"delivery": result,
 		},
-		Summary:  fmt.Sprintf("Sent a direct %s message", request.MessageType),
+		Summary:  fmt.Sprintf("Sent a direct %s message", messageType),
 		Warnings: warnings,
 	}, nil
 }
@@ -804,8 +821,12 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 	defer db.Close()
 	_ = store.EnsureSchema(ctx, db)
 	messages := messagesFromResult(raw["messages"])
+	warnings := s.maybeDecryptDirectE2EEMessages(ctx, record, messages)
 	storable := make([]store.MessageRecord, 0, len(messages))
 	for _, message := range messages {
+		if boolFromAny(message["secure_control"]) {
+			continue
+		}
 		msgID := stringFromAny(message["id"])
 		if msgID == "" {
 			continue
@@ -816,6 +837,11 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 		if peerDID == record.DID {
 			peerDID = receiverDID
 		}
+		contentValue := message["content"]
+		content := stringFromAny(contentValue)
+		if content == "" {
+			content = metadataString(contentValue)
+		}
 		storable = append(storable, store.MessageRecord{
 			MsgID:          msgID,
 			OwnerDID:       record.DID,
@@ -824,9 +850,10 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 			SenderDID:      senderDID,
 			ReceiverDID:    receiverDID,
 			ContentType:    stringFromAny(message["content_type"]),
-			Content:        stringFromAny(message["content"]),
+			Content:        content,
 			ServerSeq:      int64PtrFromAny(message["server_seq"]),
 			SentAt:         stringFromAny(message["sent_at"]),
+			IsE2EE:         boolFromAny(message["secure"]),
 			IsRead:         boolFromAny(message["is_read"]),
 			SenderName:     stringFromAny(message["sender_name"]),
 			Metadata:       metadataString(message),
@@ -836,7 +863,7 @@ func (s *Service) persistInboxMessages(ctx context.Context, record *identity.Sto
 	_ = store.StoreMessagesBatch(ctx, db, storable)
 	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
 	defer contactFinish()
-	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.inbox")
+	warnings = append(warnings, s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.inbox")...)
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 
@@ -850,8 +877,12 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 	defer db.Close()
 	_ = store.EnsureSchema(ctx, db)
 	messages := messagesFromResult(raw["messages"])
+	warnings := s.maybeDecryptDirectE2EEMessages(ctx, record, messages)
 	storable := make([]store.MessageRecord, 0, len(messages))
 	for _, message := range messages {
+		if boolFromAny(message["secure_control"]) {
+			continue
+		}
 		msgID := stringFromAny(message["id"])
 		if msgID == "" {
 			continue
@@ -862,6 +893,11 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 		if senderDID == record.DID {
 			direction = 1
 		}
+		contentValue := message["content"]
+		content := stringFromAny(contentValue)
+		if content == "" {
+			content = metadataString(contentValue)
+		}
 		storable = append(storable, store.MessageRecord{
 			MsgID:          msgID,
 			OwnerDID:       record.DID,
@@ -870,9 +906,10 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 			SenderDID:      senderDID,
 			ReceiverDID:    receiverDID,
 			ContentType:    stringFromAny(message["content_type"]),
-			Content:        stringFromAny(message["content"]),
+			Content:        content,
 			ServerSeq:      int64PtrFromAny(message["server_seq"]),
 			SentAt:         stringFromAny(message["sent_at"]),
+			IsE2EE:         boolFromAny(message["secure"]),
 			IsRead:         boolFromAny(message["is_read"]),
 			SenderName:     stringFromAny(message["sender_name"]),
 			Metadata:       metadataString(message),
@@ -882,7 +919,7 @@ func (s *Service) persistHistoryMessages(ctx context.Context, record *identity.S
 	_ = store.StoreMessagesBatch(ctx, db, storable)
 	contactFinish := traceutil.PhaseContext(ctx, "contact_sync")
 	defer contactFinish()
-	warnings := s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.history")
+	warnings = append(warnings, s.syncDirectPeerHandles(ctx, db, record.DID, messages, knownHandle, "msg.history")...)
 	return messages, intValueFromAny(raw["total"], len(messages)), warnings
 }
 

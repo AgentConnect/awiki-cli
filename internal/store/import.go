@@ -14,9 +14,7 @@ import (
 
 func ScanLegacyDatabase(ctx context.Context, paths appconfig.Paths) (*LegacyScan, error) {
 	legacyPath := strings.TrimSpace(paths.LegacyDataDir)
-	if strings.HasSuffix(strings.ToLower(legacyPath), ".db") {
-		legacyPath = legacyPath
-	} else {
+	if !strings.HasSuffix(strings.ToLower(legacyPath), ".db") {
 		legacyPath = filepath.Join(paths.LegacyDataDir, "database", "awiki.db")
 	}
 	scan := &LegacyScan{

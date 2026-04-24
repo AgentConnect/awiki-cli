@@ -93,7 +93,7 @@
 | product surface | implemented | `status / docs / schema / doctor / config show / version / completion` |
 | id | implemented | 含 register / bind / recover / profile / import-v1 |
 | msg plain | implemented | direct/group plain send + inbox/history/mark-read |
-| msg secure | planned | `--secure` contract 存在，但 secure 业务流尚未落地 |
+| msg secure | partial | `--secure` direct flow、listener auto-ack/queued flush、以及 `msg secure status/init/repair/failed/retry/drop` 首版已落地；仍缺更强系统测试与部分恢复细节 |
 | group | implemented | create/get/join/add/remove/leave/update/members/messages |
 | runtime mode | implemented | `runtime status/setup/mode get/set` |
 | runtime listener | partial | status/install/start/stop/restart/uninstall 已可用；heartbeat 仍未落地 |

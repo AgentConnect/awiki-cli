@@ -9,7 +9,7 @@ import (
 
 const (
 	ModulePath    = "github.com/agent-network-protocol/anp/golang"
-	ModuleVersion = "v0.8.5"
+	ModuleVersion = "v0.8.7"
 )
 
 type (
@@ -27,6 +27,7 @@ type (
 	HttpSignatureOptions                  = anpauth.HttpSignatureOptions
 	MessageServiceE2EEClient              = directe2ee.MessageServiceDirectE2eeClient
 	PrekeyBundle                          = directe2ee.PrekeyBundle
+	OneTimePrekey                         = directe2ee.OneTimePrekey
 	DirectSessionState                    = directe2ee.DirectSessionState
 	IMProof                               = anpproof.IMProof
 	IMGenerationOptions                   = anpproof.IMGenerationOptions
@@ -60,6 +61,7 @@ var (
 	NewDidWbaVerifier                 = anpauth.NewDidWbaVerifier
 	NewFileSessionStore               = directe2ee.NewFileSessionStore
 	NewFileSignedPrekeyStore          = directe2ee.NewFileSignedPrekeyStore
+	NewFileOneTimePrekeyStore         = directe2ee.NewFileOneTimePrekeyStore
 	NewFilePendingOutboundStore       = directe2ee.NewFilePendingOutboundStore
 	NewMessageServiceDirectE2eeClient = directe2ee.NewMessageServiceDirectE2eeClient
 	BuildIMContentDigest              = anpproof.BuildIMContentDigest

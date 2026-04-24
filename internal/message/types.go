@@ -29,7 +29,7 @@ var (
 	ErrAttachmentMessageInvalid = errors.New("message is not an attachment manifest")
 	ErrAttachmentSenderRequired = errors.New("attachment message sender_did is required")
 	ErrTransportUnavailable     = errors.New("message transport is unavailable")
-	ErrSecureNotSupported       = errors.New("direct secure messaging is not implemented yet")
+	ErrSecureNotSupported       = errors.New("secure messaging is not supported for this command yet")
 	ErrMessageNotFound          = errors.New("message not found")
 )
 
@@ -84,6 +84,21 @@ type AttachmentDownloadRequest struct {
 	MessageID    string
 	AttachmentID string
 	OutputPath   string
+}
+
+type SecureStatusRequest struct {
+	IdentityName string
+	With         string
+}
+
+type SecurePeerRequest struct {
+	IdentityName string
+	With         string
+}
+
+type SecureOutboxActionRequest struct {
+	IdentityName string
+	OutboxID     string
 }
 
 type directSendResult struct {

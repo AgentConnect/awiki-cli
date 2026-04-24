@@ -26,15 +26,15 @@ go version
 # go version go1.22.x darwin/arm64
 ```
 
-### 1.2 ANP Go SDK（远端模块依赖）
+### 1.2 ANP Go SDK（P5 secure direct）
 
-awiki-cli 直接使用远端 ANP Go SDK 模块，版本固定为 `v0.8.5`：
+awiki-cli 的依赖基线是 ANP Go SDK `v0.8.7`：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.8.5
+go get github.com/agent-network-protocol/anp/golang@v0.8.7
 ```
 
-首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
+P5 secure direct / OPK 客户端能力已随 `v0.8.7` 发布；主线 `go.mod` 应直接依赖远端模块，不再提交同级工作区 `replace`。首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
 
 ### 1.3 Docker 备选（无本地 Go 时）
 
@@ -501,10 +501,11 @@ CGO_ENABLED=0 go build ./cmd/awiki-cli/
 
 ### Q: 编译报错找不到 ANP SDK
 
-确认当前模块依赖已成功下载，并且 `go.mod` 中使用的是远端版本 `github.com/agent-network-protocol/anp/golang v0.8.5`：
+确认当前模块依赖已成功下载，并且 `go.mod` 中保留了 `github.com/agent-network-protocol/anp/golang v0.8.7` 远端依赖：
 
 ```bash
-go get github.com/agent-network-protocol/anp/golang@v0.8.5
+go get github.com/agent-network-protocol/anp/golang@v0.8.7
+grep 'github.com/agent-network-protocol/anp/golang v0.8.7' go.mod
 ```
 
 ### Q: `go mod tidy` 报错

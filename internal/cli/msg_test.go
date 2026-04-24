@@ -75,6 +75,72 @@ func TestMsgDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:        "secure status carries peer filter",
+			spec:        "msg.secure.status",
+			setFlags:    map[string]string{"with": "bob"},
+			wantSummary: "Dry run: secure status planned",
+			wantAction:  "msg.secure.status",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["with"] != "bob" {
+					t.Fatalf("plan.with = %#v, want bob", plan["with"])
+				}
+			},
+		},
+		{
+			name:        "secure init carries peer filter",
+			spec:        "msg.secure.init",
+			setFlags:    map[string]string{"with": "bob"},
+			wantSummary: "Dry run: secure init planned",
+			wantAction:  "msg.secure.init",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["with"] != "bob" {
+					t.Fatalf("plan.with = %#v, want bob", plan["with"])
+				}
+			},
+		},
+		{
+			name:        "secure repair carries peer filter",
+			spec:        "msg.secure.repair",
+			setFlags:    map[string]string{"with": "bob"},
+			wantSummary: "Dry run: secure repair planned",
+			wantAction:  "msg.secure.repair",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["with"] != "bob" {
+					t.Fatalf("plan.with = %#v, want bob", plan["with"])
+				}
+			},
+		},
+		{
+			name:        "secure failed lists current identity",
+			spec:        "msg.secure.failed",
+			wantSummary: "Dry run: secure failed listing planned",
+			wantAction:  "msg.secure.failed",
+		},
+		{
+			name:        "secure retry keeps outbox id",
+			spec:        "msg.secure.retry",
+			args:        []string{"outbox-1"},
+			wantSummary: "Dry run: secure retry planned",
+			wantAction:  "msg.secure.retry",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["outbox_id"] != "outbox-1" {
+					t.Fatalf("plan.outbox_id = %#v, want outbox-1", plan["outbox_id"])
+				}
+			},
+		},
+		{
+			name:        "secure drop keeps outbox id",
+			spec:        "msg.secure.drop",
+			args:        []string{"outbox-1"},
+			wantSummary: "Dry run: secure drop planned",
+			wantAction:  "msg.secure.drop",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["outbox_id"] != "outbox-1" {
+					t.Fatalf("plan.outbox_id = %#v, want outbox-1", plan["outbox_id"])
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -99,6 +165,18 @@ func TestMsgDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runMsgHistory(cmd, nil)
 				case "msg.mark-read":
 					return app.runMsgMarkRead(cmd, tc.args)
+				case "msg.secure.status":
+					return app.runMsgSecureStatus(cmd, tc.args)
+				case "msg.secure.init":
+					return app.runMsgSecureInit(cmd, tc.args)
+				case "msg.secure.repair":
+					return app.runMsgSecureRepair(cmd, tc.args)
+				case "msg.secure.failed":
+					return app.runMsgSecureFailed(cmd, tc.args)
+				case "msg.secure.retry":
+					return app.runMsgSecureRetry(cmd, tc.args)
+				case "msg.secure.drop":
+					return app.runMsgSecureDrop(cmd, tc.args)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil
@@ -152,5 +230,22 @@ func TestRunMsgSendRejectsInvalidFlagCombinationsBeforeService(t *testing.T) {
 	}
 	if err := app.runMsgSend(cmd, nil); err == nil || !strings.Contains(err.Error(), "attachment file") {
 		t.Fatalf("runMsgSend() error = %v, want attachment file validation", err)
+	}
+}
+
+func TestRunMsgSecureRetryAndDropRequireOutboxID(t *testing.T) {
+	t.Parallel()
+
+	catalog := cmdmeta.NewCatalog()
+	app := &App{catalog: catalog, globals: GlobalOptions{Format: string(output.FormatJSON)}}
+
+	retryCmd := app.commandFromSpec(catalog.MustLookup("msg.secure.retry"))
+	if err := app.runMsgSecureRetry(retryCmd, nil); err == nil || !strings.Contains(err.Error(), "requires one outbox id") {
+		t.Fatalf("runMsgSecureRetry() error = %v, want outbox id error", err)
+	}
+
+	dropCmd := app.commandFromSpec(catalog.MustLookup("msg.secure.drop"))
+	if err := app.runMsgSecureDrop(dropCmd, nil); err == nil || !strings.Contains(err.Error(), "requires one outbox id") {
+		t.Fatalf("runMsgSecureDrop() error = %v, want outbox id error", err)
 	}
 }

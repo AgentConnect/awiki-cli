@@ -80,7 +80,7 @@ func TestWSProxyTransportCallsLocalBridgeAndDecodesResponses(t *testing.T) {
 			defer listener.Close()
 
 			requests := make(chan runtime.BridgeRequest, 1)
-			go serveBridgeOnce(t, listener, requests, runtime.BridgeResponse{OK: true, Result: map[string]any{
+			go serveBridgeProbeAndRequest(t, listener, requests, runtime.BridgeResponse{OK: true, Result: map[string]any{
 				"message_id":   "msg-1",
 				"operation_id": "op-1",
 			}})
@@ -118,22 +118,24 @@ func TestWSProxyTransportWrapsBridgeFailures(t *testing.T) {
 	}
 }
 
-func serveBridgeOnce(t *testing.T, listener net.Listener, requests chan<- runtime.BridgeRequest, response runtime.BridgeResponse) {
+func serveBridgeProbeAndRequest(t *testing.T, listener net.Listener, requests chan<- runtime.BridgeRequest, response runtime.BridgeResponse) {
 	t.Helper()
-	conn, err := listener.Accept()
-	if err != nil {
-		t.Errorf("listener.Accept() error = %v", err)
-		return
-	}
-	defer conn.Close()
-
-	var request runtime.BridgeRequest
-	if err := json.NewDecoder(conn).Decode(&request); err != nil {
-		t.Errorf("Decode() error = %v", err)
-		return
-	}
-	requests <- request
-	if err := json.NewEncoder(conn).Encode(response); err != nil {
-		t.Errorf("Encode() error = %v", err)
+	for i := 0; i < 2; i++ {
+		conn, err := listener.Accept()
+		if err != nil {
+			t.Errorf("listener.Accept() error = %v", err)
+			return
+		}
+		func() {
+			defer conn.Close()
+			var request runtime.BridgeRequest
+			if err := json.NewDecoder(conn).Decode(&request); err != nil {
+				return
+			}
+			requests <- request
+			if err := json.NewEncoder(conn).Encode(response); err != nil {
+				t.Errorf("Encode() error = %v", err)
+			}
+		}()
 	}
 }

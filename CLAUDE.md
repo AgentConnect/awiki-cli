@@ -41,86 +41,88 @@
 - 重写参考：
   - Python 版本 CLI：`../awiki-agent-id-message/`
   - 飞书 CLI：`../cli/`
-  - ANP Go SDK（远端模块依赖）：`github.com/agent-network-protocol/anp/golang@v0.8.5`
+  - ANP Go SDK：依赖基线为远端发布版 `github.com/agent-network-protocol/anp/golang@v0.8.7`，P5 secure direct / OPK API 已随该版本发布，主线不得提交同级工作区 `replace`
 
 ## 成员清单
 
-**README.md**: 仓库入口说明文件。  
+**README.md**: 仓库入口说明文件。
 **config.template.yaml**: 标准用户主配置模板，展示当前 canonical `config.yaml` 字段与默认值；`service_base_url` 是平台服务入口，`did_domain` 可独立指定租户 DID provider domain。
-**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与远端模块 `github.com/agent-network-protocol/anp/golang@v0.8.5`，要求 pure Go。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。
-**cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。  
-**internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。  
-**internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。  
+**go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与 ANP Go SDK `github.com/agent-network-protocol/anp/golang@v0.8.7`，要求 pure Go。P5 secure direct 通过远端发布版 SDK 消费 `OneTimePrekey`、`NewFileOneTimePrekeyStore` 与 top-level OPK publish/get API；主线不得提交 `replace => ../anp/anp/golang` 这类工作区本地依赖。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。
+**cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。
+**internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。
+**internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。
 **internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为；默认 `ANPMessageService` 从 `service_base_url` 推导而不是从 `did_domain` 推导。
-**internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。  
-**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。  
-**internal/docs/topics.go**: CLI 内建 docs 主题索引，`skills` 主题引用当前 single-entry `skills/SKILL.md` 与懒加载 `skills/references/*.md` 拓扑。  
-**internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。  
-**internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。  
-**internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。  
-**internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。  
-**internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。  
+**internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。
+**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。
+**internal/docs/topics.go**: CLI 内建 docs 主题索引，`skills` 主题引用当前 single-entry `skills/SKILL.md` 与懒加载 `skills/references/*.md` 拓扑。
+**internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。
+**internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。
+**internal/cli/app.go**: CLI 应用装配、配置解析与统一错误输出入口。
+**internal/cli/root.go**: Cobra 根命令、顶级命令树、status/docs/schema/doctor/version/init/config show 的实现。
+**internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及公开但危险的维护命令 `replace-did`。
-**internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。  
-**internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。  
-**internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。  
-**internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。  
-**internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。  
-**internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。  
-**internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。  
-**internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
-**internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.5+ 下仍可完成 DID WBA 签名。
-**internal/identity/client.go**: user-service RPC/REST 客户端。  
+**internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。
+**internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。
+**internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。
+**internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。
+**internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。
+**internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。
+**internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。
+**internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。
+**internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.6+ 下仍可完成 DID WBA 签名。
+**internal/identity/client.go**: user-service RPC/REST 客户端。
 **internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
-**internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
-**internal/identity/store_test.go**: identity store 与 legacy import 测试。  
-**internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  
-**internal/store/open.go**: pure Go SQLite 打开、WAL / foreign_keys / busy_timeout 配置。  
-**internal/store/helpers.go**: thread id、row map、schema version、表/视图存在性等辅助函数。  
-**internal/store/schema.go**: v12 schema、indexes、views 与 `EnsureSchema()`；新增 `contact_handle_bindings` 历史映射表，用于 Handle↔DID 历史绑定。  
-**internal/store/dao.go**: messages / contacts / contact_handle_bindings / groups / outbox / relationship / rebind / execute_sql 的 DAO。  
-**internal/store/rebind.go**: 基于工作区 SQLite 打开器的 owner DID 重绑与旧 E2EE 状态清理编排。  
-**internal/store/import.go**: legacy SQLite 扫描与从 v1 DB 导入 v2 DB。  
-**internal/store/schema_test.go**: schema 初始化和 version 测试。  
-**internal/store/dao_test.go**: DAO、thread view、owner rebinding、E2EE 清理测试。  
-**internal/store/import_test.go**: legacy SQLite 导入测试。  
-**internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。  
-**internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。  
-**internal/message/proof.go**: 基于 ANP Go SDK 0.8.5 的 RFC 9421 origin proof 薄封装。
-**internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。  
-**internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。  
-**internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。  
-**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。  
-**internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。  
-**internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。  
-**internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store；支持收件后自动 DID→Handle 补全，以及按 handle 聚合历史 DID 消息。  
-**internal/message/contact_sync.go**: direct inbox/history 的联系人补全与 Handle 历史 DID 聚合辅助。  
-**internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。  
-**internal/message/helpers.go**: message 域常用值转换和解码辅助。  
-**internal/message/proof_test.go**: origin_proof round-trip 测试。  
-**internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。  
-**internal/runtime/config.go**: runtime mode（默认 websocket）、listener 默认策略、host notify 默认开启（默认 sink 为 `log`）与本地 bridge 配置解析。  
-**internal/runtime/listener/types.go**: listener 状态与 session 状态结构。  
-**internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。  
-**internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。  
-**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库；首条陌生来信会按 DID 反查 Handle 并更新通讯录。  
-**internal/runtime/listener/contact_sync.go**: websocket 收件路径的 DID→Handle 自动补全与联系人重绑定辅助。  
-**internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口；direct/group 事件可带 `sender_handle` / `recipient_handle`。  
-**internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责从本地 route registry 读取已注册 routes，并通过 `/hooks/agent` 执行 webhook fan-out；事件文本仍保留 sender/recipient handle 等可读字段。  
-**internal/runtime/listener/service.go**: listener 系统服务编排，基于 `kardianos/service` 提供 install/start/stop/uninstall 与 service-run；`start` 在服务缺失时会自动 install，并等待 bridge ready 后再返回。  
-**internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑与系统服务状态聚合。  
-**internal/runtime/bridge_unix.go / bridge_windows.go**: 本地 bridge 跨平台 IPC 实现；Unix 平台使用 Unix Domain Socket，Windows 使用 Named Pipe。  
-**docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。  
-**docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。  
+**internal/identity/did_test.go**: DID 文档和 proof 生成测试。
+**internal/identity/store_test.go**: identity store 与 legacy import 测试。
+**internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。
+**internal/store/open.go**: pure Go SQLite 打开、WAL / foreign_keys / busy_timeout 配置。
+**internal/store/helpers.go**: thread id、row map、schema version、表/视图存在性等辅助函数。
+**internal/store/schema.go**: v12 schema、indexes、views 与 `EnsureSchema()`；新增 `contact_handle_bindings` 历史映射表，用于 Handle↔DID 历史绑定。
+**internal/store/dao.go**: messages / contacts / contact_handle_bindings / groups / outbox / relationship / rebind / execute_sql 的 DAO。
+**internal/store/rebind.go**: 基于工作区 SQLite 打开器的 owner DID 重绑与旧 E2EE 状态清理编排。
+**internal/store/import.go**: legacy SQLite 扫描与从 v1 DB 导入 v2 DB。
+**internal/store/schema_test.go**: schema 初始化和 version 测试。
+**internal/store/dao_test.go**: DAO、thread view、owner rebinding、E2EE 清理测试。
+**internal/store/import_test.go**: legacy SQLite 导入测试。
+**internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。
+**internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.6 的 RFC 9421 origin proof 薄封装。
+**internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。
+**internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。
+**internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。
+**internal/message/secure.go**: P5 direct E2EE secure send 的首版编排层，使用 ANP Go SDK direct_e2ee、本地文件会话/预密钥存储和 HTTP JSON-RPC；key-service 请求绑定当前 DID 文档里 `ANPMessageService.serviceDid`，并在有可用 sidecar OPK 时优先用 OPK 建链（本地保存 `p5-one-time-prekeys/`）；HTTP inbox/history 现已接入入站密文解密与会话推进，并会顺带补发本地 prekey bundle；轮询路径解密 direct-init 成功后会自动发送 encrypted ACK 并尝试 flush 该 peer 的 `e2ee_outbox`；当 initiator 仍处于 `pending-confirmation` 时，新的 secure 发送会进入 `e2ee_outbox` 排队。
+**internal/message/secure_control.go**: secure 控制面与恢复辅助，负责 secure ack/init payload、pending 阶段的 `e2ee_outbox` 排队、secure outbox flush，以及 `msg secure status/init/repair/failed/retry/drop` 需要的本地会话/发件箱读取与重试逻辑。
+**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。
+**internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。
+**internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。
+**internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store；支持收件后自动 DID→Handle 补全，以及按 handle 聚合历史 DID 消息。
+**internal/message/contact_sync.go**: direct inbox/history 的联系人补全与 Handle 历史 DID 聚合辅助。
+**internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。
+**internal/message/helpers.go**: message 域常用值转换和解码辅助。
+**internal/message/proof_test.go**: origin_proof round-trip 测试。
+**internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。
+**internal/runtime/config.go**: runtime mode（默认 websocket）、listener 默认策略、host notify 默认开启（默认 sink 为 `log`）与本地 bridge 配置解析。
+**internal/runtime/listener/types.go**: listener 状态与 session 状态结构。
+**internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。
+**internal/runtime/listener/wsclient.go**: 远端 message-service WebSocket client。
+**internal/runtime/listener/server.go**: 本地 daemon server、session supervisor、notification 消费与 SQLite 落库；首条陌生来信会按 DID 反查 Handle 并更新通讯录。
+**internal/runtime/listener/contact_sync.go**: websocket 收件路径的 DID→Handle 自动补全与联系人重绑定辅助。
+**internal/runtime/listener/host_notify.go**: websocket 下行通知到宿主事件的标准化、字段裁剪与 host notify sink 注册入口；direct/group 事件可带 `sender_handle` / `recipient_handle`。
+**internal/runtime/listener/openclaw_host_notify.go**: OpenClaw 适配器，负责从本地 route registry 读取已注册 routes，并通过 `/hooks/agent` 执行 webhook fan-out；事件文本仍保留 sender/recipient handle 等可读字段。
+**internal/runtime/listener/service.go**: listener 系统服务编排，基于 `kardianos/service` 提供 install/start/stop/uninstall 与 service-run；`start` 在服务缺失时会自动 install，并等待 bridge ready 后再返回。
+**internal/runtime/listener/manager.go**: listener 的 start/stop/restart/status/run 管理逻辑与系统服务状态聚合。
+**internal/runtime/bridge_unix.go / bridge_windows.go**: 本地 bridge 跨平台 IPC 实现；Unix 平台使用 Unix Domain Socket，Windows 使用 Named Pipe。
+**docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。
+**docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。
 **docs/architecture/anp-service-discovery.md**: awiki-cli 生成 DID 文档时的 `ANPMessageService` 填写规则、配置约束与实施记录。
-**docs/architecture/websocket-host-notification-v1.md**: websocket listener 向宿主 Agent 暴露统一通知事件的 v1 设计文档。  
-**docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。  
-**docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。  
-**docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。  
-**docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。  
-**docs/plan/phase-0/capability-mapping.md**: v2 命令、v1 脚本、服务 API 的能力映射。  
-**docs/plan/phase-0/audit-findings.md**: Phase 0 审计冲突与裁决。  
-**docs/plan/phase-0/adr-index.md**: Phase 0 ADR 索引。  
+**docs/architecture/websocket-host-notification-v1.md**: websocket listener 向宿主 Agent 暴露统一通知事件的 v1 设计文档。
+**docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。
+**docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。
+**docs/plan/awiki-v2-implementation-plan.md**: v2 的总体落地实施规划。
+**docs/plan/phase-0/implementation-constraints.md**: Phase 0 冻结后的实现约束表。
+**docs/plan/phase-0/capability-mapping.md**: v2 命令、v1 脚本、服务 API 的能力映射。
+**docs/plan/phase-0/audit-findings.md**: Phase 0 审计冲突与裁决。
+**docs/plan/phase-0/adr-index.md**: Phase 0 ADR 索引。
 
 ## 当前实现边界
 
@@ -157,7 +159,7 @@
   - `debug db query`
   - `debug db import-v1`
   - `doctor` / `config show` 的数据库诊断增强
-- Phase 5（当前首版已落地 direct plain）：
+- Phase 5（当前首版已落地 direct plain，P5 secure direct send 首版接入）：
   - `msg send --to`
   - `msg send --group`
   - `msg send --file`
@@ -170,6 +172,8 @@
   - attachment control-plane / data-plane HTTP upload, ticket, download
   - websocket runtime bridge / local daemon direct+group client
   - direct/group origin_proof 生成与本地消息落库
+  - `msg send --secure on` 首版通过 ANP Go SDK P5 direct_e2ee 生成 `direct_init` / `direct_cipher` 并走 HTTP JSON-RPC；prekey key-service 请求使用本地 DID 文档的 `ANPMessageService.serviceDid` 做 `meta.target` 绑定，并在远端返回 top-level `one_time_prekey` 时优先走 OPK 建链；HTTP inbox/history 已支持入站密文自动解密与会话推进，并在轮询 direct-init 时自动 encrypted ACK + flush `e2ee_outbox`；listener 现已支持 secure incoming 自动解密、自动 first-reply/ack、以及在收到 secure ack 后 flush 已排队的 `e2ee_outbox`
+  - `msg secure status` / `init` / `repair` / `failed` / `retry` / `drop` 已有首版命令面实现；其中 `init` 当前通过发送 product-local secure control init 预热会话，`repair` 会重置本地会话并重排该 peer 的 failed outbox 后重新 init
   - attachment control 不再发送独立业务 proof
 - Phase 8（当前首版已落地 content page）：
   - `page create/list/get/update/rename/delete`
@@ -208,9 +212,9 @@
 
 ### 尚未实现
 
-- `msg` 域中 direct plain 已实现，listener 服务端首版也已实现，但 websocket 远端真实联调与 secure E2EE 仍未完成
+- `msg` 域中 direct plain 已实现，P5 secure direct 出站首版已接入；HTTP inbox/history 的 P5 入站自动解密、轮询 direct-init 自动 ACK 与 outbox flush 已接入；websocket listener 已能解密 secure incoming、自动 first-reply/ack，并在 secure ack 后尝试 flush `e2ee_outbox`；`msg secure status/init/repair/failed/retry/drop` 有首版，但完整 runtime 联调与更强系统测试仍未完成
 - `group` 域的 plain lifecycle / local view / group messaging 已接入，`people` 仍大多为 stub；`page` 已完成 content pages 首版
-- secure E2EE 业务流、group plain、发布链路属于后续阶段
+- secure E2EE 业务流目前只完成 P5 出站首版；group E2EE、发布链路和完整实时收件处理属于后续阶段
 
 ## 开发与验证约定
 
