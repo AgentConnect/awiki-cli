@@ -49,6 +49,9 @@ func TestEnsureRouteCreatesWebhookNotifyRouteAndUsesHomeChannel(t *testing.T) {
 	if !strings.Contains(text, "收到外部邮件通知") {
 		t.Fatalf("config.yaml missing mail notification prompt section: %q", text)
 	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml missing sender email line in mail prompt: %q", text)
+	}
 	if !strings.Contains(text, "收到外部IM消息通知") {
 		t.Fatalf("config.yaml missing IM notification prompt section: %q", text)
 	}
@@ -307,11 +310,104 @@ func TestEnsureRouteMigratesPreviousChinesePromptToCurrentDefault(t *testing.T) 
 	if !strings.Contains(text, "source_kind=mail") {
 		t.Fatalf("config.yaml prompt not migrated to source_kind-aware default: %q", text)
 	}
+	if !strings.Contains(text, "不要使用“收到外部IM消息通知”作为标题") {
+		t.Fatalf("config.yaml prompt not migrated to strict mail template default: %q", text)
+	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml prompt not migrated to sender-email-aware default: %q", text)
+	}
+	if !strings.Contains(text, "去掉重复署名和邮箱签名") {
+		t.Fatalf("config.yaml prompt not migrated to signature-cleanup default: %q", text)
+	}
 	if strings.Contains(text, "skills:") {
 		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
 	}
 	if strings.Contains(text, "如果 topic 是 mail.message.received") {
 		t.Fatalf("config.yaml still contains previous topic-gated mail prompt: %q", text)
+	}
+}
+
+func TestEnsureRouteMigratesPreviousIMOnlyChinesePromptToCurrentDefault(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            你是 awiki 外部 IM 消息通知整理助手。
+
+            请把收到的通知整理成一条简洁、稳定、适合飞书阅读的中文消息。
+            规则：
+            1. 只输出最终通知正文，不要加解释。
+            2. 不要提问，不要添加无关寒暄。
+            3. 优先使用可读的人名、handle 或显示名；没有时再使用 DID。
+            4. 如果存在 DID，请单独一行展示。
+            5. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
+            6. 消息内容摘要控制在 1 到 5 行短句内。
+            7. 如果有链接，放在最后单独列出。
+            8. 字段标题统一使用中文。
+
+            建议格式：
+            收到外部IM消息通知
+            发送者：<名称或 DID>
+            发送者 DID：<如存在>
+            接收者：<名称或 DID>
+            接收者 DID：<如存在>
+            类型：<私信/群消息/状态变更/事件>
+            时间：<Asia/Shanghai 时间>
+            消息内容摘要：
+            <1-5 行>
+
+            原始通知 JSON：
+            {notify_payload}
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml prompt not migrated to mail-aware Chinese default: %q", text)
+	}
+	if !strings.Contains(text, "source_kind=mail") {
+		t.Fatalf("config.yaml prompt not migrated to source_kind-aware default: %q", text)
+	}
+	if !strings.Contains(text, "不要使用“收到外部IM消息通知”作为标题") {
+		t.Fatalf("config.yaml prompt not migrated to strict mail template default: %q", text)
+	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml prompt not migrated to sender-email-aware default: %q", text)
+	}
+	if !strings.Contains(text, "去掉重复署名和邮箱签名") {
+		t.Fatalf("config.yaml prompt not migrated to signature-cleanup default: %q", text)
+	}
+	if strings.Contains(text, "你是 awiki 外部 IM 消息通知整理助手。") {
+		t.Fatalf("config.yaml still contains previous IM-only prompt header: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
 	}
 }
 
