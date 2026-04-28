@@ -3,6 +3,7 @@ package identity_test
 import (
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -97,6 +98,12 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	if !identity.IsE1DID(updated.DID) {
 		t.Fatalf("updated DID = %q, want e1 did", updated.DID)
 	}
+	if strings.Contains(updated.Key1PrivatePEM, "BEGIN ANP ") {
+		t.Fatalf("new e1 key-1 private key still uses legacy ANP PEM label")
+	}
+	if !strings.HasPrefix(updated.Key1PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
+		t.Fatalf("new e1 key-1 private key = %q, want standard PKCS#8 PEM", updated.Key1PrivatePEM[:32])
+	}
 
 	identityData, _ := result.Data["identity"].(*identity.IdentitySummary)
 	if identityData == nil || identityData.DID != gotNewDID {
@@ -141,6 +148,175 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	}
 	if oldSessionCount != 0 {
 		t.Fatalf("old session count = %d, want 0", oldSessionCount)
+	}
+}
+
+func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
+	t.Parallel()
+
+	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy.Key1PrivatePEM = legacyANPPrivatePEMFromStandard(t, legacy.Key1PrivatePEM, "ANP SECP256K1 PRIVATE KEY")
+
+	var methods []string
+	var replaceAuth string
+	var gotNewDID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		method, _ := payload["method"].(string)
+		methods = append(methods, method)
+		w.Header().Set("Content-Type", "application/json")
+		switch method {
+		case "get_me":
+			if r.Header.Get("Signature-Input") == "" || r.Header.Get("Signature") == "" {
+				t.Fatalf("get_me auth headers missing Signature-Input/Signature: %#v", r.Header)
+			}
+			w.Header().Set("Authentication-Info", `access_token="fresh-token"`)
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + legacy.DID + `","user_id":"user-1"},"id":"req-1"}`))
+		case "replace_did":
+			replaceAuth = r.Header.Get("Authorization")
+			params, _ := payload["params"].(map[string]any)
+			newDocument, _ := params["new_did_document"].(map[string]any)
+			gotNewDID, _ = newDocument["id"].(string)
+			if !identity.IsE1DID(gotNewDID) {
+				t.Fatalf("new did = %q, want e1 did", gotNewDID)
+			}
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected rpc method %q", method)
+		}
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "alice",
+		DID:                     legacy.DID,
+		UniqueID:                legacy.UniqueID,
+		UserID:                  "user-1",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		JWTToken:                "",
+		DIDDocument:             legacy.DIDDocument,
+		Key1PrivatePEM:          legacy.Key1PrivatePEM,
+		Key1PublicPEM:           legacy.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacy.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: legacy.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	migratedLegacy, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() migrated legacy identity error = %v", err)
+	}
+	if strings.Contains(migratedLegacy.Key1PrivatePEM, "BEGIN ANP ") {
+		t.Fatalf("migrated key-1 private key still uses legacy ANP PEM label")
+	}
+	if !strings.HasPrefix(migratedLegacy.Key1PrivatePEM, "-----BEGIN PRIVATE KEY-----") {
+		t.Fatalf("migrated key-1 private key = %q, want standard PKCS#8 PEM", migratedLegacy.Key1PrivatePEM[:32])
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.ReplaceDID(context.Background(), identity.ReplaceDIDParams{})
+	if err != nil {
+		t.Fatalf("ReplaceDID() error = %v", err)
+	}
+	if got := strings.Join(methods, ","); got != "get_me,replace_did" {
+		t.Fatalf("rpc methods = %q, want get_me,replace_did", got)
+	}
+	if replaceAuth != "Bearer fresh-token" {
+		t.Fatalf("replace Authorization = %q, want Bearer fresh-token", replaceAuth)
+	}
+	backupPath, _ := result.Data["backup_path"].(string)
+	expectedBackup := *legacy
+	expectedBackup.Key1PrivatePEM = migratedLegacy.Key1PrivatePEM
+	assertReplaceDIDBackup(t, manager, backupPath, &expectedBackup, gotNewDID)
+}
+
+func TestRefreshTokenUsesDIDAuthWithoutStoredBearerAndPersistsNewJWT(t *testing.T) {
+	t.Parallel()
+
+	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	var gotAuth string
+	var gotMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		gotAuth = r.Header.Get("Authorization")
+		if r.Header.Get("Signature-Input") == "" || r.Header.Get("Signature") == "" {
+			t.Fatalf("refresh request missing HTTP signature headers: %#v", r.Header)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		gotMethod, _ = payload["method"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Authentication-Info", `access_token="fresh-token"`)
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + legacy.DID + `","user_id":"user-1"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "alice",
+		DID:                     legacy.DID,
+		UniqueID:                legacy.UniqueID,
+		UserID:                  "user-1",
+		DisplayName:             "Alice",
+		Handle:                  "alice",
+		JWTToken:                "stale-token",
+		DIDDocument:             legacy.DIDDocument,
+		Key1PrivatePEM:          legacy.Key1PrivatePEM,
+		Key1PublicPEM:           legacy.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacy.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: legacy.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.RefreshToken(context.Background(), "")
+	if err != nil {
+		t.Fatalf("RefreshToken() error = %v", err)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty bearer during explicit refresh", gotAuth)
+	}
+	if gotMethod != "get_me" {
+		t.Fatalf("rpc method = %q, want get_me", gotMethod)
+	}
+	updated, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if updated.JWTToken != "fresh-token" {
+		t.Fatalf("updated JWTToken = %q, want fresh-token", updated.JWTToken)
+	}
+	if got, _ := result.Data["action"].(string); got != "refresh_token" {
+		t.Fatalf("result action = %q, want refresh_token", got)
+	}
+	if got, _ := result.Data["auth_flow"].(string); got != "did_auth_get_me_without_stored_bearer" {
+		t.Fatalf("result auth_flow = %q, want did_auth_get_me_without_stored_bearer", got)
+	}
+	if got, _ := result.Data["previous_token_present"].(bool); !got {
+		t.Fatalf("previous_token_present = %v, want true", got)
+	}
+	identityData, _ := result.Data["identity"].(*identity.IdentitySummary)
+	if identityData == nil || !identityData.HasJWT {
+		t.Fatalf("result identity = %#v, want has_jwt=true", identityData)
 	}
 }
 
@@ -197,6 +373,182 @@ func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
 	}
 }
 
+func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
+	t.Parallel()
+
+	first := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng"})
+	second := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng", "archive"})
+	other := generateK1IdentityForTest(t, "awiki.test", []string{"lzc"})
+
+	var gotHandle string
+	var gotMethod string
+	var gotRecoveredDID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/did-auth/rpc" {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, "/user-service/did-auth/rpc")
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("Decode() error = %v", err)
+		}
+		gotMethod, _ = payload["method"].(string)
+		params, _ := payload["params"].(map[string]any)
+		gotHandle, _ = params["handle"].(string)
+		document, _ := params["did_document"].(map[string]any)
+		gotRecoveredDID, _ = document["id"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + gotRecoveredDID + `","user_id":"user-z","handle":"zhuocheng","full_handle":"zhuocheng.awiki.test","access_token":"recover-token"},"id":"req-1"}`))
+	}))
+	defer server.Close()
+
+	resolved, manager := newReplaceTestWorkspace(t, server.URL)
+	if err := appconfig.WriteFileConfig(resolved.Paths.ConfigFile, appconfig.FileConfig{
+		Identity: struct {
+			Active string `json:"active" yaml:"active"`
+		}{Active: "zhuocheng-2"},
+	}); err != nil {
+		t.Fatalf("WriteFileConfig() error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "zhuocheng",
+		DID:                     first.DID,
+		UniqueID:                first.UniqueID,
+		UserID:                  "user-z",
+		DisplayName:             "zhuocheng",
+		Handle:                  "zhuocheng",
+		JWTToken:                "token-1",
+		DIDDocument:             first.DIDDocument,
+		Key1PrivatePEM:          first.Key1PrivatePEM,
+		Key1PublicPEM:           first.Key1PublicPEM,
+		E2EESigningPrivatePEM:   first.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: first.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(zhuocheng) error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "zhuocheng-2",
+		DID:                     second.DID,
+		UniqueID:                second.UniqueID,
+		UserID:                  "user-z",
+		DisplayName:             "zhuocheng",
+		Handle:                  "zhuocheng",
+		JWTToken:                "token-2",
+		DIDDocument:             second.DIDDocument,
+		Key1PrivatePEM:          second.Key1PrivatePEM,
+		Key1PublicPEM:           second.Key1PublicPEM,
+		E2EESigningPrivatePEM:   second.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: second.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(zhuocheng-2) error = %v", err)
+	}
+	if _, err := manager.Save(identity.SaveInput{
+		IdentityName:            "lzc",
+		DID:                     other.DID,
+		UniqueID:                other.UniqueID,
+		UserID:                  "user-lzc",
+		DisplayName:             "lzc",
+		Handle:                  "lzc",
+		JWTToken:                "token-lzc",
+		DIDDocument:             other.DIDDocument,
+		Key1PrivatePEM:          other.Key1PrivatePEM,
+		Key1PublicPEM:           other.Key1PublicPEM,
+		E2EESigningPrivatePEM:   other.E2EESigningPrivatePEM,
+		E2EEAgreementPrivatePEM: other.E2EEAgreementPrivatePEM,
+	}); err != nil {
+		t.Fatalf("Save(lzc) error = %v", err)
+	}
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.Recover(context.Background(), identity.RecoverParams{
+		IdentityName: "ignored-by-recover",
+		Handle:       "zhuocheng",
+		Phone:        "13800138000",
+		OTP:          "123456",
+	})
+	if err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+	if gotMethod != "recover_handle" {
+		t.Fatalf("rpc method = %q, want recover_handle", gotMethod)
+	}
+	if gotHandle != "zhuocheng.awiki.test" {
+		t.Fatalf("recover handle = %q, want zhuocheng.awiki.test", gotHandle)
+	}
+	if gotRecoveredDID == "" {
+		t.Fatal("recovered DID is empty")
+	}
+
+	tempName, _ := result.Data["temp_identity_name"].(string)
+	finalName, _ := result.Data["final_identity_name"].(string)
+	backupPath, _ := result.Data["backup_path"].(string)
+	activeBefore, _ := result.Data["active_before"].(string)
+	archived, _ := result.Data["archived_identities"].([]string)
+	stagedSummary, _ := result.Data["identity"].(*identity.IdentitySummary)
+	if finalName != "zhuocheng" {
+		t.Fatalf("final_identity_name = %q, want zhuocheng", finalName)
+	}
+	if tempName == "" || tempName == "ignored-by-recover" {
+		t.Fatalf("temp_identity_name = %q, want generated temporary identity name", tempName)
+	}
+	if stagedSummary == nil || stagedSummary.DID != gotRecoveredDID {
+		t.Fatalf("staged identity = %#v, want recovered did %q", stagedSummary, gotRecoveredDID)
+	}
+	if activeBefore != "zhuocheng-2" {
+		t.Fatalf("active_before = %q, want zhuocheng-2", activeBefore)
+	}
+	stagedList, err := manager.List()
+	if err != nil {
+		t.Fatalf("List() staged error = %v", err)
+	}
+	if len(stagedList) != 4 {
+		t.Fatalf("staged live identities = %d, want 4", len(stagedList))
+	}
+
+	promoted, err := service.FinalizeRecoveredHandle(finalName, tempName, archived, activeBefore, backupPath, stagedSummary.DID)
+	if err != nil {
+		t.Fatalf("FinalizeRecoveredHandle() error = %v", err)
+	}
+	if promoted.IdentityName != "zhuocheng" {
+		t.Fatalf("promoted identity name = %q, want zhuocheng", promoted.IdentityName)
+	}
+	if promoted.DID != gotRecoveredDID {
+		t.Fatalf("promoted DID = %q, want %q", promoted.DID, gotRecoveredDID)
+	}
+
+	finalList, err := manager.List()
+	if err != nil {
+		t.Fatalf("List() final error = %v", err)
+	}
+	if len(finalList) != 2 {
+		t.Fatalf("final live identities = %d, want 2", len(finalList))
+	}
+	if findIdentitySummary(finalList, "zhuocheng-2") != nil {
+		t.Fatalf("zhuocheng-2 still present in live index: %#v", finalList)
+	}
+	if findIdentitySummary(finalList, "lzc") == nil {
+		t.Fatalf("lzc missing from final live identities: %#v", finalList)
+	}
+
+	for _, dirName := range []string{first.UniqueID, second.UniqueID} {
+		if _, err := os.Stat(filepath.Join(resolved.Paths.IdentityDir, dirName)); err != nil {
+			t.Fatalf("old identity dir %s missing after finalize: %v", dirName, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(backupPath, "backup_manifest.json")); err != nil {
+		t.Fatalf("backup manifest missing: %v", err)
+	}
+	configAfter, _, err := appconfig.ReadFileConfig(resolved.Paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() after finalize error = %v", err)
+	}
+	if configAfter.Identity.Active != "zhuocheng" {
+		t.Fatalf("config identity.active = %q, want zhuocheng", configAfter.Identity.Active)
+	}
+}
+
 func assertReplaceDIDBackup(t *testing.T, manager *identity.Manager, backupPath string, legacy *identity.GeneratedIdentity, plannedNewDID string) {
 	t.Helper()
 	if strings.TrimSpace(backupPath) == "" {
@@ -245,12 +597,23 @@ func readTestJSONMap(t *testing.T, path string) map[string]any {
 	return payload
 }
 
+func findIdentitySummary(items []identity.IdentitySummary, identityName string) *identity.IdentitySummary {
+	for idx := range items {
+		if items[idx].IdentityName == identityName {
+			summary := items[idx]
+			return &summary
+		}
+	}
+	return nil
+}
+
 func newReplaceTestWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Resolved, *identity.Manager) {
 	t.Helper()
 	root := t.TempDir()
 	resolved := &appconfig.Resolved{
 		Paths: appconfig.Paths{
 			WorkspaceHomeDir:     filepath.Join(root, ".awiki-cli"),
+			ConfigFile:           filepath.Join(root, ".awiki-cli", "config.yaml"),
 			ConfigDir:            filepath.Join(root, ".awiki-cli"),
 			IdentityDir:          filepath.Join(root, ".awiki-cli", "identities"),
 			DataDir:              filepath.Join(root, ".awiki-cli", "data"),
@@ -376,4 +739,13 @@ func testDidSuffix(did string) string {
 		return did[lastIndex+1:]
 	}
 	return did
+}
+
+func legacyANPPrivatePEMFromStandard(t *testing.T, standardPEM string, label string) string {
+	t.Helper()
+	privateKey, err := anpsdk.PrivateKeyFromPEM(standardPEM)
+	if err != nil {
+		t.Fatalf("PrivateKeyFromPEM() fixture error = %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: label, Bytes: privateKey.Bytes}))
 }

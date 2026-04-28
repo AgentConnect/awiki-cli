@@ -1,49 +1,49 @@
-# 群组参考
+# Groups Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理群生命周期任务时，使用本参考文档，包括：创建群组、成员变更、策略更新，以及群状态检查。
+Use this reference when you are handling group lifecycle tasks in `awiki-cli`, including group creation, membership changes, policy updates, and group-state inspection.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及群组、成员、准入、策略或群级历史时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves groups, members, admission, policies, or group-level history.
 
-## 当前状态
+## Current Status
 
-- 状态：**已实现**
-- `group` 是一等领域
-- 可在此查看 group messages，但发送仍使用 `msg send --group`
+- Status: **implemented**
+- `group` is a first-class domain
+- Group messages can be viewed here, but sending still uses `msg send --group`
 
-## 适用场景
+## When to Use
 
-- 创建群组
-- 加入或离开群组
-- 添加或移除成员
-- 更新群 profile 或策略字段
-- 查看成员或群消息
+- Create a group
+- Join or leave a group
+- Add or remove members
+- Update group profile or policy fields
+- View members or group messages
 
-## 核心概念
+## Core Concepts
 
-- **group**：拥有自身 DID 和策略的一等资源
-- **membership**：谁在群里，以及对应角色
-- **discoverability**：可见性与发现策略
-- **admission mode**：成员加入群组的方式
-- **group messages**：群内容的读路径；发送仍使用 `msg send --group`
+- **group**: a first-class resource with its own DID and policy
+- **membership**: who is in the group and what role they have
+- **discoverability**: visibility and discovery policy
+- **admission mode**: how members join the group
+- **group messages**: the read path for group content; sending still uses `msg send --group`
 
-## 资源模型
+## Resource Model
 
 - `Identity -> Group -> Members`
 - `Group -> Policy Fields`
 - `Group -> Group Messages`
 
-## 决策规则
+## Decision Rules
 
-- 需要创建群组 -> `group create`
-- 需要查看元数据或策略 -> `group get`
-- 需要加入一个开放群组 -> `group join`
-- 需要添加或移除单个成员 -> `group add` / `group remove`
-- 需要修改名称、描述或策略 -> `group update`
-- 需要向群中发送文本 -> 使用 `03-messaging.md`
+- Need to create a group -> `group create`
+- Need to inspect metadata or policy -> `group get`
+- Need to join an open group -> `group join`
+- Need to add or remove one member -> `group add` / `group remove`
+- Need to change the name, description, or policy -> `group update`
+- Need to send text to the group -> use `03-messaging.md`
 
-## Canonical 命令
+## Canonical Commands
 
 - `awiki-cli group create --name "Agent War Room" [...]`
 - `awiki-cli group get --group <group_did>`
@@ -55,44 +55,44 @@
 - `awiki-cli group members --group <group_did> [--limit <n>]`
 - `awiki-cli group messages --group <group_did> [--limit <n>] [--cursor <cursor>]`
 
-## 常见模式
+## Common Patterns
 
-### 先 dry-run 再创建群组
+### Dry-Run Before Creating a Group
 
 1. `awiki-cli group create --name "Agent War Room" --dry-run`
 2. `awiki-cli group create --name "Agent War Room"`
 
-### 变更成员前先审阅
+### Review Before Changing Members
 
 1. `awiki-cli group get --group <group_did>`
 2. `awiki-cli group members --group <group_did>`
 3. `awiki-cli group add --group <group_did> --member <did> --dry-run`
 4. `awiki-cli group add --group <group_did> --member <did>`
 
-## 副作用与确认
+## Side Effects and Confirmation
 
-- 需要显式确认：
+- Require explicit confirmation:
   - `group create`
   - `group join`
   - `group add`
   - `group remove`
   - `group leave`
   - `group update`
-- 成员变更前优先先做审阅
+- Prefer reviewing before changing membership
 
-## 错误处理
+## Error Handling
 
-- group 标识符缺失或格式错误 -> 检查 `awiki-cli schema group <subcommand>`
-- 访问或角色问题 -> 先检查 `group get` 和 `group members`
-- transport 或 auth 问题 -> 视情况路由到 runtime 或 identity reference
+- The group identifier is missing or malformed -> check `awiki-cli schema group <subcommand>`
+- Access or role problems -> check `group get` and `group members` first
+- Transport or auth problems -> route to the runtime or identity reference as appropriate
 
-## 实现说明
+## Implementation Notes
 
-- 当前仓库中的 `group` 是独立领域
-- `group messages` 是只读检查路径；发送仍在 `msg send --group`
-- `group add` 当前公开的 flag 只有 `--group`、`--member` 和 `--role`；`--reason` 不属于当前公开 flag 面
+- In the current repository, `group` is an independent domain
+- `group messages` is a read-only inspection path; sending still happens through `msg send --group`
+- The currently public flags for `group add` are only `--group`, `--member`, and `--role`; `--reason` is not part of the current public flag surface
 
-## 相关参考
+## Related References
 
 - `03-messaging.md`
 - `07-discovery.md`

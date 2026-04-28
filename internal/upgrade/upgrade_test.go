@@ -554,8 +554,68 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 			LegacyCredentialsDir: filepath.Join(root, "legacy-credentials"),
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
-		RuntimeMode:  runtimecfg.ModeHTTP,
-		OutputFormat: "json",
+		RuntimeMode:         runtimecfg.ModeHTTP,
+		OutputFormat:        "json",
+		ServiceBaseURL:      "https://awiki.ai",
+		DIDDomain:           "awiki.ai",
+		ANPServiceEndpoint:  appconfig.DeriveANPServiceEndpoint("https://awiki.ai"),
+		ANPServiceDID:       appconfig.DeriveANPServiceDID("https://awiki.ai"),
+		ConfigSchemaVersion: appconfig.ConfigSchemaVersion,
+	}
+}
+
+func TestRefreshResolvedConfigSyncsMailServiceURLFromConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	if err := os.MkdirAll(filepath.Dir(resolved.Paths.ConfigFile), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://api.awiki.test/\n" +
+			"  mail_service_url: https://mail.awiki.test/\n",
+	)
+	if err := os.WriteFile(resolved.Paths.ConfigFile, configYAML, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	refreshed, err := refreshResolvedConfig(resolved)
+	if err != nil {
+		t.Fatalf("refreshResolvedConfig() error = %v", err)
+	}
+	if refreshed.ServiceBaseURL != "https://api.awiki.test" {
+		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, "https://api.awiki.test")
+	}
+	if refreshed.MailServiceURL != "https://mail.awiki.test" {
+		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, "https://mail.awiki.test")
+	}
+}
+
+func TestRefreshResolvedConfigDerivesMailServiceURLFromServiceBaseURL(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	if err := os.MkdirAll(filepath.Dir(resolved.Paths.ConfigFile), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://awiki.test/\n",
+	)
+	if err := os.WriteFile(resolved.Paths.ConfigFile, configYAML, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	refreshed, err := refreshResolvedConfig(resolved)
+	if err != nil {
+		t.Fatalf("refreshResolvedConfig() error = %v", err)
+	}
+	if refreshed.ServiceBaseURL != "https://awiki.test" {
+		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, "https://awiki.test")
+	}
+	if refreshed.MailServiceURL != "https://awiki.test" {
+		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, "https://awiki.test")
 	}
 }
 

@@ -260,3 +260,95 @@ func TestFindAttachmentSelectionWithPagingFetchesOlderPages(t *testing.T) {
 		t.Fatalf("visitedSkips = %#v, want [0 1]", visitedSkips)
 	}
 }
+
+func TestBuildInboxRPCParamsAppliesDefaultLimitAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
+	params := BuildInboxRPCParams(record, InboxRequest{})
+
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != "anp.inbox.local.v1" {
+		t.Fatalf("meta.profile = %q, want anp.inbox.local.v1", got)
+	}
+	if got := stringFromAny(meta["sender_did"]); got != record.DID {
+		t.Fatalf("meta.sender_did = %q, want %q", got, record.DID)
+	}
+	if got := stringFromAny(meta["operation_id"]); got == "" {
+		t.Fatal("meta.operation_id = empty, want generated value")
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["user_did"]); got != record.DID {
+		t.Fatalf("body.user_did = %q, want %q", got, record.DID)
+	}
+	if got := intValueFromAny(body["limit"], 0); got != 20 {
+		t.Fatalf("body.limit = %d, want 20", got)
+	}
+}
+
+func TestBuildHistoryRPCParamsValidatesTargetAndCursor(t *testing.T) {
+	t.Parallel()
+
+	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
+	if _, err := BuildHistoryRPCParams(record, HistoryRequest{}); err != ErrTargetRequired {
+		t.Fatalf("BuildHistoryRPCParams(empty with) error = %v, want %v", err, ErrTargetRequired)
+	}
+
+	params, err := BuildHistoryRPCParams(record, HistoryRequest{
+		With:   "did:wba:awiki.ai:user:bob:e1_bob",
+		Limit:  0,
+		Cursor: "42",
+		Skip:   3,
+	})
+	if err != nil {
+		t.Fatalf("BuildHistoryRPCParams() error = %v", err)
+	}
+
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != "anp.direct.local.v1" {
+		t.Fatalf("meta.profile = %q, want anp.direct.local.v1", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["peer_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		t.Fatalf("body.peer_did = %q, want target DID", got)
+	}
+	if got := intValueFromAny(body["limit"], 0); got != 50 {
+		t.Fatalf("body.limit = %d, want 50", got)
+	}
+	if got := stringFromAny(body["since_seq"]); got != "42" {
+		t.Fatalf("body.since_seq = %q, want 42", got)
+	}
+	if got := intValueFromAny(body["skip"], 0); got != 3 {
+		t.Fatalf("body.skip = %d, want 3", got)
+	}
+}
+
+func TestBuildMarkReadRPCParamsValidatesMessageIDs(t *testing.T) {
+	t.Parallel()
+
+	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
+	if _, err := BuildMarkReadRPCParams(record, MarkReadRequest{}); err == nil {
+		t.Fatal("BuildMarkReadRPCParams(empty ids) error = nil, want error")
+	}
+
+	params, err := BuildMarkReadRPCParams(record, MarkReadRequest{MessageIDs: []string{"msg-1", "msg-2"}})
+	if err != nil {
+		t.Fatalf("BuildMarkReadRPCParams() error = %v", err)
+	}
+
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != "anp.inbox.local.v1" {
+		t.Fatalf("meta.profile = %q, want anp.inbox.local.v1", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["user_did"]); got != record.DID {
+		t.Fatalf("body.user_did = %q, want %q", got, record.DID)
+	}
+	ids, ok := body["message_ids"].([]string)
+	if !ok {
+		t.Fatalf("body.message_ids = %#v, want []string", body["message_ids"])
+	}
+	if len(ids) != 2 || ids[0] != "msg-1" || ids[1] != "msg-2" {
+		t.Fatalf("body.message_ids = %#v, want [msg-1 msg-2]", ids)
+	}
+}

@@ -232,17 +232,22 @@ The listener emits host events through a provider-neutral sink:
 Notify(context.Context, HostNotificationEvent) error
 ```
 
-Phase 1 ships three sink modes:
+Phase 1 ships provider-neutral sinks:
 
 - `noop`: accept the event and drop it
 - `log`: write the normalized event into the listener log stream
 - `file`: append newline-delimited JSON events to a local file
+- `hermes`: post normalized events to a local/remote notify adapter endpoint
 
 This is intentionally host-agnostic. OpenClaw and Hermes adapters will be built later on top of the same event contract.
 
 OpenClaw V1 is now specified separately in:
 
 - `docs/architecture/openclaw-host-adapter-v1.md`
+- `docs/architecture/hermes-host-notify-v1.md`
+- `docs/architecture/hermes-host-notify-v1-runbook.md`
+- `docs/architecture/contracts/notification-surface-v1.schema.json`
+- `docs/architecture/contracts/notify-hermes-v1.openapi.yaml`
 
 ---
 
@@ -263,9 +268,10 @@ runtime:
 Rules:
 
 - `runtime.host_notify.enabled` defaults to `true`
-- `runtime.host_notify.sink` supports `noop | log | file`
+- `runtime.host_notify.sink` supports `noop | log | file | hermes | openclaw` (legacy alias: `webhook`)
 - when `sink = file` and `file_path` is omitted, awiki-cli derives:
   - `<workspace>/runtime/host-notify.events.jsonl`
+- when `sink = hermes`, `runtime.host_notify.hermes.notify_url` configures the adapter ingress endpoint
 
 ---
 

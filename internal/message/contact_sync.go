@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
-
-const contactLookupTimeout = 5 * time.Second
 
 func (s *Service) syncPeerHandle(
 	ctx context.Context,
@@ -34,8 +34,10 @@ func (s *Service) syncPeerHandle(
 		handle = resolvedHandle
 	}
 	if handle == "" && s.remote != nil {
-		lookupCtx, cancel := context.WithTimeout(ctx, contactLookupTimeout)
+		lookupCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileRPCDefault)
 		defer cancel()
+		finish := traceutil.HandleLookupPhase(ctx, "contact_sync_by_did")
+		defer finish()
 		lookup, lookupErr := s.remote.LookupHandleByDID(lookupCtx, peerDID)
 		if lookupErr != nil {
 			return resolvedHandle, lookupErr

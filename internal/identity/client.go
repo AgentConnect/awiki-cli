@@ -3,20 +3,18 @@ package identity
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 const (
@@ -77,7 +75,7 @@ func NewRemoteClient(resolved *appconfig.Resolved) (*RemoteClient, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("%w: resolved config is required", ErrInvalidInput)
 	}
-	httpClient, err := newHTTPClient(resolved.CABundle)
+	httpClient, err := transportcfg.NewHTTPClient(resolved.CABundle)
 	if err != nil {
 		return nil, err
 	}
@@ -94,26 +92,15 @@ func (c *RemoteClient) Client() *http.Client {
 	return c.client
 }
 
-func newHTTPClient(caBundle string) (*http.Client, error) {
-	transport := &http.Transport{}
-	if strings.TrimSpace(caBundle) != "" {
-		rootCAs, err := x509.SystemCertPool()
-		if err != nil || rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
-		bundle, err := os.ReadFile(filepath.Clean(caBundle))
-		if err != nil {
-			return nil, fmt.Errorf("read ca bundle: %w", err)
-		}
-		if ok := rootCAs.AppendCertsFromPEM(bundle); !ok {
-			return nil, fmt.Errorf("invalid ca bundle: %s", caBundle)
-		}
-		transport.TLSClientConfig = &tls.Config{RootCAs: rootCAs, MinVersion: tls.VersionTLS12}
-	}
-	return &http.Client{Transport: transport}, nil
+func (c *RemoteClient) rpcCall(ctx context.Context, endpoint string, method string, params any, bearer string, out any) error {
+	return c.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, endpoint, method, params, bearer, out)
 }
 
-func (c *RemoteClient) rpcCall(ctx context.Context, endpoint string, method string, params any, bearer string, out any) error {
+func (c *RemoteClient) rpcCallProfile(ctx context.Context, profile transportcfg.Profile, endpoint string, method string, params any, bearer string, out any) error {
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, profile)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, method)
+	defer finish()
 	payload := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -124,7 +111,7 @@ func (c *RemoteClient) rpcCall(ctx context.Context, endpoint string, method stri
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(timeoutCtx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -169,15 +156,31 @@ func (c *RemoteClient) RPCCall(ctx context.Context, endpoint string, method stri
 }
 
 func (c *RemoteClient) AuthenticatedRPCCall(ctx context.Context, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
-	return c.authenticatedRPCCall(ctx, endpoint, method, params, auth, out)
+	return c.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, endpoint, method, params, auth, out)
+}
+
+func (c *RemoteClient) AuthenticatedRPCCallProfile(ctx context.Context, profile transportcfg.Profile, endpoint string, method string, params any, auth *authsdk.Session, out any) error {
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, profile)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, method)
+	defer finish()
+	return c.authenticatedRPCCall(timeoutCtx, endpoint, method, params, auth, out)
 }
 
 func (c *RemoteClient) restPost(ctx context.Context, endpoint string, requestPayload any, bearer string, out any) error {
+	return c.restPostProfile(ctx, transportcfg.ProfileRPCDefault, endpoint, requestPayload, bearer, out)
+}
+
+func (c *RemoteClient) restPostProfile(ctx context.Context, profile transportcfg.Profile, endpoint string, requestPayload any, bearer string, out any) error {
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, profile)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, http.MethodPost+" "+endpoint)
+	defer finish()
 	body, err := json.Marshal(requestPayload)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(timeoutCtx, http.MethodPost, c.baseURL+endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -211,12 +214,16 @@ func (c *RemoteClient) RestPost(ctx context.Context, endpoint string, requestPay
 }
 
 func (c *RemoteClient) AuthenticatedRestPost(ctx context.Context, endpoint string, requestPayload any, auth *authsdk.Session, out any) error {
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileRPCDefault)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, http.MethodPost+" "+endpoint)
+	defer finish()
 	body, err := json.Marshal(requestPayload)
 	if err != nil {
 		return err
 	}
 	requestURL := c.baseURL + endpoint
-	if err := auth.DoJSON(ctx, c.client, http.MethodPost, requestURL, requestPayload, out); err != nil {
+	if err := auth.DoJSON(timeoutCtx, c.client, http.MethodPost, requestURL, requestPayload, out); err != nil {
 		var httpErr *authsdk.HTTPError
 		if errors.As(err, &httpErr) {
 			return &ServiceError{StatusCode: httpErr.StatusCode, Message: httpErr.Message}
@@ -228,11 +235,15 @@ func (c *RemoteClient) AuthenticatedRestPost(ctx context.Context, endpoint strin
 }
 
 func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.Values, out any) error {
+	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileRPCDefault)
+	defer cancel()
+	finish := traceutil.RPCPhase(ctx, http.MethodGet+" "+endpoint)
+	defer finish()
 	target := c.baseURL + endpoint
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	request, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return err
 	}

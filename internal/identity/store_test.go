@@ -2,10 +2,13 @@ package identity
 
 import (
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 )
 
@@ -69,6 +72,73 @@ func TestManagerSaveLoadAndCurrent(t *testing.T) {
 	}
 	if current.UserState.RegistrationState != "local_identity" || current.UserState.ReadyForMessaging {
 		t.Fatalf("unexpected user state for local identity: %#v", current.UserState)
+	}
+}
+
+func TestManagerLoadMigratesLegacyANPPrivateKeysToPKCS8(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "awiki.ai",
+		PathPrefix:  []string{"user"},
+		ProofDomain: "awiki.ai",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	if _, err := manager.save(SaveInput{
+		IdentityName:            "default",
+		DID:                     generated.DID,
+		UniqueID:                generated.UniqueID,
+		DisplayName:             "Alice",
+		DIDDocument:             generated.DIDDocument,
+		Key1PrivatePEM:          legacyANPPrivatePEM(t, generated.Key1PrivatePEM, anpEd25519PrivateKeyLabel),
+		Key1PublicPEM:           generated.Key1PublicPEM,
+		E2EESigningPrivatePEM:   legacyANPPrivatePEM(t, generated.E2EESigningPrivatePEM, anpSecp256r1PrivateKeyLabel),
+		E2EEAgreementPrivatePEM: legacyANPPrivatePEM(t, generated.E2EEAgreementPrivatePEM, anpX25519PrivateKeyLabel),
+	}); err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	loaded, err := manager.Load("default")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	for name, value := range map[string]string{
+		"key-1":          loaded.Key1PrivatePEM,
+		"e2ee signing":   loaded.E2EESigningPrivatePEM,
+		"e2ee agreement": loaded.E2EEAgreementPrivatePEM,
+	} {
+		if strings.Contains(value, "BEGIN ANP ") {
+			t.Fatalf("%s private key still uses legacy ANP PEM label", name)
+		}
+		if !strings.HasPrefix(value, "-----BEGIN PRIVATE KEY-----") {
+			t.Fatalf("%s private key = %q, want standard PKCS#8 PEM", name, value[:32])
+		}
+		if _, err := anpsdk.PrivateKeyFromPEM(value); err != nil {
+			t.Fatalf("PrivateKeyFromPEM(%s) error = %v", name, err)
+		}
+	}
+
+	paths := manager.BuildPaths(generated.UniqueID)
+	for _, path := range []string{
+		paths.Key1PrivatePath,
+		paths.E2EESigningPrivatePath,
+		paths.E2EEAgreementPrivatePath,
+	} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		if strings.Contains(string(raw), "BEGIN ANP ") {
+			t.Fatalf("%s still uses legacy ANP PEM label", path)
+		}
 	}
 }
 
@@ -177,4 +247,140 @@ func TestManagerSummaryShowsRegisteredUserState(t *testing.T) {
 	if current.UserState.RegistrationState != "registered_user" || !current.UserState.ReadyForMessaging {
 		t.Fatalf("unexpected registered user state: %#v", current.UserState)
 	}
+}
+
+func TestManagerLoadBackfillsFullHandleFromDID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "tenant.example",
+		PathPrefix:  []string{"alice"},
+		ProofDomain: "tenant.example",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	record, err := manager.save(SaveInput{
+		IdentityName: "alice",
+		DID:          generated.DID,
+		UniqueID:     generated.UniqueID,
+		Handle:       "alice",
+	})
+	if err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	paths := manager.BuildPaths(record.DirName)
+	payload, err := readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity) error = %v", err)
+	}
+	delete(payload, "full_handle")
+	if err := writeSecureJSON(paths.IdentityPath, payload); err != nil {
+		t.Fatalf("writeSecureJSON(identity) error = %v", err)
+	}
+	index, err := manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex() error = %v", err)
+	}
+	entry := index.Credentials["alice"]
+	entry.FullHandle = ""
+	index.Credentials["alice"] = entry
+	if err := manager.SaveIndex(index); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+
+	loaded, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.FullHandle != "alice.tenant.example" {
+		t.Fatalf("loaded.FullHandle = %q, want alice.tenant.example", loaded.FullHandle)
+	}
+
+	payload, err = readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity after backfill) error = %v", err)
+	}
+	if got, _ := payload["full_handle"].(string); got != "alice.tenant.example" {
+		t.Fatalf("identity payload full_handle = %q, want alice.tenant.example", got)
+	}
+	index, err = manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex(after backfill) error = %v", err)
+	}
+	if got := index.Credentials["alice"].FullHandle; got != "alice.tenant.example" {
+		t.Fatalf("index full_handle = %q, want alice.tenant.example", got)
+	}
+}
+
+func TestManagerLoadDoesNotBackfillFullHandleForNonHandleDID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "tenant.example",
+		PathPrefix:  []string{"user"},
+		ProofDomain: "tenant.example",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	record, err := manager.save(SaveInput{
+		IdentityName: "alice",
+		DID:          generated.DID,
+		UniqueID:     generated.UniqueID,
+		Handle:       "alice",
+	})
+	if err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	paths := manager.BuildPaths(record.DirName)
+	payload, err := readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity) error = %v", err)
+	}
+	delete(payload, "full_handle")
+	if err := writeSecureJSON(paths.IdentityPath, payload); err != nil {
+		t.Fatalf("writeSecureJSON(identity) error = %v", err)
+	}
+	index, err := manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex() error = %v", err)
+	}
+	entry := index.Credentials["alice"]
+	entry.FullHandle = ""
+	index.Credentials["alice"] = entry
+	if err := manager.SaveIndex(index); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+
+	loaded, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.FullHandle != "" {
+		t.Fatalf("loaded.FullHandle = %q, want empty for non-handle did", loaded.FullHandle)
+	}
+}
+
+func legacyANPPrivatePEM(t *testing.T, standardPEM string, label string) string {
+	t.Helper()
+	privateKey, err := anpsdk.PrivateKeyFromPEM(standardPEM)
+	if err != nil {
+		t.Fatalf("PrivateKeyFromPEM() fixture error = %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: label, Bytes: privateKey.Bytes}))
 }

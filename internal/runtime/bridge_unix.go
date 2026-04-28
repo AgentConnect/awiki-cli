@@ -32,8 +32,8 @@ func prepareBridgeEndpoint(path string) error {
 	return nil
 }
 
-func dialBridge(path string) (net.Conn, error) {
-	return net.Dial("unix", path)
+func dialBridge(path string, timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout("unix", path, timeout)
 }
 
 func ListenBridge(path string) (net.Listener, error) {
@@ -57,8 +57,8 @@ func serviceStopSignal() os.Signal {
 	return os.Interrupt
 }
 
-func BridgeHealthProbe(path string) error {
-	conn, err := net.DialTimeout("unix", path, 300*time.Millisecond)
+func BridgeHealthProbe(path string, timeout time.Duration) error {
+	conn, err := net.DialTimeout("unix", path, timeout)
 	if err != nil {
 		return err
 	}

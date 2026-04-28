@@ -1,6 +1,16 @@
 package message
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/agentconnect/awiki-cli/internal/identity"
+)
+
+// CompleteBareHandle expands a bare handle like "alice" to
+// "alice.<didDomain>". Explicit DIDs and full handles pass through unchanged.
+func CompleteBareHandle(target string, didDomain string) string {
+	return identity.CompleteBareHandle(target, didDomain)
+}
 
 func stringFromAny(value any) string {
 	text, _ := value.(string)
@@ -58,4 +68,12 @@ func defaultString(value string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func normalizeResolvedHandleValue(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return ""
+	}
+	return strings.TrimPrefix(value, "wba://")
 }

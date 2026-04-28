@@ -1,57 +1,59 @@
-# 身份参考
+# Identity Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理身份生命周期任务时，使用本参考文档，包括：本地身份检查、带 handle 的注册、恢复、联系方式绑定、身份切换，以及 profile 管理。
+Use this reference when you are handling identity lifecycle tasks in `awiki-cli`, including local identity inspection, handle-backed registration, recovery, contact binding, identity switching, and profile management.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及 identity、DID、handle、联系方式绑定、恢复或 profile 数据时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves identity, DID, handle, contact binding, recovery, or profile data.
 
-## 当前状态
+## Current Status
 
-- 状态：**已实现**
-- 当前公开二进制：`awiki-cli`
-- 存在隐藏命令：`id create`
-- 存在危险公开命令：`id replace-did`
-- 对外说明保持 **handle 优先**
+- Status: **implemented**
+- Current public binary: `awiki-cli`
+- Hidden command exists: `id create`
+- Dangerous public command exists: `id replace-did`
+- External explanations should remain **handle-first**
 
-## 适用场景
+## When to Use
 
-- 创建或导入本地身份
-- 注册或恢复带 handle 的身份
-- 绑定手机号或邮箱联系方式
-- 切换默认身份
-- 读取或更新 DID profile
-- 谨慎替换某个本地 identity 对应的协议级 DID
+- Create or import local identities
+- Register or recover handle-backed identities
+- Bind contact methods such as phone numbers or email addresses
+- Switch the default identity
+- Read or update DID profile
+- Carefully replace the protocol-level DID corresponding to a local identity
 
-## 核心概念
+## Core Concepts
 
-- **identity**：通过 `--identity` 选择的本地 awiki 身份容器
-- **DID**：服务端使用的协议级标识符
-- **handle**：人类可读的公开标识符
-- **contact binding**：为现有身份增加手机号或邮箱
-- **current identity**：在省略 `--identity` 时使用的默认本地身份
+- **identity**: the local awiki identity container selected with `--identity`
+- **DID**: the protocol-level identifier used by the server
+- **handle**: the human-readable public identifier
+- **contact binding**: adding a phone number or email address to an existing identity
+- **current identity**: the default local identity used when `--identity` is omitted
 
-## 生命周期
+## Lifecycle
 
 `status -> create/register/import -> bind -> profile set -> current/use`
 
-## 决策规则
+## Decision Rules
 
-- 还没有本地身份 -> 优先使用 `awiki-cli id register ...`；只有在 bootstrap、迁移或 debug 时才使用隐藏命令 `id create`
-- 已有本地身份，但还没有 handle-backed 用户状态 -> 使用 `awiki-cli id register ...`
-- 已有 handle，但联系方式不完整 -> 使用 `awiki-cli id bind ...`
-- handle 丢失，但仍有恢复手机号 -> 使用 `awiki-cli id recover ...`
-- 需要查看多个本地身份 -> 使用 `awiki-cli id list`
-- 需要切换默认身份 -> 使用 `awiki-cli id use <identity>`
-- 需要查看公开 profile 数据 -> 使用 `awiki-cli id profile get ...`
-- 只有在明确需要轮换/替换某个 handle identity 的 DID 时，才使用 `awiki-cli --identity <identity> id replace-did`；必须先 dry-run 并确认目标 identity
+- No local identity yet -> prefer `awiki-cli id register ...`; use the hidden `id create` command only for bootstrap, migration, or debug
+- A local identity exists but does not yet have a handle-backed user state -> use `awiki-cli id register ...`
+- A handle exists but contact bindings are incomplete -> use `awiki-cli id bind ...`
+- The handle is lost but the recovery phone number is still available -> use `awiki-cli id recover ...`
+- Need to inspect multiple local identities -> use `awiki-cli id list`
+- Need to switch the default identity -> use `awiki-cli id use <identity>`
+- Token state is abnormal, or the current identity authentication needs to be reacquired -> use `awiki-cli [--identity <identity>] id refresh-token`
+- Need to inspect public profile data -> use `awiki-cli id profile get ...`
+- Use `awiki-cli --identity <identity> id replace-did` only when there is a clear need to rotate/replace the DID for a specific handle identity; it must be dry-run first and the target identity must be confirmed
 
-## Canonical 命令
+## Canonical Commands
 
 - `awiki-cli id status`
 - `awiki-cli id list`
 - `awiki-cli id current`
 - `awiki-cli id use <identity>`
+- `awiki-cli [--identity <identity>] id refresh-token`
 - `awiki-cli id register --handle <handle> (--phone <phone> [--otp <code>] | --email <email> [--wait])`
 - `awiki-cli id bind (--phone <phone> [--otp <code>] | --email <email> [--wait])`
 - `awiki-cli id resolve (--handle <handle> | --did <did>)`
@@ -61,9 +63,9 @@
 - `awiki-cli id profile set [--display-name ...] [--bio ...] [--tags ...] [--markdown ...] [--markdown-file ...]`
 - `awiki-cli id import-v1 [--name <identity> | --all]`
 
-## 常见模式
+## Common Patterns
 
-### 推荐的注册流程
+### Recommended Registration Flow
 
 1. `awiki-cli id status`
 2. `awiki-cli id register --handle alice --phone +8613800138000 --otp 123456`
@@ -71,56 +73,71 @@
 4. `awiki-cli id bind --email alice@example.com --wait`
 5. `awiki-cli id profile set --display-name "Alice"`
 
-### 从 v1 导入后再切换
+### Import from v1 and Then Switch
 
 1. `awiki-cli id import-v1 --all --dry-run`
 2. `awiki-cli id import-v1 --all`
 3. `awiki-cli id list`
 4. `awiki-cli id use <identity>`
 
-### 危险：替换 DID
+### Explicitly Refresh the JWT When the Token Is Abnormal
 
-`id replace-did` 会为指定 identity 生成新的 e1 DID 和新密钥材料，并用远端 `did-auth.replace_did` 把旧 DID 替换掉。该操作会先把旧 DID document、旧私钥和旧 identity 目录备份到本地 `.legacy-backup/replace-did/`，然后更新本地 identity store、DID document、私钥文件，并重绑本地 SQLite 的 `owner_did`；使用错误目标可能造成身份、消息历史或通知路由混乱。
+Applicable situations:
 
-`.legacy-backup/replace-did/` 中的内容仍然包含旧私钥和旧 JWT 等敏感材料，不要上传、粘贴或分享。
+- The command indicates that current identity authentication has expired
+- An identity clearly exists, but calls to authenticated APIs still fail
+- You want to refresh the current identity authentication first before continuing with subsequent commands
 
-仅在用户明确要求替换 DID 时使用：
+Recommended usage:
+
+1. `awiki-cli id current`
+2. `awiki-cli --identity <identity> id refresh-token --dry-run`
+3. After a human confirms the target identity, run `awiki-cli --identity <identity> id refresh-token`
+
+### Dangerous: Replace the DID
+
+`id replace-did` generates a new e1 DID and new key material for the specified identity, then uses the remote `did-auth.replace_did` call to replace the old DID. This operation first backs up the old DID document, old private key, and old identity directory to local `.legacy-backup/replace-did/`, then updates the local identity store, DID document, private-key file, and rebinds the local SQLite `owner_did`. Using the wrong target may cause identity, message history, or notification-routing confusion.
+
+The contents under `.legacy-backup/replace-did/` still contain sensitive material such as the old private key and old JWT. Do not upload, paste, or share them.
+
+Use it only when the user explicitly requests DID replacement:
 
 1. `awiki-cli id list`
 2. `awiki-cli --identity <identity> id replace-did --dry-run`
-3. 人类确认目标 identity、旧 DID、影响范围后，再执行 `awiki-cli --identity <identity> id replace-did`
+3. After a human confirms the target identity, old DID, and impact scope, run `awiki-cli --identity <identity> id replace-did`
 
-不要在普通注册、恢复、profile 更新或消息任务中主动使用该命令。
+Do not proactively use this command during ordinary registration, recovery, profile updates, or messaging tasks.
 
-## 副作用与确认
+## Side Effects and Confirmation
 
-- 需要显式确认：
+- Require explicit confirmation:
   - `id register`
   - `id bind`
+  - `id refresh-token`
   - `id recover`
   - `id use`
   - `id profile set`
   - `id import-v1`
-  - 危险命令 `id replace-did`
-  - 隐藏命令 `id create`
-- 写操作支持时，优先使用 `--dry-run`
-- `id replace-did` 必须把 `--identity <identity>` 视为目标用户选择方式；省略时会作用于默认 identity，因此更容易误操作
+  - Dangerous command `id replace-did`
+  - Hidden command `id create`
+- Prefer `--dry-run` when a write operation supports it
+- For `id replace-did`, `--identity <identity>` must be treated as the target-selection mechanism; if omitted, it affects the default identity and is therefore easier to misuse
 
-## 错误处理
+## Error Handling
 
-- register 或 bind 的命令形状不清楚 -> 检查 `awiki-cli schema id register` 或 `awiki-cli schema id bind`
-- auth 或 token 状态不清楚 -> 恢复或重新注册身份
-- 缺少身份 -> 使用 `awiki-cli id list` 和 `awiki-cli id current`
-- 本地 store 状态不清楚 -> 使用 `awiki-cli doctor`
+- The command shape for register or bind is unclear -> check `awiki-cli schema id register` or `awiki-cli schema id bind`
+- The auth or token state is unclear -> try `awiki-cli [--identity <identity>] id refresh-token` first
+- Identity is missing -> use `awiki-cli id list` and `awiki-cli id current`
+- The state of the local store is unclear -> use `awiki-cli doctor`
 
-## 实现说明
+## Implementation Notes
 
-- `id create` 是有意隐藏的
-- `id replace-did` 是公开但危险的维护命令；它只适用于 handle-backed DID，会生成新的 e1 DID 来替代旧 DID
-- 对外说明应保持 handle 优先
-- 本 reference 的公开契约中不包含 `user_id`
+- `id create` is intentionally hidden
+- `id replace-did` is a public but dangerous maintenance command; it applies only to handle-backed DIDs and generates a new e1 DID to replace the old DID
+- External explanations should remain handle-first
+- The public contract of this reference does not include `user_id`
 
-## 相关参考
+## Related References
 
 - `01-onboarding.md`
 - `08-debug.md`

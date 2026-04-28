@@ -17,6 +17,7 @@ func (m *Manager) save(input SaveInput) (*StoredIdentity, error) {
 	if strings.TrimSpace(input.DID) == "" || strings.TrimSpace(input.UniqueID) == "" {
 		return nil, fmt.Errorf("%w: did and unique_id are required", ErrInvalidInput)
 	}
+	input.Handle, input.FullHandle = storedHandleFields(input.Handle, input.FullHandle, input.DID)
 	if err := m.EnsureRoot(); err != nil {
 		return nil, err
 	}
@@ -67,6 +68,9 @@ func (m *Manager) save(input SaveInput) (*StoredIdentity, error) {
 	if input.Handle != "" {
 		identityPayload["handle"] = input.Handle
 	}
+	if input.FullHandle != "" {
+		identityPayload["full_handle"] = input.FullHandle
+	}
 	if err := writeSecureJSON(paths.IdentityPath, identityPayload); err != nil {
 		return nil, fmt.Errorf("write identity payload: %w", err)
 	}
@@ -107,6 +111,7 @@ func (m *Manager) save(input SaveInput) (*StoredIdentity, error) {
 		UserID:         input.UserID,
 		Name:           input.DisplayName,
 		Handle:         input.Handle,
+		FullHandle:     input.FullHandle,
 		CreatedAt:      createdAt,
 		IsDefault:      index.DefaultCredentialName == identityName || index.DefaultCredentialName == "",
 	}
@@ -141,6 +146,9 @@ func (m *Manager) Load(name string) (*StoredIdentity, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIdentityNotFound, name)
 	}
 	paths := m.BuildPaths(entry.DirName)
+	if err := ensureIdentityPrivateKeysCompatible(paths); err != nil {
+		return nil, err
+	}
 	identityPayload, err := readJSONMap(paths.IdentityPath)
 	if err != nil {
 		return nil, err
@@ -157,15 +165,20 @@ func (m *Manager) Load(name string) (*StoredIdentity, error) {
 		UserID:       stringValue(identityPayload["user_id"], entry.UserID),
 		DisplayName:  stringValue(identityPayload["name"], entry.Name),
 		Handle:       stringValue(identityPayload["handle"], entry.Handle),
+		FullHandle:   stringValue(identityPayload["full_handle"], entry.FullHandle),
 		CreatedAt:    stringValue(identityPayload["created_at"], entry.CreatedAt),
 		IsDefault:    index.DefaultCredentialName == resolvedName,
 	}
+	record.Handle, record.FullHandle = storedHandleFields(record.Handle, record.FullHandle, record.DID)
 	record.JWTToken = stringValue(authPayload["jwt_token"], "")
 	record.DIDDocument, _ = readJSONMap(paths.DIDDocumentPath)
 	record.Key1PrivatePEM = readText(paths.Key1PrivatePath)
 	record.Key1PublicPEM = readText(paths.Key1PublicPath)
 	record.E2EESigningPrivatePEM = readText(paths.E2EESigningPrivatePath)
 	record.E2EEAgreementPrivatePEM = readText(paths.E2EEAgreementPrivatePath)
+	if err := m.persistStoredHandleBackfill(resolvedName, &index, &entry, identityPayload, record); err != nil {
+		return nil, err
+	}
 	return record, nil
 }
 
@@ -308,6 +321,10 @@ func (m *Manager) ReplaceIdentity(name string, input SaveInput) (*StoredIdentity
 	if strings.TrimSpace(input.Handle) == "" {
 		input.Handle = current.Handle
 	}
+	if strings.TrimSpace(input.FullHandle) == "" {
+		input.FullHandle = current.FullHandle
+	}
+	input.Handle, input.FullHandle = storedHandleFields(input.Handle, input.FullHandle, input.DID)
 
 	newDirName, err := preferredDirName(input.UniqueID)
 	if err != nil {
@@ -359,6 +376,9 @@ func (m *Manager) ReplaceIdentity(name string, input SaveInput) (*StoredIdentity
 	if input.Handle != "" {
 		identityPayload["handle"] = input.Handle
 	}
+	if input.FullHandle != "" {
+		identityPayload["full_handle"] = input.FullHandle
+	}
 	if err := writeSecureJSON(newPaths.IdentityPath, identityPayload); err != nil {
 		return nil, fmt.Errorf("write identity payload: %w", err)
 	}
@@ -401,6 +421,7 @@ func (m *Manager) ReplaceIdentity(name string, input SaveInput) (*StoredIdentity
 		linkedEntry.UserID = input.UserID
 		linkedEntry.Name = input.DisplayName
 		linkedEntry.Handle = input.Handle
+		linkedEntry.FullHandle = input.FullHandle
 		linkedEntry.CreatedAt = createdAt
 		linkedEntry.IsDefault = index.DefaultCredentialName == linkedName
 		index.Credentials[linkedName] = linkedEntry
@@ -436,6 +457,19 @@ func (m *Manager) List() ([]IdentitySummary, error) {
 }
 
 func (m *Manager) summaryFor(entry IndexEntry, defaultName string) (*IdentitySummary, error) {
+	if strings.TrimSpace(entry.FullHandle) == "" && strings.TrimSpace(entry.CredentialName) != "" {
+		record, err := m.Load(entry.CredentialName)
+		if err != nil {
+			return nil, err
+		}
+		summary := identitySummaryFromRecord(record)
+		if summary == nil {
+			return nil, fmt.Errorf("%w: %s", ErrIdentityNotFound, entry.CredentialName)
+		}
+		summary.IsDefault = defaultName == entry.CredentialName
+		summary.UserState = EvaluateIdentitySummaryUserState(summary)
+		return summary, nil
+	}
 	paths := m.BuildPaths(entry.DirName)
 	authPayload, err := readJSONMap(paths.AuthPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -448,6 +482,7 @@ func (m *Manager) summaryFor(entry IndexEntry, defaultName string) (*IdentitySum
 		UserID:                  entry.UserID,
 		DisplayName:             entry.Name,
 		Handle:                  entry.Handle,
+		FullHandle:              entry.FullHandle,
 		CreatedAt:               entry.CreatedAt,
 		DirName:                 entry.DirName,
 		IsDefault:               defaultName == entry.CredentialName,
@@ -515,6 +550,53 @@ func readText(path string) string {
 		return ""
 	}
 	return string(raw)
+}
+
+func (m *Manager) persistStoredHandleBackfill(
+	resolvedName string,
+	index *IndexPayload,
+	entry *IndexEntry,
+	identityPayload map[string]any,
+	record *StoredIdentity,
+) error {
+	if record == nil || index == nil || entry == nil {
+		return nil
+	}
+	updatedHandle, updatedFullHandle := storedHandleFields(record.Handle, record.FullHandle, record.DID)
+	record.Handle = updatedHandle
+	record.FullHandle = updatedFullHandle
+
+	identityChanged := false
+	if updatedHandle != "" && stringValue(identityPayload["handle"], "") != updatedHandle {
+		identityPayload["handle"] = updatedHandle
+		identityChanged = true
+	}
+	if updatedFullHandle != "" && stringValue(identityPayload["full_handle"], "") != updatedFullHandle {
+		identityPayload["full_handle"] = updatedFullHandle
+		identityChanged = true
+	}
+	if identityChanged {
+		if err := writeSecureJSON(m.BuildPaths(entry.DirName).IdentityPath, identityPayload); err != nil {
+			return fmt.Errorf("write identity payload: %w", err)
+		}
+	}
+
+	indexChanged := false
+	if updatedHandle != "" && entry.Handle != updatedHandle {
+		entry.Handle = updatedHandle
+		indexChanged = true
+	}
+	if updatedFullHandle != "" && entry.FullHandle != updatedFullHandle {
+		entry.FullHandle = updatedFullHandle
+		indexChanged = true
+	}
+	if indexChanged {
+		index.Credentials[resolvedName] = *entry
+		if err := m.SaveIndex(*index); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func stringValue(value any, fallback string) string {

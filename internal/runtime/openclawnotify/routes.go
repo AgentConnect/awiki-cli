@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/durablefs"
 )
 
 const routesFileName = "openclaw.host-notify.routes.json"
@@ -225,12 +226,7 @@ func writeAtomicFile(path string, content []byte, mode os.FileMode) error {
 	}
 	cleanup = false
 
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return fmt.Errorf("open route registry dir: %w", err)
-	}
-	defer dir.Close()
-	if err := dir.Sync(); err != nil {
+	if err := durablefs.SyncDirectory(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("sync route registry dir: %w", err)
 	}
 	return nil

@@ -16,6 +16,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
 	"github.com/agentconnect/awiki-cli/internal/update"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
 	"github.com/spf13/cobra"
@@ -37,6 +38,8 @@ func newRootCommand(app *App) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			app.traceRun = traceutil.New(cmd.CommandPath())
+			cmd.SetContext(traceutil.WithRun(cmd.Context(), app.traceRun))
 			app.globals.FormatChanged = cmd.Flags().Changed("format")
 			app.globals.IdentityChanged = cmd.Flags().Changed("identity")
 			_, err := output.NormalizeFormat(app.globals.Format)
@@ -160,6 +163,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runIDRegister
 	case "id.bind":
 		return a.runIDBind
+	case "id.refresh-token":
+		return a.runIDRefreshToken
 	case "id.resolve":
 		return a.runIDResolve
 	case "id.recover":
@@ -188,6 +193,20 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgHistory
 	case "msg.mark-read":
 		return a.runMsgMarkRead
+	case "mail.inbox":
+		return a.runMailInbox
+	case "mail.read":
+		return a.runMailRead
+	case "mail.mark-read":
+		return a.runMailMarkRead
+	case "mail.account":
+		return a.runMailAccount
+	case "mail.send":
+		return a.runMailSend
+	case "mail.attachment.download":
+		return a.runMailAttachmentDownload
+	case "mail.notify":
+		return a.runMailNotify
 	case "group.create":
 		return a.runGroupCreate
 	case "group.show":
@@ -272,6 +291,20 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runRuntimeHostNotifyOpenClawRouteList
 	case "runtime.host-notify.openclaw.route.remove":
 		return a.runRuntimeHostNotifyOpenClawRouteRemove
+	case "runtime.host-notify.hermes.guide":
+		return a.runRuntimeHostNotifyHermesGuide
+	case "runtime.host-notify.hermes.status":
+		return a.runRuntimeHostNotifyHermesStatus
+	case "runtime.host-notify.hermes.setup":
+		return a.runRuntimeHostNotifyHermesSetup
+	case "runtime.host-notify.hermes.bridge.service-run":
+		return a.runRuntimeHostNotifyHermesBridgeServiceRun
+	case "runtime.host-notify.hermes.set":
+		return a.runRuntimeHostNotifyHermesSet
+	case "runtime.host-notify.hermes.set-secret":
+		return a.runRuntimeHostNotifyHermesSetSecret
+	case "runtime.host-notify.hermes.clear-secret":
+		return a.runRuntimeHostNotifyHermesClearSecret
 	case "debug.db.query":
 		return a.runDebugDBQuery
 	case "debug.db.handle-history":
@@ -475,7 +508,7 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 	}
 
 	// Resolve config to get update-related knobs and cache paths.
-	resolved, err := a.resolveConfig()
+	resolved, err := a.resolveConfigRaw()
 	if err != nil {
 		// Config errors are surfaced by individual commands; do not double-fail here.
 		return nil
@@ -496,7 +529,11 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 			decision.CurrentVersion,
 			decision.MinSupportedVersion,
 		)
-		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` or `npm install -g @awiki/cli@latest`."
+		hint := fmt.Sprintf(
+			"Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade`, or install directly with `%s` (`%s` if registry.npmjs.org is unreachable).",
+			directNpmInstallCommand(),
+			mirrorNpmInstallCommand(),
+		)
 		return output.NewExitError("version_unsupported", 3, summary, hint)
 	}
 
@@ -536,6 +573,7 @@ func isUpdateExemptCommand(cmd *cobra.Command) bool {
 		"awiki-cli completion powershell",
 		"awiki-cli runtime listener run",
 		"awiki-cli runtime listener service-run",
+		"awiki-cli runtime host-notify hermes bridge service-run",
 	}
 	for _, allowed := range exempt {
 		if strings.EqualFold(path, allowed) {

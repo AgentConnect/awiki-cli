@@ -18,7 +18,7 @@
 
 | ADR | 主题 | 状态 | 影响阶段 | 冻结结论 |
 |---|---|---|---|---|
-| ADR-0001 | 公共命令面冻结 | Frozen | Phase 1+ | 顶级命令以 `status/docs/schema/doctor/version/init/completion/config/id/msg/group/runtime/people/page/debug` 为准 |
+| ADR-0001 | 公共命令面冻结 | Frozen | Phase 1+ | 顶级命令以 `status/docs/schema/doctor/version/init/completion/config/id/msg/mail/group/runtime/people/page/debug` 为准 |
 | ADR-0002 | `group` 域归属 | Frozen | Phase 1+ | `group` 为 canonical 顶级域；`msg send --group` 负责群发消息；`msg group` 只可作为兼容 alias |
 | ADR-0003 | raw API 暴露方式 | Frozen | Phase 1+ | 首发不暴露顶级 `api`；raw RPC 挂在 `debug raw rpc` |
 | ADR-0004 | 用户术语与存储术语 | Frozen | Phase 1+ | 用户层使用 `identity`；存储层 Phase 1 保留 `credential_name` / `default_credential_name` |

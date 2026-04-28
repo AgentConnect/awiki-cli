@@ -2,9 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # ///
-"""Receive awiki/OpenClaw hook requests and fan out user callbacks.
+"""Receive awiki/OpenClaw host-notify requests and fan out user callbacks.
 
-This helper exposes a local webhook endpoint that is compatible with the
+This helper exposes a local host-notify endpoint that is compatible with the
 `runtime.host_notify.sink = openclaw` hook payload shape used by awiki-cli.
 It also exposes small management endpoints so tests can register multiple
 callbacks for different users (for example, matching by recipient DID).
@@ -170,7 +170,7 @@ class CallbackDispatcher:
             data=raw_body,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "awiki-host-notify-webhook-server/1.0",
+                "User-Agent": "awiki-host-notify-hermes-server/1.0",
                 "X-AWiki-Event-ID": event.event_id,
             },
             method="POST",
@@ -456,7 +456,7 @@ def utc_now() -> str:
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Receive awiki/OpenClaw webhook requests on /hooks/agent and fan out "
+            "Receive awiki/OpenClaw host-notify requests on /hooks/agent and fan out "
             "normalized events to multiple registered callback URLs."
         )
     )
@@ -491,8 +491,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def default_state_file() -> Path:
     workspace = os.environ.get("AWIKI_CLI_WORKSPACE_HOME_DIR", "").strip()
     if workspace:
-        return Path(workspace) / "runtime" / "host-notify-webhook-callbacks.json"
-    return Path.home() / ".awiki-cli" / "runtime" / "host-notify-webhook-callbacks.json"
+        runtime_dir = Path(workspace) / "runtime"
+    else:
+        runtime_dir = Path.home() / ".awiki-cli" / "runtime"
+    legacy_path = runtime_dir / "host-notify-webhook-callbacks.json"
+    hermes_path = runtime_dir / "host-notify-hermes-callbacks.json"
+    if legacy_path.exists():
+        return legacy_path
+    if hermes_path.exists():
+        return hermes_path
+    return legacy_path
 
 
 def main() -> None:
@@ -511,14 +519,14 @@ def main() -> None:
     dispatcher = CallbackDispatcher(registry, timeout_seconds=max(args.callback_timeout_seconds, 0.1))
     server = HostNotifyWebhookServer((args.host, args.port), registry, dispatcher)
 
-    LOGGER.info("Starting webhook server on http://%s:%s", args.host, args.port)
+    LOGGER.info("Starting host-notify webhook server on http://%s:%s", args.host, args.port)
     LOGGER.info("Callback registry file: %s", Path(args.state_file).expanduser())
     LOGGER.info("Management endpoints: GET /healthz, GET/POST /callbacks, DELETE /callbacks/<id>, GET /events")
-    LOGGER.info("Webhook endpoint: POST /hooks/agent")
+    LOGGER.info("Hook endpoint: POST /hooks/agent")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        LOGGER.info("Shutting down webhook server")
+        LOGGER.info("Shutting down Hermes host-notify server")
     finally:
         server.server_close()
 

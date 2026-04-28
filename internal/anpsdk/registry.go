@@ -9,7 +9,7 @@ import (
 
 const (
 	ModulePath    = "github.com/agent-network-protocol/anp/golang"
-	ModuleVersion = "v0.8.3"
+	ModuleVersion = "v0.8.5"
 )
 
 type (
@@ -40,6 +40,7 @@ type (
 
 var (
 	KeyTypeSecp256r1                  = anp.KeyTypeSecp256r1
+	KeyTypeSecp256k1                  = anp.KeyTypeSecp256k1
 	KeyTypeEd25519                    = anp.KeyTypeEd25519
 	KeyTypeX25519                     = anp.KeyTypeX25519
 	DidProfileE1                      = anpauth.DidProfileE1

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"strconv"
 	"strings"
 
@@ -46,7 +45,7 @@ func (a *App) runGroupCreate(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.create", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group create planned", nil, a.identityMeta())
 	}
-	result, err := service.CreateGroup(context.Background(), request)
+	result, err := service.CreateGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Ensure the active identity is registered and the message service is reachable.")
 	}
@@ -63,7 +62,7 @@ func (a *App) runGroupShow(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.show", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "group": group}}, "Dry run: group show planned", nil, a.identityMeta())
 	}
-	result, err := service.GetGroup(context.Background(), request)
+	result, err := service.GetGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access it.")
 	}
@@ -81,7 +80,7 @@ func (a *App) runGroupJoin(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.join", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group join planned", nil, a.identityMeta())
 	}
-	result, err := service.JoinGroup(context.Background(), request)
+	result, err := service.JoinGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and allows open join for the active identity.")
 	}
@@ -107,13 +106,17 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 	}
 	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason}
 	if a.globals.DryRun {
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
+		plan := map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}
+		if completed := message.CompleteBareHandle(member, service.Config().DIDDomain); completed != strings.TrimSpace(member) {
+			plan["member_handle"] = completed
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group membership change planned", nil, a.identityMeta())
 	}
 	var result *message.CommandResult
 	if memberAction == "add" {
-		result, err = service.AddGroupMember(context.Background(), request)
+		result, err = service.AddGroupMember(cmd.Context(), request)
 	} else {
-		result, err = service.RemoveGroupMember(context.Background(), request)
+		result, err = service.RemoveGroupMember(cmd.Context(), request)
 	}
 	if err != nil {
 		return a.messageExit(err, "Make sure the group and member exist and the active identity has the required role.")
@@ -140,7 +143,7 @@ func (a *App) runGroupLeave(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.leave", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group leave planned", nil, a.identityMeta())
 	}
-	result, err := service.LeaveGroup(context.Background(), request)
+	result, err := service.LeaveGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity is still a member.")
 	}
@@ -186,7 +189,7 @@ func (a *App) runGroupUpdate(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.update", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group update planned", nil, a.identityMeta())
 	}
-	result, err := service.UpdateGroup(context.Background(), request)
+	result, err := service.UpdateGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the active identity has permission to update the target group.")
 	}
@@ -204,7 +207,7 @@ func (a *App) runGroupMembers(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.list_members", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group members planned", nil, a.identityMeta())
 	}
-	result, err := service.GroupMembers(context.Background(), request)
+	result, err := service.GroupMembers(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access its member list.")
 	}
@@ -223,7 +226,7 @@ func (a *App) runGroupMessages(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.list_messages", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group messages planned", nil, a.identityMeta())
 	}
-	result, err := service.GroupMessages(context.Background(), request)
+	result, err := service.GroupMessages(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the group exists and the active identity can access its messages.")
 	}

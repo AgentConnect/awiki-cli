@@ -109,6 +109,40 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 }
 
+func TestResolveIncludesHermesHostNotifyConfig(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(&appconfig.Resolved{
+		RuntimeMode:               "websocket",
+		HostNotifyEnabled:         true,
+		HostNotifySink:            "hermes",
+		HostNotifyHermesNotifyURL: "http://127.0.0.1:8765/notify/host-event",
+	})
+	if !resolved.HostNotify.Enabled {
+		t.Fatal("resolved.HostNotify.Enabled = false, want true")
+	}
+	if resolved.HostNotify.Sink != "hermes" {
+		t.Fatalf("resolved.HostNotify.Sink = %q, want hermes", resolved.HostNotify.Sink)
+	}
+	if resolved.HostNotify.Hermes.NotifyURL != "http://127.0.0.1:8765/notify/host-event" {
+		t.Fatalf("resolved.HostNotify.Hermes.NotifyURL = %q", resolved.HostNotify.Hermes.NotifyURL)
+	}
+}
+
+func TestResolveAcceptsLegacyWebhookSinkAlias(t *testing.T) {
+	t.Parallel()
+
+	resolved := Resolve(&appconfig.Resolved{
+		RuntimeMode:               "websocket",
+		HostNotifyEnabled:         true,
+		HostNotifySink:            "webhook",
+		HostNotifyHermesNotifyURL: "http://127.0.0.1:8765/notify/host-event",
+	})
+	if resolved.HostNotify.Sink != "hermes" {
+		t.Fatalf("resolved.HostNotify.Sink = %q, want hermes", resolved.HostNotify.Sink)
+	}
+}
+
 func TestResolveIncludesListenerConfig(t *testing.T) {
 	t.Parallel()
 

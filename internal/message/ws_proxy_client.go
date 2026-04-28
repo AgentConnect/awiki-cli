@@ -18,7 +18,7 @@ func NewWSProxyTransport(resolved *appconfig.Resolved, identityName string) *WSP
 }
 
 func (t *WSProxyTransport) SendDirect(ctx context.Context, request SendRequest) (*directSendResult, error) {
-	result, err := t.call("direct.send", map[string]any{
+	result, err := t.call(ctx, "direct.send", map[string]any{
 		"target": request.Target,
 		"text":   request.Text,
 		"type":   request.MessageType,
@@ -32,7 +32,7 @@ func (t *WSProxyTransport) SendDirect(ctx context.Context, request SendRequest) 
 }
 
 func (t *WSProxyTransport) SendGroup(ctx context.Context, request SendRequest) (*groupSendResult, error) {
-	result, err := t.call("group.send", map[string]any{
+	result, err := t.call(ctx, "group.send", map[string]any{
 		"group": request.Group,
 		"text":  request.Text,
 		"type":  request.MessageType,
@@ -46,7 +46,7 @@ func (t *WSProxyTransport) SendGroup(ctx context.Context, request SendRequest) (
 }
 
 func (t *WSProxyTransport) GetInbox(ctx context.Context, request InboxRequest) (map[string]any, error) {
-	return t.call("inbox.get", map[string]any{
+	return t.call(ctx, "inbox.get", map[string]any{
 		"with":      request.With,
 		"limit":     request.Limit,
 		"scope":     request.Scope,
@@ -64,15 +64,15 @@ func (t *WSProxyTransport) GetHistory(ctx context.Context, request HistoryReques
 	if request.Skip > 0 {
 		params["skip"] = request.Skip
 	}
-	return t.call("direct.get_history", params)
+	return t.call(ctx, "direct.get_history", params)
 }
 
 func (t *WSProxyTransport) MarkRead(ctx context.Context, request MarkReadRequest) (map[string]any, error) {
-	return t.call("inbox.mark_read", map[string]any{"message_ids": request.MessageIDs})
+	return t.call(ctx, "inbox.mark_read", map[string]any{"message_ids": request.MessageIDs})
 }
 
 func (t *WSProxyTransport) CreateGroup(ctx context.Context, request GroupCreateRequest) (map[string]any, error) {
-	return t.call("group.create", map[string]any{
+	return t.call(ctx, "group.create", map[string]any{
 		"name":                   request.Name,
 		"description":            request.Description,
 		"discoverability":        request.Discoverability,
@@ -90,7 +90,7 @@ func (t *WSProxyTransport) CreateGroup(ctx context.Context, request GroupCreateR
 }
 
 func (t *WSProxyTransport) GetGroupInfo(ctx context.Context, request GroupInfoRequest) (map[string]any, error) {
-	return t.call("group.get_info", map[string]any{
+	return t.call(ctx, "group.get_info", map[string]any{
 		"group":               request.Group,
 		"include_policy":      request.IncludePolicy,
 		"include_member_list": request.IncludeMemberList,
@@ -98,11 +98,11 @@ func (t *WSProxyTransport) GetGroupInfo(ctx context.Context, request GroupInfoRe
 }
 
 func (t *WSProxyTransport) JoinGroup(ctx context.Context, request GroupJoinRequest) (map[string]any, error) {
-	return t.call("group.join", map[string]any{"group": request.Group, "reason_text": request.ReasonText})
+	return t.call(ctx, "group.join", map[string]any{"group": request.Group, "reason_text": request.ReasonText})
 }
 
 func (t *WSProxyTransport) AddGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
-	return t.call("group.add", map[string]any{
+	return t.call(ctx, "group.add", map[string]any{
 		"group":       request.Group,
 		"member":      request.Member,
 		"role":        request.Role,
@@ -111,7 +111,7 @@ func (t *WSProxyTransport) AddGroupMember(ctx context.Context, request GroupMemb
 }
 
 func (t *WSProxyTransport) RemoveGroupMember(ctx context.Context, request GroupMemberRequest) (map[string]any, error) {
-	return t.call("group.remove", map[string]any{
+	return t.call(ctx, "group.remove", map[string]any{
 		"group":       request.Group,
 		"member":      request.Member,
 		"reason_text": request.ReasonText,
@@ -119,15 +119,15 @@ func (t *WSProxyTransport) RemoveGroupMember(ctx context.Context, request GroupM
 }
 
 func (t *WSProxyTransport) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (map[string]any, error) {
-	return t.call("group.leave", map[string]any{"group": request.Group})
+	return t.call(ctx, "group.leave", map[string]any{"group": request.Group})
 }
 
 func (t *WSProxyTransport) GetGroup(ctx context.Context, request GroupGetRequest) (map[string]any, error) {
-	return t.call("group.get", map[string]any{"group": request.Group})
+	return t.call(ctx, "group.get", map[string]any{"group": request.Group})
 }
 
 func (t *WSProxyTransport) ListGroupMembers(ctx context.Context, request GroupMembersRequest) (map[string]any, error) {
-	return t.call("group.list_members", map[string]any{"group": request.Group, "limit": request.Limit})
+	return t.call(ctx, "group.list_members", map[string]any{"group": request.Group, "limit": request.Limit})
 }
 
 func (t *WSProxyTransport) ListGroupMessages(ctx context.Context, request GroupMessagesRequest) (map[string]any, error) {
@@ -139,19 +139,19 @@ func (t *WSProxyTransport) ListGroupMessages(ctx context.Context, request GroupM
 	if request.Skip > 0 {
 		params["skip"] = request.Skip
 	}
-	return t.call("group.list_messages", params)
+	return t.call(ctx, "group.list_messages", params)
 }
 
 func (t *WSProxyTransport) UpdateGroupProfile(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
-	return t.call("group.update_profile", map[string]any{"group": request.Group, "patch": patch})
+	return t.call(ctx, "group.update_profile", map[string]any{"group": request.Group, "patch": patch})
 }
 
 func (t *WSProxyTransport) UpdateGroupPolicy(ctx context.Context, request GroupGetRequest, patch map[string]any) (map[string]any, error) {
-	return t.call("group.update_policy", map[string]any{"group": request.Group, "patch": patch})
+	return t.call(ctx, "group.update_policy", map[string]any{"group": request.Group, "patch": patch})
 }
 
-func (t *WSProxyTransport) call(method string, params map[string]any) (map[string]any, error) {
-	result, err := runtime.CallLocalBridge(runtime.BridgeRequest{
+func (t *WSProxyTransport) call(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	result, err := runtime.CallLocalBridge(ctx, runtime.BridgeRequest{
 		Method:       method,
 		Params:       params,
 		IdentityName: t.identityName,

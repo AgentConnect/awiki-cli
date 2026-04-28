@@ -12,6 +12,8 @@ import (
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 var (
@@ -182,9 +184,9 @@ func (s *Service) Create(displayName string, identityName string) (*CommandResul
 }
 
 func (s *Service) Register(ctx context.Context, params RegisterParams) (*CommandResult, error) {
-	handle := strings.TrimSpace(params.Handle)
-	if handle == "" {
-		return nil, fmt.Errorf("%w: handle is required", ErrInvalidInput)
+	target, err := NormalizeHandleInput(params.Handle, s.config.DIDDomain)
+	if err != nil {
+		return nil, err
 	}
 	phone := strings.TrimSpace(params.Phone)
 	email := strings.TrimSpace(strings.ToLower(params.Email))
@@ -196,7 +198,11 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	if err != nil {
 		return nil, err
 	}
-	alias := chooseNamedIdentity(params.IdentityName, existing, handle)
+	aliasBase := target.LocalPart
+	if target.ExplicitDomain {
+		aliasBase = target.FullHandle
+	}
+	alias := chooseNamedIdentity(params.IdentityName, existing, aliasBase)
 
 	if phone != "" && strings.TrimSpace(params.OTP) == "" {
 		normalizedPhone, err := normalizePhone(phone)
@@ -211,13 +217,14 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 			Data: map[string]any{
 				"action":             "send_handle_otp",
 				"identity_name":      alias,
-				"handle":             handle,
+				"handle":             target.LocalPart,
+				"full_handle":        target.FullHandle,
 				"method":             "phone",
 				"phone":              normalizedPhone,
 				"verification_state": "otp_sent",
 				"result":             result,
 			},
-			Summary: fmt.Sprintf("OTP sent for handle %s", handle),
+			Summary: fmt.Sprintf("OTP sent for handle %s", target.FullHandle),
 		}, nil
 	}
 
@@ -236,13 +243,14 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 					Data: map[string]any{
 						"action":             "send_registration_email",
 						"identity_name":      alias,
-						"handle":             handle,
+						"handle":             target.LocalPart,
+						"full_handle":        target.FullHandle,
 						"method":             "email",
 						"email":              email,
 						"verification_state": "email_sent",
 						"result":             sendResult,
 					},
-					Summary: fmt.Sprintf("Activation email sent for handle %s", handle),
+					Summary: fmt.Sprintf("Activation email sent for handle %s", target.FullHandle),
 				}, nil
 			}
 			timeout := params.VerificationTimeout
@@ -262,7 +270,8 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 					Data: map[string]any{
 						"action":             "wait_for_registration_email",
 						"identity_name":      alias,
-						"handle":             handle,
+						"handle":             target.LocalPart,
+						"full_handle":        target.FullHandle,
 						"method":             "email",
 						"email":              email,
 						"verification_state": "pending",
@@ -275,9 +284,9 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           s.config.DIDDomain,
-		PathPrefix:         []string{handle},
-		ProofDomain:        s.config.DIDDomain,
+		Hostname:           target.EffectiveDomain,
+		PathPrefix:         []string{target.LocalPart},
+		ProofDomain:        target.EffectiveDomain,
 		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
 		ANPServiceDID:      s.config.ANPServiceDID,
 	})
@@ -286,7 +295,7 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 	registerParams := map[string]any{
 		"did_document": generated.DIDDocument,
-		"handle":       handle,
+		"handle":       target.LocalPart,
 	}
 	if phone != "" {
 		normalizedPhone, err := normalizePhone(phone)
@@ -311,8 +320,9 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 		DID:                     stringValue(result["did"], generated.DID),
 		UniqueID:                generated.UniqueID,
 		UserID:                  stringValue(result["user_id"], ""),
-		DisplayName:             handle,
-		Handle:                  handle,
+		DisplayName:             target.LocalPart,
+		Handle:                  defaultString(stringValue(result["handle"], ""), target.LocalPart),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), target.FullHandle),
 		JWTToken:                stringValue(result["access_token"], ""),
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -328,11 +338,12 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 		Data: map[string]any{
 			"action":             "register_handle",
 			"identity":           summary,
+			"full_handle":        target.FullHandle,
 			"method":             ternaryString(phone != "", "phone", "email"),
 			"verification_state": "completed",
 			"result":             result,
 		},
-		Summary: fmt.Sprintf("Handle %s registered successfully", handle),
+		Summary: fmt.Sprintf("Handle %s registered successfully", target.FullHandle),
 	}, nil
 }
 
@@ -341,7 +352,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -443,6 +454,39 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 	}, nil
 }
 
+func (s *Service) RefreshToken(ctx context.Context, identityName string) (*CommandResult, error) {
+	record, err := s.loadIdentityForMutation(identityName)
+	if err != nil {
+		return nil, err
+	}
+	previousTokenPresent := strings.TrimSpace(record.JWTToken) != ""
+	session, err := s.authSessionWithoutStoredBearer(record)
+	if err != nil {
+		return nil, err
+	}
+	refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
+	defer cancel()
+	finish := traceutil.EnsureJWTPhase(ctx, "identity_refresh_token")
+	defer finish()
+	if _, err := session.EnsureJWT(
+		refreshCtx,
+		s.remote.client,
+		appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
+	); err != nil {
+		return nil, fmt.Errorf("%w: failed to refresh jwt for identity %s", ErrAuthRequired, record.IdentityName)
+	}
+	record.JWTToken = session.CurrentJWT()
+	return &CommandResult{
+		Data: map[string]any{
+			"action":                 "refresh_token",
+			"identity":               identitySummaryFromRecord(record),
+			"previous_token_present": previousTokenPresent,
+			"auth_flow":              "did_auth_get_me_without_stored_bearer",
+		},
+		Summary: fmt.Sprintf("JWT refreshed for identity %s", record.IdentityName),
+	}, nil
+}
+
 func (s *Service) Resolve(ctx context.Context, handle string, did string) (*CommandResult, error) {
 	handle = strings.TrimSpace(handle)
 	did = strings.TrimSpace(did)
@@ -452,17 +496,24 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	data := map[string]any{}
 	warnings := make([]string, 0)
 	if handle != "" {
+		target, err := NormalizeHandleInput(handle, s.config.DIDDomain)
+		if err != nil {
+			return nil, err
+		}
 		var lookup map[string]any
-		if err := s.remote.rpcCall(ctx, handleRPCEndpoint, "lookup", map[string]any{"handle": handle}, "", &lookup); err != nil {
+		finish := traceutil.HandleLookupPhase(ctx, "handle_to_did")
+		err = s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": target.FullHandle}, "", &lookup)
+		finish()
+		if err != nil {
 			return nil, err
 		}
 		data["lookup"] = lookup
 		did = stringValue(lookup["did"], "")
 		if did == "" {
-			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, handle)
+			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, target.FullHandle)
 		}
 		var profile map[string]any
-		if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", map[string]any{"handle": handle}, "", &profile); err == nil {
+		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
 			data["public_profile"] = profile
 		} else {
 			warnings = append(warnings, fmt.Sprintf("Public profile lookup failed: %v", err))
@@ -470,19 +521,22 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	}
 	if did != "" {
 		var resolve map[string]any
-		if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "resolve", map[string]any{"did": did}, "", &resolve); err != nil {
+		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, didProfileRPCEndpoint, "resolve", map[string]any{"did": did}, "", &resolve); err != nil {
 			return nil, err
 		}
 		data["resolve"] = resolve
 		if handle == "" {
 			var lookup map[string]any
-			if err := s.remote.rpcCall(ctx, handleRPCEndpoint, "lookup", map[string]any{"did": did}, "", &lookup); err == nil {
+			finish := traceutil.HandleLookupPhase(ctx, "did_to_handle")
+			err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"did": did}, "", &lookup)
+			finish()
+			if err == nil {
 				data["lookup"] = lookup
 			} else {
 				warnings = append(warnings, fmt.Sprintf("Handle lookup failed: %v", err))
 			}
 			var profile map[string]any
-			if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
+			if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
 				data["public_profile"] = profile
 			} else {
 				warnings = append(warnings, fmt.Sprintf("Public profile lookup failed: %v", err))
@@ -496,18 +550,64 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	}, nil
 }
 
-func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandResult, error) {
-	handle := strings.TrimSpace(params.Handle)
-	phone := strings.TrimSpace(params.Phone)
-	otp := strings.TrimSpace(params.OTP)
-	if handle == "" || phone == "" {
-		return nil, fmt.Errorf("%w: handle and phone are required", ErrInvalidInput)
-	}
-	existing, err := s.manager.List()
+func (s *Service) RecoverPreview(params RecoverParams) (*CommandResult, error) {
+	plan, err := s.buildRecoverPlan(params)
 	if err != nil {
 		return nil, err
 	}
-	alias := chooseNamedIdentity(params.IdentityName, existing, handle)
+	action := "recover_handle"
+	remoteCalls := []string{"did-auth.recover_handle"}
+	localWrites := []string{
+		".legacy-backup/recover-handle",
+		"index.json",
+		"config.yaml",
+		"identity.json",
+		"auth.json",
+		"did_document.json",
+		"key-1-private.pem",
+		"key-1-public.pem",
+		"e2ee-signing-private.pem",
+		"e2ee-agreement-private.pem",
+		"sqlite.recover_handle_merge",
+		"sqlite.e2ee_cleanup",
+	}
+	backupPath := plan.BackupPathPreview
+	if strings.TrimSpace(params.OTP) == "" {
+		action = "send_recover_otp"
+		remoteCalls = []string{"handle.send_otp"}
+		localWrites = nil
+		backupPath = ""
+	}
+	return &CommandResult{
+		Data: map[string]any{
+			"plan": map[string]any{
+				"action":                 action,
+				"target_handle":          plan.TargetHandle,
+				"identity_name":          plan.FinalIdentityName,
+				"final_identity_name":    plan.FinalIdentityName,
+				"temp_identity_name":     plan.TempIdentityName,
+				"same_handle_candidates": plan.SameHandleCandidates,
+				"excluded_identities":    plan.ExcludedIdentities,
+				"backup_path":            backupPath,
+				"phone":                  params.Phone,
+				"remote_calls":           remoteCalls,
+				"local_writes":           localWrites,
+			},
+		},
+		Summary: "Dry run: handle recovery planned",
+	}, nil
+}
+
+func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandResult, error) {
+	phone := strings.TrimSpace(params.Phone)
+	otp := strings.TrimSpace(params.OTP)
+	if strings.TrimSpace(params.Handle) == "" || phone == "" {
+		return nil, fmt.Errorf("%w: handle and phone are required", ErrInvalidInput)
+	}
+	plan, err := s.buildRecoverPlan(params)
+	if err != nil {
+		return nil, err
+	}
 	normalizedPhone, err := normalizePhone(phone)
 	if err != nil {
 		return nil, err
@@ -521,21 +621,22 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		return &CommandResult{
 			Data: map[string]any{
 				"action":             "send_recover_otp",
-				"identity_name":      alias,
-				"handle":             handle,
+				"identity_name":      plan.FinalIdentityName,
+				"handle":             plan.TargetLocalPart,
+				"full_handle":        plan.TargetHandle,
 				"method":             "phone",
 				"phone":              normalizedPhone,
 				"verification_state": "otp_sent",
 				"result":             result,
 			},
-			Summary: fmt.Sprintf("OTP sent for handle %s recovery", handle),
+			Summary: fmt.Sprintf("OTP sent for handle %s recovery", plan.TargetHandle),
 		}, nil
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           s.config.DIDDomain,
-		PathPrefix:         []string{handle},
-		ProofDomain:        s.config.DIDDomain,
+		Hostname:           plan.EffectiveDomain,
+		PathPrefix:         []string{plan.TargetLocalPart},
+		ProofDomain:        plan.EffectiveDomain,
 		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
 		ANPServiceDID:      s.config.ANPServiceDID,
 	})
@@ -544,21 +645,34 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 	}
 	recoverParams := map[string]any{
 		"did_document": generated.DIDDocument,
-		"handle":       handle,
+		"handle":       plan.TargetHandle,
 		"phone":        normalizedPhone,
 		"otp_code":     sanitizeOTP(otp),
+	}
+	activeBefore := ""
+	if strings.TrimSpace(s.config.Paths.ConfigFile) != "" {
+		fileConfig, _, err := appconfig.ReadFileConfig(s.config.Paths.ConfigFile)
+		if err != nil {
+			return nil, fmt.Errorf("read config before handle recover: %w", err)
+		}
+		activeBefore = strings.TrimSpace(fileConfig.Identity.Active)
+	}
+	backupPath, err := s.manager.BackupIdentitiesForHandleRecovery(plan.TargetHandle, plan.SameHandleCandidates, plan.FinalIdentityName, plan.TempIdentityName, activeBefore)
+	if err != nil {
+		return nil, err
 	}
 	var result map[string]any
 	if err := s.remote.rpcCall(ctx, didAuthRPCEndpoint, "recover_handle", recoverParams, "", &result); err != nil {
 		return nil, err
 	}
 	record, err := s.manager.save(SaveInput{
-		IdentityName:            alias,
+		IdentityName:            plan.TempIdentityName,
 		DID:                     stringValue(result["did"], generated.DID),
 		UniqueID:                generated.UniqueID,
 		UserID:                  stringValue(result["user_id"], ""),
-		DisplayName:             handle,
-		Handle:                  handle,
+		DisplayName:             plan.TargetLocalPart,
+		Handle:                  defaultString(stringValue(result["handle"], ""), plan.TargetLocalPart),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), plan.TargetHandle),
 		JWTToken:                stringValue(result["access_token"], ""),
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -571,12 +685,66 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 	}
 	return &CommandResult{
 		Data: map[string]any{
-			"action":   "recover_handle",
-			"identity": identitySummaryFromRecord(record),
-			"result":   result,
+			"action":              "recover_handle",
+			"identity":            identitySummaryFromRecord(record),
+			"backup_path":         backupPath,
+			"archived_identities": plan.ArchivedIdentityNames(),
+			"archived_dids":       plan.ArchivedDIDs(),
+			"old_dids":            plan.OldOwnerDIDsInMergeOrder(),
+			"full_handle":         plan.TargetHandle,
+			"final_identity_name": plan.FinalIdentityName,
+			"temp_identity_name":  plan.TempIdentityName,
+			"active_before":       activeBefore,
+			"result":              result,
 		},
-		Summary: fmt.Sprintf("Handle %s recovered successfully", handle),
+		Summary: fmt.Sprintf("Handle %s recovered successfully", plan.TargetHandle),
 	}, nil
+}
+
+func (s *Service) FinalizeRecoveredHandle(finalIdentityName string, tempIdentityName string, archivedIdentityNames []string, activeBefore string, backupPath string, newDID string) (*StoredIdentity, error) {
+	indexBefore, err := s.manager.LoadIndex()
+	if err != nil {
+		return nil, &RecoverFinalizeError{
+			Err:              fmt.Errorf("load live identity index before promotion: %w", err),
+			BackupPath:       backupPath,
+			TempIdentityName: tempIdentityName,
+			NewDID:           newDID,
+		}
+	}
+	promoted, _, err := s.manager.PromoteRecoveredHandle(finalIdentityName, tempIdentityName, archivedIdentityNames)
+	if err != nil {
+		return nil, &RecoverFinalizeError{
+			Err:              fmt.Errorf("promote recovered handle into the live index: %w", err),
+			BackupPath:       backupPath,
+			TempIdentityName: tempIdentityName,
+			NewDID:           newDID,
+		}
+	}
+	archivedSet := make(map[string]struct{}, len(archivedIdentityNames))
+	for _, name := range archivedIdentityNames {
+		archivedSet[name] = struct{}{}
+	}
+	if _, ok := archivedSet[strings.TrimSpace(activeBefore)]; ok {
+		if err := appconfig.UpdateActiveIdentity(s.config.Paths, finalIdentityName); err != nil {
+			restoreErr := s.manager.SaveIndex(indexBefore)
+			if restoreErr != nil {
+				return nil, &RecoverFinalizeError{
+					Err:              fmt.Errorf("update config active identity: %v (also failed to restore live index: %v)", err, restoreErr),
+					BackupPath:       backupPath,
+					TempIdentityName: tempIdentityName,
+					NewDID:           newDID,
+				}
+			}
+			return nil, &RecoverFinalizeError{
+				Err:              fmt.Errorf("update config active identity: %w", err),
+				BackupPath:       backupPath,
+				TempIdentityName: tempIdentityName,
+				NewDID:           newDID,
+			}
+		}
+		s.config.ActiveIdentity = finalIdentityName
+	}
+	return promoted, nil
 }
 
 func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*CommandResult, error) {
@@ -589,22 +757,24 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
-	if err != nil {
-		return nil, err
-	}
+	defaultServiceEndpoint := appconfig.DeriveANPServiceEndpoint(s.config.ServiceBaseURL)
+	defaultServiceDID := appconfig.DeriveANPServiceDID(s.config.ServiceBaseURL)
 	generated, err := GenerateIdentity(GenerateOptions{
 		Hostname:           didDomain,
 		PathPrefix:         pathPrefix,
 		ProofDomain:        didDomain,
-		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, DefaultANPServiceEndpoint(didDomain)),
-		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, DefaultANPServiceDID(didDomain)),
+		ANPServiceEndpoint: defaultValueForReplacement(s.config.ANPServiceEndpoint, defaultServiceEndpoint),
+		ANPServiceDID:      defaultValueForReplacement(s.config.ANPServiceDID, defaultServiceDID),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	backupPath, err := s.manager.BackupIdentityForDIDReplacement(record.IdentityName, generated.DID)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -636,7 +806,7 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 	}
 
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, didAuthRPCEndpoint, "replace_did", requestParams, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, didAuthRPCEndpoint, "replace_did", requestParams, auth, &result); err != nil {
 		return nil, err
 	}
 
@@ -649,6 +819,7 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 		UserID:                  stringValue(result["user_id"], record.UserID),
 		DisplayName:             record.DisplayName,
 		Handle:                  stringValue(result["handle"], record.Handle),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), record.FullHandle),
 		JWTToken:                newToken,
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -682,12 +853,12 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		if err != nil {
 			return nil, err
 		}
-		auth, err := s.authSession(record)
+		auth, err := s.authSession(ctx, record)
 		if err != nil {
 			return nil, err
 		}
 		var result map[string]any
-		if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "get_me", map[string]any{}, auth, &result); err != nil {
+		if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_me", map[string]any{}, auth, &result); err != nil {
 			return nil, err
 		}
 		return &CommandResult{
@@ -699,19 +870,49 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		}, nil
 	}
 	params := map[string]any{}
+	subject := map[string]any{}
 	if handle != "" {
-		params["handle"] = handle
+		target, err := NormalizeHandleInput(handle, s.config.DIDDomain)
+		if err != nil {
+			return nil, err
+		}
+		var lookup map[string]any
+		finish := traceutil.HandleLookupPhase(ctx, "profile_handle_to_did")
+		err = s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": target.FullHandle}, "", &lookup)
+		finish()
+		if err != nil {
+			return nil, err
+		}
+		resolvedDID := stringValue(lookup["did"], "")
+		if resolvedDID == "" {
+			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, target.FullHandle)
+		}
+		params["handle"] = target.FullHandle
+		params["did"] = resolvedDID
+		subject["handle"] = target.LocalPart
+		subject["full_handle"] = target.FullHandle
+		subject["domain"] = target.EffectiveDomain
+		subject["did"] = resolvedDID
 	}
 	if did != "" {
 		params["did"] = did
+		if _, exists := subject["did"]; !exists {
+			subject["did"] = did
+		}
 	}
 	var result map[string]any
-	if err := s.remote.rpcCall(ctx, didProfileRPCEndpoint, "get_public_profile", params, "", &result); err != nil {
+	profileParams := map[string]any{}
+	if resolvedDID, ok := params["did"].(string); ok && strings.TrimSpace(resolvedDID) != "" {
+		profileParams["did"] = resolvedDID
+	} else {
+		profileParams = params
+	}
+	if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", profileParams, "", &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
 		Data: map[string]any{
-			"subject": params,
+			"subject": subject,
 			"profile": result,
 		},
 		Summary: "Fetched public profile",
@@ -723,7 +924,7 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 	if err != nil {
 		return nil, err
 	}
-	auth, err := s.authSession(record)
+	auth, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, err
 	}
@@ -758,7 +959,7 @@ func (s *Service) SetProfile(ctx context.Context, params UpdateProfileParams) (*
 		return nil, fmt.Errorf("%w: no profile fields were provided", ErrInvalidInput)
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, didProfileRPCEndpoint, "update_me", payload, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, didProfileRPCEndpoint, "update_me", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(params.DisplayName) != "" {
@@ -821,29 +1022,20 @@ func (s *Service) requireActiveIdentity() (*StoredIdentity, error) {
 	return record, nil
 }
 
-func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) {
-	if record == nil {
-		return nil, fmt.Errorf("%w: active identity is required", ErrAuthRequired)
-	}
-	paths, err := s.manager.PathsForIdentity(record.IdentityName)
+func (s *Service) authSession(ctx context.Context, record *StoredIdentity) (*authsdk.Session, error) {
+	session, err := s.newAuthSession(record, record.JWTToken)
 	if err != nil {
 		return nil, err
 	}
-	session := authsdk.NewSession(
-		paths.DIDDocumentPath,
-		paths.Key1PrivatePath,
-		record.IdentityName,
-		record.DID,
-		record.JWTToken,
-		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
-	)
 	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
 	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 		defer cancel()
+		finish := traceutil.EnsureJWTPhase(ctx, "identity_bootstrap")
+		defer finish()
 		if _, err := session.EnsureJWT(
-			ctx,
+			refreshCtx,
 			s.remote.client,
 			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
 		); err != nil {
@@ -851,6 +1043,36 @@ func (s *Service) authSession(record *StoredIdentity) (*authsdk.Session, error) 
 		}
 		record.JWTToken = session.CurrentJWT()
 	}
+	return session, nil
+}
+
+func (s *Service) authSessionWithoutStoredBearer(record *StoredIdentity) (*authsdk.Session, error) {
+	return s.newAuthSession(record, "")
+}
+
+func (s *Service) newAuthSession(record *StoredIdentity, jwtToken string) (*authsdk.Session, error) {
+	if record == nil {
+		return nil, fmt.Errorf("%w: active identity is required", ErrAuthRequired)
+	}
+	paths, err := s.manager.PathsForIdentity(record.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	if fileExists(paths.Key1PrivatePath) {
+		if err := EnsureKey1PrivatePEMCompatible(paths.Key1PrivatePath); err != nil {
+			return nil, err
+		}
+	}
+	session := authsdk.NewSession(
+		paths.DIDDocumentPath,
+		paths.Key1PrivatePath,
+		record.IdentityName,
+		record.DID,
+		jwtToken,
+		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
+	)
+	session.RememberScope(s.config.ServiceBaseURL)
+	session.RememberScope(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint))
 	return session, nil
 }
 
@@ -948,6 +1170,7 @@ func identitySummaryFromRecord(record *StoredIdentity) *IdentitySummary {
 		UserID:                  record.UserID,
 		DisplayName:             record.DisplayName,
 		Handle:                  record.Handle,
+		FullHandle:              record.FullHandle,
 		CreatedAt:               record.CreatedAt,
 		DirName:                 record.DirName,
 		IsDefault:               record.IsDefault,

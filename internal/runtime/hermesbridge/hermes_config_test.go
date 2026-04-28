@@ -1,0 +1,497 @@
+package hermesbridge
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestEnsureRouteCreatesWebhookNotifyRouteAndUsesHomeChannel(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, ".env"), []byte("FEISHU_APP_ID=app-id\nFEISHU_APP_SECRET=app-secret\n"), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(.env) error = %v", err)
+	}
+	state, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	})
+	if err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+	if !state.RouteConfigured {
+		t.Fatal("state.RouteConfigured = false, want true")
+	}
+	if !state.RouteSecretConfigured {
+		t.Fatal("state.RouteSecretConfigured = false, want true")
+	}
+	if state.Deliver != "feishu" {
+		t.Fatalf("state.Deliver = %q, want feishu", state.Deliver)
+	}
+	if !state.DeliverUsesHomeChannel {
+		t.Fatal("state.DeliverUsesHomeChannel = false, want true")
+	}
+	if !state.FeishuCredentialsConfigured {
+		t.Fatal("state.FeishuCredentialsConfigured = false, want true")
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, "config.yaml"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "deliver: feishu") {
+		t.Fatalf("config.yaml missing deliver=feishu: %q", text)
+	}
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml missing mail notification prompt section: %q", text)
+	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml missing sender email line in mail prompt: %q", text)
+	}
+	if !strings.Contains(text, "收到外部IM消息通知") {
+		t.Fatalf("config.yaml missing IM notification prompt section: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml unexpectedly contains legacy skills stanza: %q", text)
+	}
+	if strings.Contains(text, "chat_id:") {
+		t.Fatalf("config.yaml unexpectedly contains fixed chat_id: %q", text)
+	}
+}
+
+func TestEnsureRouteRemovesDeliverExtraChatID(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: hello
+          skills: ["notify"]
+          deliver: feishu
+          deliver_extra:
+            chat_id: oc_xxx
+            keep_me: yes
+FEISHU_HOME_CHANNEL: oc_home
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	state, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	})
+	if err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+	if !state.DeliverUsesHomeChannel {
+		t.Fatal("state.DeliverUsesHomeChannel = false, want true after cleanup")
+	}
+	if !state.HomeChannelConfigured {
+		t.Fatal("state.HomeChannelConfigured = false, want true")
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "chat_id:") {
+		t.Fatalf("config.yaml still contains fixed chat_id: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+	if !strings.Contains(text, "keep_me:") {
+		t.Fatalf("config.yaml unexpectedly removed unrelated deliver_extra field: %q", text)
+	}
+}
+
+func TestValidateLocalNotifyURLRejectsRemoteHost(t *testing.T) {
+	t.Parallel()
+
+	if _, _, _, err := ValidateLocalNotifyURL("http://10.0.0.1:8765/notify/host-event"); err == nil {
+		t.Fatal("ValidateLocalNotifyURL(remote) error = nil, want error")
+	}
+}
+
+func TestEnsureRouteTracksTelegramHomeChannel(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := "TELEGRAM_HOME_CHANNEL: tg_home\n"
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	state, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "telegram",
+	})
+	if err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+	if state.Deliver != "telegram" {
+		t.Fatalf("state.Deliver = %q, want telegram", state.Deliver)
+	}
+	if state.HomeChannelKey != "TELEGRAM_HOME_CHANNEL" {
+		t.Fatalf("state.HomeChannelKey = %q, want TELEGRAM_HOME_CHANNEL", state.HomeChannelKey)
+	}
+	if !state.HomeChannelConfigured {
+		t.Fatal("state.HomeChannelConfigured = false, want true")
+	}
+}
+
+func TestEnsureRouteMigratesLegacyEnglishPromptToChineseDefault(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            You are an awiki external IM notification formatter.
+
+            Format the incoming notification into one concise IM message suitable for the target platform.
+            Rules:
+            1. Output only the final notification body.
+            2. Do not ask follow-up questions.
+            3. Prefer readable sender/recipient names when present.
+            4. If a DID exists, include it on a separate line.
+            5. Convert time to Asia/Shanghai using YYYY-MM-DD HH:mm (Asia/Shanghai).
+            6. Summarize message content in 1 to 5 short lines.
+            7. If links are present, list them at the end.
+
+            Suggested layout:
+            Received External IM Notification
+            Sender: <name or DID>
+            Sender DID: <did if present>
+            Recipient: <name or DID>
+            Recipient DID: <did if present>
+            Type: <private/group/state/topic>
+            Time: <Asia/Shanghai time>
+            Message Summary:
+            <1-5 lines>
+
+            Raw notification JSON:
+            {notify_payload}
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml prompt not migrated to mail-aware Chinese default: %q", text)
+	}
+	if !strings.Contains(text, "收到外部IM消息通知") {
+		t.Fatalf("config.yaml prompt not migrated to Chinese default: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+	if strings.Contains(text, "Received External IM Notification") {
+		t.Fatalf("config.yaml still contains legacy English prompt: %q", text)
+	}
+}
+
+func TestEnsureRouteMigratesPreviousChinesePromptToCurrentDefault(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            你是 awiki 外部消息通知整理助手。
+
+            请根据收到的通知 topic 和 data，把它整理成一条简洁、稳定、适合目标 IM 平台阅读的中文消息。
+            规则：
+            1. 只输出最终通知正文，不要加解释。
+            2. 不要提问，不要添加无关寒暄。
+            3. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
+            4. 字段标题统一使用中文。
+            5. 不存在的字段不要臆造，缺失时直接省略对应行。
+            6. 摘要控制在 1 到 5 行短句内。
+            7. 如果有链接，放在最后单独列出。
+            8. topic=mail.message.received 时，优先使用邮箱地址字段，如 from_addr、mailbox_address、subject、preview。
+            9. IM 通知优先使用可读的人名、handle 或显示名；没有时再使用 DID。
+
+            如果 topic 是 mail.message.received，建议格式：
+            收到外部邮件通知
+            发件人：<邮箱地址或名称>
+            收件邮箱：<mailbox_address>
+            收件人 DID：<recipient_did，如存在>
+            时间：<Asia/Shanghai 时间>
+            邮件摘要：
+            主题：<subject，如存在>
+            <preview 1-5 行>
+            附件：<有附件时再展示，例如：有>
+
+            如果 topic 是 IM 相关事件，例如 im.message.received、im.group.message.received、im.group.state.changed，建议格式：
+            收到外部IM消息通知
+            发送者：<名称或 DID>
+            发送者 DID：<如存在>
+            接收者：<名称或 DID>
+            接收者 DID：<如存在>
+            类型：<私信/群消息/状态变更/事件>
+            时间：<Asia/Shanghai 时间>
+            消息内容摘要：
+            <1-5 行>
+
+            原始通知 JSON：
+            {notify_payload}
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "不强依赖 topic 名称") {
+		t.Fatalf("config.yaml prompt not migrated to topic-independent mail-aware default: %q", text)
+	}
+	if !strings.Contains(text, "source_kind=mail") {
+		t.Fatalf("config.yaml prompt not migrated to source_kind-aware default: %q", text)
+	}
+	if !strings.Contains(text, "不要使用“收到外部IM消息通知”作为标题") {
+		t.Fatalf("config.yaml prompt not migrated to strict mail template default: %q", text)
+	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml prompt not migrated to sender-email-aware default: %q", text)
+	}
+	if !strings.Contains(text, "去掉重复署名和邮箱签名") {
+		t.Fatalf("config.yaml prompt not migrated to signature-cleanup default: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+	if strings.Contains(text, "如果 topic 是 mail.message.received") {
+		t.Fatalf("config.yaml still contains previous topic-gated mail prompt: %q", text)
+	}
+}
+
+func TestEnsureRouteMigratesPreviousIMOnlyChinesePromptToCurrentDefault(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            你是 awiki 外部 IM 消息通知整理助手。
+
+            请把收到的通知整理成一条简洁、稳定、适合飞书阅读的中文消息。
+            规则：
+            1. 只输出最终通知正文，不要加解释。
+            2. 不要提问，不要添加无关寒暄。
+            3. 优先使用可读的人名、handle 或显示名；没有时再使用 DID。
+            4. 如果存在 DID，请单独一行展示。
+            5. 时间统一转换为 Asia/Shanghai，格式为 YYYY-MM-DD HH:mm (Asia/Shanghai)。
+            6. 消息内容摘要控制在 1 到 5 行短句内。
+            7. 如果有链接，放在最后单独列出。
+            8. 字段标题统一使用中文。
+
+            建议格式：
+            收到外部IM消息通知
+            发送者：<名称或 DID>
+            发送者 DID：<如存在>
+            接收者：<名称或 DID>
+            接收者 DID：<如存在>
+            类型：<私信/群消息/状态变更/事件>
+            时间：<Asia/Shanghai 时间>
+            消息内容摘要：
+            <1-5 行>
+
+            原始通知 JSON：
+            {notify_payload}
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "收到外部邮件通知") {
+		t.Fatalf("config.yaml prompt not migrated to mail-aware Chinese default: %q", text)
+	}
+	if !strings.Contains(text, "source_kind=mail") {
+		t.Fatalf("config.yaml prompt not migrated to source_kind-aware default: %q", text)
+	}
+	if !strings.Contains(text, "不要使用“收到外部IM消息通知”作为标题") {
+		t.Fatalf("config.yaml prompt not migrated to strict mail template default: %q", text)
+	}
+	if !strings.Contains(text, "发件邮箱：<from_addr，如存在且与发件人不同>") {
+		t.Fatalf("config.yaml prompt not migrated to sender-email-aware default: %q", text)
+	}
+	if !strings.Contains(text, "去掉重复署名和邮箱签名") {
+		t.Fatalf("config.yaml prompt not migrated to signature-cleanup default: %q", text)
+	}
+	if strings.Contains(text, "你是 awiki 外部 IM 消息通知整理助手。") {
+		t.Fatalf("config.yaml still contains previous IM-only prompt header: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+}
+
+func TestEnsureRouteKeepsCustomPrompt(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            自定义提示词：请保持这一段不被覆盖。
+          skills: ["notify"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "自定义提示词：请保持这一段不被覆盖。") {
+		t.Fatalf("config.yaml custom prompt was unexpectedly changed: %q", text)
+	}
+	if strings.Contains(text, "skills:") {
+		t.Fatalf("config.yaml still contains legacy notify skill stanza: %q", text)
+	}
+}
+
+func TestEnsureRouteKeepsCustomNonNotifySkills(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configPath := filepath.Join(home, "config.yaml")
+	input := `platforms:
+  webhook:
+    enabled: true
+    extra:
+      port: 8644
+      routes:
+        notify:
+          secret: route-secret
+          events: []
+          prompt: |
+            自定义提示词：保留其它自定义 skills。
+          skills: ["custom-skill", "formatter"]
+          deliver: feishu
+`
+	if err := os.WriteFile(configPath, []byte(input), 0o600); err != nil {
+		t.Fatalf("os.WriteFile(config.yaml) error = %v", err)
+	}
+
+	if _, err := EnsureRoute(EnsureRouteOptions{
+		HermesHome: home,
+		RouteName:  "notify",
+		Deliver:    "feishu",
+	}); err != nil {
+		t.Fatalf("EnsureRoute() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("os.ReadFile(config.yaml) error = %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "custom-skill") || !strings.Contains(text, "formatter") {
+		t.Fatalf("config.yaml unexpectedly removed custom skills: %q", text)
+	}
+}

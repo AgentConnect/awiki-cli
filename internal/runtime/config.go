@@ -1,14 +1,18 @@
 package runtime
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 const (
@@ -35,10 +39,18 @@ type HostNotifyConfig struct {
 	Sink     string         `json:"sink"`
 	FilePath string         `json:"file_path,omitempty"`
 	OpenClaw OpenClawConfig `json:"openclaw,omitempty"`
+	Hermes   HermesConfig   `json:"hermes,omitempty"`
 }
 
 type OpenClawConfig struct {
-	HookURL string `json:"hook_url,omitempty"`
+	HookURL  string `json:"hook_url,omitempty"`
+	AgentID  string `json:"agent_id,omitempty"`
+	HookName string `json:"hook_name,omitempty"`
+}
+
+type HermesConfig struct {
+	NotifyURL string `json:"notify_url,omitempty"`
+	Deliver   string `json:"deliver,omitempty"`
 }
 
 func Resolve(resolved *appconfig.Resolved) Resolved {
@@ -74,6 +86,9 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 		Enabled: resolved.HostNotifyEnabled,
 		Sink:    strings.ToLower(strings.TrimSpace(resolved.HostNotifySink)),
 	}
+	if hostNotify.Sink == "webhook" {
+		hostNotify.Sink = "hermes"
+	}
 	if hostNotify.Sink == "" {
 		hostNotify.Sink = "log"
 	}
@@ -82,7 +97,15 @@ func Resolve(resolved *appconfig.Resolved) Resolved {
 	}
 	if hostNotify.Sink == "openclaw" {
 		hostNotify.OpenClaw = OpenClawConfig{
-			HookURL: strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
+			HookURL:  strings.TrimSpace(resolved.HostNotifyOpenClawHookURL),
+			AgentID:  strings.TrimSpace(resolved.HostNotifyOpenClawAgentID),
+			HookName: strings.TrimSpace(resolved.HostNotifyOpenClawHookName),
+		}
+	}
+	if hostNotify.Sink == "hermes" {
+		hostNotify.Hermes = HermesConfig{
+			NotifyURL: strings.TrimSpace(resolved.HostNotifyHermesNotifyURL),
+			Deliver:   strings.TrimSpace(resolved.HostNotifyHermesDeliver),
 		}
 	}
 	return Resolved{
@@ -114,7 +137,36 @@ type BridgeError struct {
 	Message string `json:"message"`
 }
 
-func CallLocalBridge(request BridgeRequest, resolved *appconfig.Resolved) (map[string]any, error) {
+type BridgeCallError struct {
+	Phase   string
+	Message string
+	Cause   error
+}
+
+func (e *BridgeCallError) Error() string {
+	if e == nil {
+		return ""
+	}
+	switch {
+	case e.Message != "" && e.Cause != nil:
+		return fmt.Sprintf("%s: %s: %v", "local websocket bridge request failed", e.Message, e.Cause)
+	case e.Message != "":
+		return fmt.Sprintf("%s: %s", "local websocket bridge request failed", e.Message)
+	case e.Cause != nil:
+		return fmt.Sprintf("%s: %v", "local websocket bridge request failed", e.Cause)
+	default:
+		return "local websocket bridge request failed"
+	}
+}
+
+func (e *BridgeCallError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func CallLocalBridge(ctx context.Context, request BridgeRequest, resolved *appconfig.Resolved) (map[string]any, error) {
 	bridge := Resolve(resolved)
 	if bridge.Mode != ModeWebSocket {
 		return nil, fmt.Errorf("runtime mode %s does not use the local websocket bridge", bridge.Mode)
@@ -125,28 +177,56 @@ func CallLocalBridge(request BridgeRequest, resolved *appconfig.Resolved) (map[s
 	if err := prepareBridgeEndpoint(bridge.SocketPath); err != nil {
 		return nil, err
 	}
-	conn, err := dialBridge(bridge.SocketPath)
+	timeoutConfig := transportcfg.Resolve()
+	probeDone := traceutil.PhaseContext(ctx, "bridge_health_probe")
+	if err := BridgeHealthProbe(bridge.SocketPath, timeoutConfig.BridgeHealthProbeTimeout); err != nil {
+		probeDone()
+		return nil, &BridgeCallError{
+			Phase:   "bridge_health_probe",
+			Message: "local websocket bridge unavailable",
+			Cause:   err,
+		}
+	}
+	probeDone()
+
+	callDone := traceutil.PhaseContext(ctx, "bridge_call")
+	defer callDone()
+	conn, err := dialBridge(bridge.SocketPath, timeoutConfig.BridgeDialTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("local websocket bridge unavailable: %w", err)
+		return nil, &BridgeCallError{
+			Phase:   "bridge_dial",
+			Message: "local websocket bridge unavailable",
+			Cause:   err,
+		}
 	}
 	defer conn.Close()
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
+	_ = conn.SetWriteDeadline(time.Now().Add(timeoutConfig.BridgeWriteTimeout))
 	if _, err := conn.Write(append(payload, '\n')); err != nil {
-		return nil, fmt.Errorf("write websocket bridge request: %w", err)
+		return nil, &BridgeCallError{
+			Phase:   "bridge_write",
+			Message: "write websocket bridge request",
+			Cause:   err,
+		}
 	}
+	_ = conn.SetReadDeadline(time.Now().Add(timeoutConfig.BridgeReadTimeout))
 	decoder := json.NewDecoder(conn)
 	var response BridgeResponse
 	if err := decoder.Decode(&response); err != nil {
-		return nil, fmt.Errorf("decode websocket bridge response: %w", err)
+		return nil, &BridgeCallError{
+			Phase:   "bridge_read",
+			Message: "decode websocket bridge response",
+			Cause:   err,
+		}
 	}
 	if !response.OK {
 		if response.Error == nil {
-			return nil, fmt.Errorf("local websocket bridge request failed")
+			return nil, &BridgeCallError{Phase: "bridge_read", Message: "bridge returned failure without details"}
 		}
-		return nil, fmt.Errorf("local websocket bridge request failed: %s", response.Error.Message)
+		return nil, &BridgeCallError{Phase: "bridge_read", Message: response.Error.Message}
 	}
 	if response.Result == nil {
 		return map[string]any{}, nil

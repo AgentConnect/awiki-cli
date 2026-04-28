@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func ListInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, peerDID string, unreadOnly bool) ([]map[string]any, error) {
+func ListInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, peerDID string, unreadOnly bool, includeLocalNotifications bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -15,8 +15,12 @@ func ListInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit i
 SELECT *
 FROM messages
 WHERE owner_did = ?
-  AND direction = 0`
+  AND direction = 0
+  AND COALESCE(group_did, group_id) IS NULL`
 	args := []any{normalizeOwnerDID(ownerDID)}
+	if !includeLocalNotifications {
+		query += " AND NOT (" + localMailNotificationPredicate() + ")"
+	}
 	if unreadOnly {
 		query += " AND is_read = 0"
 	}
@@ -204,4 +208,43 @@ func MarkMessagesRead(ctx context.Context, db *sql.DB, ownerDID string, messageI
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// ListNotifications returns the most recent locally cached mail-notification
+// rows for a given owner. It matches both legacy content_type-based records and
+// current metadata.source_kind=mail records written by the runtime listener.
+func ListNotifications(ctx context.Context, db *sql.DB, ownerDID string, limit int) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return queryMaps(ctx, db, `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND (`+localMailNotificationPredicate()+`)
+ORDER BY COALESCE(sent_at, stored_at) DESC
+LIMIT ?`, normalizeOwnerDID(ownerDID), limit)
+}
+
+func ListNotificationInboxMessages(ctx context.Context, db *sql.DB, ownerDID string, limit int, unreadOnly bool) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	query := `
+SELECT *
+FROM messages
+WHERE owner_did = ?
+  AND direction = 0
+  AND (` + localMailNotificationPredicate() + `)`
+	args := []any{normalizeOwnerDID(ownerDID)}
+	if unreadOnly {
+		query += " AND is_read = 0"
+	}
+	query += " ORDER BY COALESCE(sent_at, stored_at) DESC LIMIT ?"
+	args = append(args, limit)
+	return queryMaps(ctx, db, query, args...)
+}
+
+func localMailNotificationPredicate() string {
+	return `COALESCE(content_type, '') = 'mail.notification' OR COALESCE(metadata, '') LIKE '%"source_kind":"mail"%'`
 }

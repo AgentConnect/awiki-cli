@@ -1,79 +1,79 @@
-# Discovery 参考
+# Discovery Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理“先审阅、再起草”的 workflow 时，使用本参考文档，尤其适用于：用户希望检查某个群组、理解可能相关的对象、回顾既有关系上下文，并起草介绍或跟进消息。
+Use this reference when you are handling "review first, draft later" workflows in `awiki-cli`. It is especially suitable when the user wants to inspect a group, understand possibly relevant people, review existing relationship context, and draft an introduction or follow-up message.
 
-本文件是 **workflow reference**，不是入口 skill。只有当任务明确涉及 discovery、群组审阅、候选人选择或手工起草介绍时，才加载本文件。
+This file is a **workflow reference**, not an entry skill. Load it only when the task clearly involves discovery, group review, candidate selection, or manually drafting introductions.
 
-## 当前状态
+## Current Status
 
-- 状态：**部分实现的 workflow**
-- 当前可用：
-  - 群组检查
-  - 成员审阅
-  - 私聊历史审阅
-  - profile 查询
-- 后续规划：
-  - `people` 搜索、关注、联系人与关系管理
+- Status: **partially implemented workflow**
+- Currently available:
+  - group inspection
+  - member review
+  - direct-message history review
+  - profile lookup
+- Planned next:
+  - `people` search, follow, contacts, and relationship management
 
-## 适用场景
+## When to Use
 
-- 在联系群成员之前先审阅群组
-- 为手工起草介绍或跟进消息收集上下文
-- 理解当前群组活动与可能相关的对象
+- Review a group before contacting its members
+- Gather context for manually drafting an introduction or follow-up message
+- Understand current group activity and potentially relevant people
 
-## 前置条件
+## Prerequisites
 
-- 用户提供目标 group DID，或提供一小组候选对象
-- 当前活动身份可以读取相关群组或私聊历史
-- 当前 workflow 用于审阅和起草，而不是自动触达
+- The user provides the target group DID, or provides a small set of candidate people
+- The current active identity can read the relevant group or direct-message history
+- The current workflow is for review and drafting, not for automatic outreach
 
-## Workflow 步骤
+## Workflow Steps
 
-### 1. 检查群组本身
+### 1. Inspect the Group Itself
 
 - `awiki-cli group get --group <group_did>`
 
-### 2. 审阅当前成员
+### 2. Review Current Members
 
 - `awiki-cli group members --group <group_did> --limit 100`
 
-### 3. 审阅近期群组活动
+### 3. Review Recent Group Activity
 
 - `awiki-cli group messages --group <group_did> --limit 50`
 
-### 4. 查看某个候选对象的 profile
+### 4. Inspect a Candidate's Profile
 
 - `awiki-cli id profile get --did <member_did>`
-- 或 `awiki-cli id profile get --handle <handle>`
+- or `awiki-cli id profile get --handle <handle>`
 
-### 5. 如果已有关系，则查看既有私聊历史
+### 5. If a Relationship Already Exists, Inspect Existing Direct-Message History
 
 - `awiki-cli msg history --with <handle|did> --limit 50`
 
-### 6. 手工起草触达内容
+### 6. Manually Draft Outreach Content
 
-在收集完结构化输出后，在助手回复中起草介绍或私聊消息。
+After collecting the structured output, draft the introduction or direct message in the assistant response.
 
-不要自动发送消息。如果用户要求发送，则切换到 `03-messaging.md`，并优先使用 dry-run。
+Do not send messages automatically. If the user requests sending, switch to `03-messaging.md` and prefer a dry-run first.
 
-## 已规划的后续能力
+## Planned Follow-Up Capabilities
 
-以下命令族已保留，但尚未实现：
+The following command families are reserved but not yet implemented:
 
 - `awiki-cli people search <QUERY>`
 - `awiki-cli people contacts save --did <did> [...]`
 
-当用户请求这些操作时，应说明契约已存在，但当前仓库尚未实现对应 handler。
+When the user requests these operations, explain that the contract exists, but the current repository does not implement the corresponding handlers yet.
 
-## 安全说明
+## Safety Notes
 
-- 先审阅，后发送
-- 不要自动 follow、自动保存联系人或自动给任何人发消息
-- 不要从群组活动中推断敏感个人特征
+- Review first, send later
+- Do not auto-follow, auto-save contacts, or auto-message anyone
+- Do not infer sensitive personal traits from group activity
 
-## 相关参考
+## Related References
 
 - `02-identity.md`
 - `03-messaging.md`

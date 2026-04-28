@@ -35,11 +35,11 @@ func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
 	}
 }
 
-func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
+func TestResolveDerivesANPServiceDefaultsFromServiceBaseURL(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("services:\n  did_domain: awiki.test\n"),
+		[]byte("services:\n  service_base_url: https://platform.awiki.test/\n  did_domain: tenant.example\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -51,17 +51,23 @@ func TestResolveDerivesANPServiceDefaultsFromDIDDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ANPServiceEndpoint != "https://awiki.test/anp-im/rpc" {
-		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://awiki.test/anp-im/rpc")
+	if resolved.ServiceBaseURL != "https://platform.awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://platform.awiki.test")
 	}
-	if resolved.ANPServiceDID != "did:wba:awiki.test" {
-		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:awiki.test")
+	if resolved.DIDDomain != "tenant.example" {
+		t.Fatalf("resolved.DIDDomain = %q, want %q", resolved.DIDDomain, "tenant.example")
 	}
-	if source := resolved.Sources["anp_service_endpoint"]; source.Source != "derived_default" {
-		t.Fatalf("resolved.Sources[anp_service_endpoint].Source = %q, want %q", source.Source, "derived_default")
+	if resolved.ANPServiceEndpoint != "https://platform.awiki.test/anp-im/rpc" {
+		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://platform.awiki.test/anp-im/rpc")
 	}
-	if source := resolved.Sources["anp_service_did"]; source.Source != "derived_default" {
-		t.Fatalf("resolved.Sources[anp_service_did].Source = %q, want %q", source.Source, "derived_default")
+	if resolved.ANPServiceDID != "did:wba:platform.awiki.test" {
+		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:platform.awiki.test")
+	}
+	if source := resolved.Sources["anp_service_endpoint"]; source.Source != "derived_default" || source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[anp_service_endpoint] = %#v, want derived from service_base_url", source)
+	}
+	if source := resolved.Sources["anp_service_did"]; source.Source != "derived_default" || source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[anp_service_did] = %#v, want derived from service_base_url", source)
 	}
 }
 
@@ -266,6 +272,72 @@ func TestResolveIncludesOpenClawHostNotifyConfig(t *testing.T) {
 	}
 }
 
+func TestResolveIncludesHermesHostNotifyConfig(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: hermes\n    hermes:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifySink != "hermes" {
+		t.Fatalf("resolved.HostNotifySink = %q, want hermes", resolved.HostNotifySink)
+	}
+	if resolved.HostNotifyHermesNotifyURL != "http://127.0.0.1:8765/notify/host-event" {
+		t.Fatalf("resolved.HostNotifyHermesNotifyURL = %q", resolved.HostNotifyHermesNotifyURL)
+	}
+	if resolved.HostNotifyHermesDeliver != "feishu" {
+		t.Fatalf("resolved.HostNotifyHermesDeliver = %q, want feishu", resolved.HostNotifyHermesDeliver)
+	}
+}
+
+func TestResolveIncludesHermesDeliverTarget(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: hermes\n    hermes:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n      deliver: telegram\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifyHermesDeliver != "telegram" {
+		t.Fatalf("resolved.HostNotifyHermesDeliver = %q, want telegram", resolved.HostNotifyHermesDeliver)
+	}
+}
+
+func TestResolveAcceptsLegacyWebhookSinkAlias(t *testing.T) {
+	workspaceHome := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(workspaceHome, "config.yaml"),
+		[]byte("runtime:\n  host_notify:\n    enabled: true\n    sink: webhook\n    webhook:\n      notify_url: http://127.0.0.1:8765/notify/host-event\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.HostNotifySink != "hermes" {
+		t.Fatalf("resolved.HostNotifySink = %q, want hermes", resolved.HostNotifySink)
+	}
+}
+
 func TestResolveHonorsRuntimeListenerConfigFromFile(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
@@ -309,5 +381,73 @@ func TestResolveRejectsUnsupportedHostNotifySink(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "runtime.host_notify.sink") {
 		t.Fatalf("Resolve() error = %q, want runtime.host_notify.sink", err.Error())
+	}
+}
+
+func TestResolveMailServiceURLFromConfigFile(t *testing.T) {
+	workspaceHome := t.TempDir()
+	configPath := filepath.Join(workspaceHome, "config.yaml")
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://api.awiki.test/\n" +
+			"  mail_service_url: https://mail.awiki.test/\n",
+	)
+	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://api.awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://api.awiki.test")
+	}
+	if resolved.MailServiceURL != "https://mail.awiki.test" {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://mail.awiki.test")
+	}
+	source := resolved.Sources["mail_service_url"]
+	if source.Source != "config_file" {
+		t.Fatalf("resolved.Sources[mail_service_url].Source = %q, want %q", source.Source, "config_file")
+	}
+	if source.Value != "https://mail.awiki.test" {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://mail.awiki.test")
+	}
+}
+
+func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
+	workspaceHome := t.TempDir()
+	configPath := filepath.Join(workspaceHome, "config.yaml")
+	configYAML := []byte(
+		"services:\n" +
+			"  service_base_url: https://awiki.test/\n",
+	)
+	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspaceHome)
+
+	resolved, err := Resolve(Overrides{})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.ServiceBaseURL != "https://awiki.test" {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://awiki.test")
+	}
+	if resolved.MailServiceURL != "https://awiki.test" {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://awiki.test")
+	}
+	source := resolved.Sources["mail_service_url"]
+	if source.Source != "derived_default" {
+		t.Fatalf("resolved.Sources[mail_service_url].Source = %q, want %q", source.Source, "derived_default")
+	}
+	if source.Key != "service_base_url" {
+		t.Fatalf("resolved.Sources[mail_service_url].Key = %q, want %q", source.Key, "service_base_url")
+	}
+	if source.Value != "https://awiki.test" {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://awiki.test")
 	}
 }

@@ -30,10 +30,13 @@ type HostNotificationEvent struct {
 	Data       any    `json:"data,omitempty"`
 }
 
-// DirectMessageNotificationData is the minimal direct-message payload exposed
-// to host integrations.
+// DirectMessageNotificationData is the minimal message-style payload exposed to
+// host integrations for private notifications. It is also used as the phase-1
+// mail-unification envelope: mail notifications reuse the same event topic and
+// add source_kind=mail plus mail-specific fields.
 type DirectMessageNotificationData struct {
 	Channel         string `json:"channel"`
+	SourceKind      string `json:"source_kind,omitempty"`
 	MessageID       string `json:"message_id"`
 	OperationID     string `json:"operation_id,omitempty"`
 	ConversationID  string `json:"conversation_id,omitempty"`
@@ -46,6 +49,12 @@ type DirectMessageNotificationData struct {
 	ContentType     string `json:"content_type"`
 	Text            string `json:"text,omitempty"`
 	CreatedAt       string `json:"created_at,omitempty"`
+	MailboxAddress  string `json:"mailbox_address,omitempty"`
+	MailboxDID      string `json:"mailbox_did,omitempty"`
+	FromAddr        string `json:"from_addr,omitempty"`
+	Subject         string `json:"subject,omitempty"`
+	Preview         string `json:"preview,omitempty"`
+	HasAttachments  bool   `json:"has_attachments,omitempty"`
 }
 
 // GroupMessageNotificationData is the minimal group-message payload exposed to
@@ -162,10 +171,13 @@ func (s *fileHostNotifySink) Close() error {
 func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotifyStatus, error) {
 	config := runtimecfg.Resolve(resolved).HostNotify
 	status := HostNotifyStatus{
-		Enabled:  config.Enabled,
-		Sink:     config.Sink,
-		FilePath: config.FilePath,
-		HookURL:  config.OpenClaw.HookURL,
+		Enabled:   config.Enabled,
+		Sink:      config.Sink,
+		FilePath:  config.FilePath,
+		HookURL:   config.OpenClaw.HookURL,
+		AgentID:   config.OpenClaw.AgentID,
+		HookName:  config.OpenClaw.HookName,
+		NotifyURL: config.Hermes.NotifyURL,
 	}
 	if !config.Enabled {
 		return &noopHostNotifySink{}, status, nil
@@ -192,6 +204,12 @@ func newHostNotifySink(resolved *appconfig.Resolved) (HostNotifySink, HostNotify
 			return nil, status, err
 		}
 		return sink, status, nil
+	case "hermes", "webhook":
+		sink, err := newHermesHostNotifySink(resolved, config.Hermes)
+		if err != nil {
+			return nil, status, err
+		}
+		return sink, status, nil
 	default:
 		return nil, status, fmt.Errorf("unsupported host notify sink %q", config.Sink)
 	}
@@ -204,6 +222,8 @@ func NormalizeHostNotification(notification map[string]any, receivedAt time.Time
 	switch stringValue(notification["method"]) {
 	case "direct.incoming":
 		return normalizeDirectIncoming(notification, receivedAt)
+	case "mail.notification":
+		return normalizeMailNotification(notification, receivedAt)
 	case "group.incoming":
 		return normalizeGroupIncoming(notification, receivedAt)
 	case "group.state_changed":
@@ -242,6 +262,7 @@ func normalizeDirectIncoming(notification map[string]any, receivedAt time.Time) 
 	messageID := resolveDirectMessageID(meta, notification)
 	data := DirectMessageNotificationData{
 		Channel:         "direct",
+		SourceKind:      "im",
 		MessageID:       messageID,
 		OperationID:     stringValue(meta["operation_id"]),
 		ConversationID:  stringValue(body["conversation_id"]),
@@ -410,6 +431,53 @@ func inferGroupStateEventType(body map[string]any) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeMailNotification(notification map[string]any, receivedAt time.Time) (*HostNotificationEvent, bool) {
+	params := mapValue(notification["params"])
+	mailboxDID := stringValue(params["mailbox_did"])
+	if mailboxDID == "" {
+		return nil, false
+	}
+	messageID := fallbackString(stringValue(params["message_id"]), generatedHostNotificationID(notification))
+	subject := stringValue(params["subject"])
+	preview := stringValue(params["preview"])
+	data := DirectMessageNotificationData{
+		Channel:        "mail",
+		SourceKind:     "mail",
+		MessageID:      messageID,
+		RecipientDID:   mailboxDID,
+		ContentType:    "mail.notification",
+		Text:           buildMailNotificationEventText(subject, preview, boolValue(params["has_attachments"])),
+		MailboxAddress: stringValue(params["mailbox_address"]),
+		MailboxDID:     mailboxDID,
+		FromAddr:       stringValue(params["from_addr"]),
+		Subject:        subject,
+		Preview:        preview,
+		HasAttachments: boolValue(params["has_attachments"]),
+	}
+	return &HostNotificationEvent{
+		Version:    hostNotificationVersion,
+		ID:         messageID,
+		Topic:      "im.message.received",
+		ReceivedAt: receivedAt.Format(time.RFC3339),
+		Data:       data,
+	}, true
+}
+
+func buildMailNotificationEventText(subject string, preview string, hasAttachments bool) string {
+	trimmedPreview := strings.TrimSpace(preview)
+	if trimmedPreview != "" {
+		return trimmedPreview
+	}
+	trimmedSubject := strings.TrimSpace(subject)
+	if trimmedSubject != "" {
+		return "[邮件] " + trimmedSubject
+	}
+	if hasAttachments {
+		return "[邮件] 收到一封包含附件的邮件"
+	}
+	return "[邮件] 收到一封新邮件"
 }
 
 func generatedHostNotificationID(notification map[string]any) string {

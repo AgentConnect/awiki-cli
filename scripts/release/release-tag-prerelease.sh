@@ -16,7 +16,7 @@ if [[ -z "${DIST_TAG}" ]]; then
   exit 1
 fi
 
-release_require_command jq "${SCRIPT_NAME}"
+release_require_command node "${SCRIPT_NAME}"
 
 VERSION="$(release_read_version "${ROOT_DIR}")"
 if [[ "${VERSION}" != *-* ]]; then
@@ -28,14 +28,13 @@ TAG="v${VERSION}"
 
 release_require_clean_worktree
 BRANCH="$(release_require_branch_with_upstream)"
-release_require_tag_absent "${TAG}"
 
-echo "Creating pre-release tag ${TAG} (dist-tag: ${DIST_TAG}) on branch ${BRANCH}..."
-release_create_and_push_tag "${TAG}" "Pre-release ${TAG} (dist-tag: ${DIST_TAG})"
+echo "Ensuring pre-release tag ${TAG} (dist-tag: ${DIST_TAG}) on branch ${BRANCH}..."
+release_ensure_tag_on_remote "${TAG}" "Pre-release ${TAG} (dist-tag: ${DIST_TAG})" origin
 
 cat <<EOF
 
-Pre-release tag ${TAG} has been pushed.
+Pre-release tag ${TAG} is ensured on origin.
 
 Next steps:
 - CI will build binaries and create a GitHub pre-release for ${TAG}.

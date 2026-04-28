@@ -83,6 +83,79 @@ func TestBuildOpenClawEventTextUsesMainAgentSessionFormat(t *testing.T) {
 	}
 }
 
+func TestBuildOpenClawEventTextUsesMailFormat(t *testing.T) {
+	text := buildOpenClawEventText(HostNotificationEvent{
+		Version:    "1.0",
+		ID:         "mail-msg-001",
+		Topic:      "im.message.received",
+		ReceivedAt: "2026-04-12T10:30:00Z",
+		Data: DirectMessageNotificationData{
+			Channel:        "mail",
+			SourceKind:     "mail",
+			MessageID:      "mail-msg-001",
+			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
+			ContentType:    "mail.notification",
+			Text:           "Preview text",
+			MailboxAddress: "alice@example.com",
+			MailboxDID:     "did:wba:example.com:user:alice:e1_alice",
+			FromAddr:       "sender@example.com",
+			Subject:        "Mail Subject",
+			Preview:        "Preview text",
+			HasAttachments: true,
+		},
+	})
+	if !strings.Contains(text, "[Awiki New Mail]") {
+		t.Fatalf("text = %q, want mail header", text)
+	}
+	if !strings.Contains(text, "from_addr: sender@example.com") {
+		t.Fatalf("text = %q, want from_addr", text)
+	}
+	if !strings.Contains(text, "mailbox_address: alice@example.com") {
+		t.Fatalf("text = %q, want mailbox_address", text)
+	}
+	if !strings.Contains(text, "subject: Mail Subject") {
+		t.Fatalf("text = %q, want subject", text)
+	}
+}
+
+func TestBuildOpenClawHookRequestIncludesMailPrompt(t *testing.T) {
+	request, err := buildOpenClawHookRequest(HostNotificationEvent{
+		Version:    "1.0",
+		ID:         "mail-msg-001",
+		Topic:      "im.message.received",
+		ReceivedAt: "2026-04-12T10:30:00Z",
+		Data: DirectMessageNotificationData{
+			Channel:        "mail",
+			SourceKind:     "mail",
+			MessageID:      "mail-msg-001",
+			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
+			ContentType:    "mail.notification",
+			Text:           "Preview text",
+			MailboxAddress: "alice@example.com",
+			MailboxDID:     "did:wba:example.com:user:alice:e1_alice",
+			FromAddr:       "sender@example.com",
+			Subject:        "Mail Subject",
+			Preview:        "Preview text",
+			HasAttachments: false,
+		},
+	}, openclawnotify.FixedHookName, "telegram", "123456")
+	if err != nil {
+		t.Fatalf("buildOpenClawHookRequest() error = %v", err)
+	}
+	if !strings.Contains(request.Message, "You received a new mail notification from awiki.") {
+		t.Fatalf("request.Message = %q, want mail prompt header", request.Message)
+	}
+	if !strings.Contains(request.Message, "Message type: mail") {
+		t.Fatalf("request.Message = %q, want message type mail", request.Message)
+	}
+	if !strings.Contains(request.Message, "Sender DID: sender@example.com") {
+		t.Fatalf("request.Message = %q, want sender email", request.Message)
+	}
+	if !strings.Contains(request.Message, "Receiver handle: alice@example.com") {
+		t.Fatalf("request.Message = %q, want mailbox address as receiver handle", request.Message)
+	}
+}
+
 func TestNewOpenClawHostNotifySinkRejectsNonLoopbackHookURL(t *testing.T) {
 	root := t.TempDir()
 	resolved := &appconfig.Resolved{

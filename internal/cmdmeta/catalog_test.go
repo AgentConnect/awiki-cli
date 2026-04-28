@@ -45,3 +45,44 @@ func TestCatalogPublishesPublicDangerousReplaceDIDCommand(t *testing.T) {
 		t.Fatalf("spec.Long = %q, want target identity guidance", spec.Long)
 	}
 }
+
+func TestCatalogPublishesRefreshTokenCommand(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	spec, ok := catalog.Lookup("id refresh-token")
+	if !ok {
+		t.Fatal(`Lookup("id refresh-token") = false, want true`)
+	}
+	if spec.Hidden {
+		t.Fatalf("spec.Hidden = %t, want false", spec.Hidden)
+	}
+	if !spec.SideEffect {
+		t.Fatal("spec.SideEffect = false, want true")
+	}
+	if !strings.Contains(strings.ToLower(spec.Short), "refresh") {
+		t.Fatalf("spec.Short = %q, want refresh wording", spec.Short)
+	}
+	if !strings.Contains(spec.Long, "did-auth.get_me") {
+		t.Fatalf("spec.Long = %q, want did-auth.get_me guidance", spec.Long)
+	}
+}
+
+func TestCatalogPublishesTopLevelMailCommands(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	for _, name := range []string{"mail", "mail inbox", "mail notify", "mail read", "mail mark-read", "mail account", "mail send", "mail attachment download"} {
+		if _, ok := catalog.Lookup(name); !ok {
+			t.Fatalf("Lookup(%q) = false, want true", name)
+		}
+	}
+
+	for _, name := range []string{"msg mail", "msg mail inbox", "msg mail read", "msg mail send"} {
+		if _, ok := catalog.Lookup(name); ok {
+			t.Fatalf("Lookup(%q) = true, want false", name)
+		}
+	}
+}

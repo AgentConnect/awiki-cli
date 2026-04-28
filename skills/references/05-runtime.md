@@ -1,15 +1,15 @@
-# Runtime 参考
+# Runtime Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理 runtime 选择和长连接投递任务时，使用本参考文档，包括：runtime mode 检查、websocket listener 控制、宿主通知配置，以及当前 heartbeat 限制说明。
+Use this reference when you are handling runtime selection and long-connection delivery tasks in `awiki-cli`, including runtime mode inspection, websocket listener control, host-notification configuration, and the current heartbeat limitations.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及 runtime mode、listener、websocket transport、host notification 或 runtime 恢复时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves runtime mode, listener, websocket transport, host notification, or runtime recovery.
 
-## 当前状态
+## Current Status
 
-- 状态：**部分实现**
-- 当前已实现：
+- Status: **partially implemented**
+- Currently implemented:
   - `runtime status`
   - `runtime apply`
   - `runtime setup`
@@ -22,46 +22,46 @@
   - `runtime host-notify enable/disable`
   - `runtime host-notify openclaw set/set-token/clear-token`
   - `runtime host-notify openclaw route add/list/remove`
-- 已规划但尚未实现：
+- Planned but not yet implemented:
   - `runtime heartbeat status/install/run-once`
 
-## 当前行为说明
+## Current Behavior Notes
 
-- 当 listener service 缺失时，`runtime listener start` 会自动安装该 service
-- `runtime setup` 和 `runtime mode set` 在写入配置后会应用 runtime policy；在 websocket 模式下，如果 listener 启用且 auto-install/auto-start 打开，它们可能安装并启动 listener service
-- `runtime listener install` 仍然作为显式的仅安装路径存在
-- 不要把 heartbeat 描述成当前仓库中已经实现
+- When the listener service is missing, `runtime listener start` automatically installs the service
+- `runtime setup` and `runtime mode set` apply runtime policy after writing configuration; in websocket mode, if the listener is enabled and auto-install/auto-start are enabled, they may install and start the listener service
+- `runtime listener install` still exists as an explicit install-only path
+- Do not describe heartbeat as already implemented in the current repository
 
-## 适用场景
+## When to Use
 
-- 查看 runtime mode
-- 在 `http` 与 `websocket` 之间切换
-- 控制实时 listener 和宿主通知设置
-- 理解当前 heartbeat 契约及其限制
+- Inspect the runtime mode
+- Switch between `http` and `websocket`
+- Control real-time listener and host-notification settings
+- Understand the current heartbeat contract and its limitations
 
-## 核心概念
+## Core Concepts
 
-- **runtime mode**：仅在 runtime 领域暴露的传输选择
-- **listener**：websocket 侧的长驻进程
-- **daemon bridge**：websocket 模式下使用的本地进程边界
-- **host notify**：转发到 `log`、`file` 或 `openclaw` 的标准化 websocket 事件
-- **heartbeat**：契约中保留、但尚未实现的定时可靠性路径
+- **runtime mode**: the transport selection exposed only by the runtime domain
+- **listener**: the long-running process used on the websocket side
+- **daemon bridge**: the local process boundary used in websocket mode
+- **host notify**: normalized websocket events forwarded to `log`, `file`, or `openclaw`
+- **heartbeat**: a reserved but not yet implemented timed reliability path
 
-## 决策规则
+## Decision Rules
 
-- 需要知道当前传输状态 -> `runtime status` 或 `runtime mode get`
-- 需要按当前 `config.yaml` 收敛 runtime 与 listener 状态 -> `runtime apply`
-- 需要初始化 runtime 文件和本地 store -> `runtime setup --mode <http|websocket>`
-- 需要修改持久化 listener 策略 -> 使用 `runtime listener config show/set`
-- 需要开启或关闭 listener 管理并应用 runtime 状态 -> 使用 `runtime listener enable` 或 `runtime listener disable`
-- 需要 websocket 实时接收 -> 先设置 websocket mode，再使用 listener 命令
-- 需要宿主/webhook 通知 -> 先检查 `runtime host-notify config show`，再设置 sink 或使用 `runtime host-notify enable`
-- messaging 返回 transport-unavailable -> 检查 listener 状态，或切回 `http`
-- 需要 heartbeat 自动化 -> 说明该命令族在当前仓库中仍处于规划阶段
+- Need to know the current transport state -> `runtime status` or `runtime mode get`
+- Need to converge runtime and listener state based on the current `config.yaml` -> `runtime apply`
+- Need to initialize runtime files and the local store -> `runtime setup --mode <http|websocket>`
+- Need to change persistent listener policy -> use `runtime listener config show/set`
+- Need to enable or disable listener management and apply runtime state -> use `runtime listener enable` or `runtime listener disable`
+- Need websocket real-time receiving -> set websocket mode first, then use listener commands
+- Need host/webhook notifications -> inspect `runtime host-notify config show` first, then set the sink or use `runtime host-notify enable`
+- messaging returns `transport-unavailable` -> inspect listener state, or switch back to `http`
+- Need heartbeat automation -> explain that this command family is still in the planning stage in the current repository
 
-## Canonical 命令
+## Canonical Commands
 
-当前已实现：
+Currently implemented:
 
 - `awiki-cli runtime status`
 - `awiki-cli runtime apply`
@@ -91,48 +91,48 @@
 - `awiki-cli runtime host-notify openclaw route remove --channel <channel> --to <target>`
 - `awiki-cli runtime host-notify openclaw route remove --session-key <session-key>`
 
-## 常见模式
+## Common Patterns
 
-### 初始化 websocket 模式
+### Initialize WebSocket Mode
 
 1. `awiki-cli runtime status`
 2. `awiki-cli runtime setup --mode websocket --dry-run`
 3. `awiki-cli runtime setup --mode websocket`
 4. `awiki-cli runtime listener status`
 
-在默认 websocket listener policy 下，第 3 步可能已经安装并启动 listener service。
+Under the default websocket listener policy, step 3 may already have installed and started the listener service.
 
-### 按当前配置收敛 runtime 状态
+### Converge Runtime State from the Current Configuration
 
 1. `awiki-cli runtime status`
 2. `awiki-cli runtime apply --dry-run`
 3. `awiki-cli runtime apply`
 
-### 持久化关闭 listener auto-start
+### Persistently Disable Listener Auto-Start
 
 1. `awiki-cli runtime listener config show`
 2. `awiki-cli runtime listener config set --auto-install false --auto-start false --dry-run`
 3. `awiki-cli runtime listener config set --auto-install false --auto-start false`
 
-### 从 transport 问题中恢复
+### Recover from Transport Problems
 
 1. `awiki-cli runtime listener status`
 2. `awiki-cli runtime listener restart`
-3. 如果仍然阻塞，执行 `awiki-cli runtime mode set http`
+3. If still blocked, run `awiki-cli runtime mode set http`
 
-### 显式启用宿主通知
+### Explicitly Enable Host Notifications
 
 1. `awiki-cli runtime host-notify config show`
 2. `awiki-cli runtime host-notify config set --sink openclaw --dry-run`
 3. `awiki-cli runtime host-notify config set --sink openclaw`
-4. 如果 OpenClaw hooks 启用了 token，但你不想依赖 `~/.openclaw/openclaw.json` 中的 `hooks.token` 自动探测：`awiki-cli runtime host-notify openclaw set-token --value <token>`
-5. 由宿主 agent 执行：
+4. If OpenClaw hooks have token validation enabled, but you do not want to rely on auto-detection from `hooks.token` in `~/.openclaw/openclaw.json`: `awiki-cli runtime host-notify openclaw set-token --value <token>`
+5. Performed by the host agent:
    - `awiki-cli runtime host-notify openclaw route add --session-key <session-key>`
-   - 或 `awiki-cli runtime host-notify openclaw route add --channel <channel> --to <target>`
+   - or `awiki-cli runtime host-notify openclaw route add --channel <channel> --to <target>`
 
-## 副作用与确认
+## Side Effects and Confirmation
 
-- 需要显式确认：
+- Require explicit confirmation:
   - `runtime apply`
   - `runtime setup`
   - `runtime mode set`
@@ -142,31 +142,31 @@
   - `runtime host-notify enable/disable`
   - `runtime host-notify config set`
   - `runtime host-notify openclaw set/set-token/clear-token`
-- 仅限内部：
+- Internal-only:
   - `runtime listener run`
   - `runtime listener service-run`
 
-## 错误处理
+## Error Handling
 
-- runtime mode 不清楚 -> 检查 `awiki-cli schema runtime mode set`
-- listener 状态不清楚 -> `awiki-cli runtime listener status`
-- host notify 配置不清楚 -> `awiki-cli runtime host-notify config show`
-- 配置或路径不清楚 -> `awiki-cli config show`
-- 更广泛的 runtime 故障 -> `awiki-cli doctor`
+- The runtime mode is unclear -> check `awiki-cli schema runtime mode set`
+- The listener state is unclear -> `awiki-cli runtime listener status`
+- The host-notify configuration is unclear -> `awiki-cli runtime host-notify config show`
+- The configuration or path is unclear -> `awiki-cli config show`
+- More general runtime failures -> `awiki-cli doctor`
 
-## 实现说明
+## Implementation Notes
 
-- 业务命令不应直接选择 transport
-- `runtime apply` 会按当前配置执行 runtime bootstrap，并可能触发 listener policy 带来的 service 状态变化
-- `runtime listener start` 现在在需要时会自动安装 service
-- `runtime listener config show/set` 是 `enabled`、`auto_install` 和 `auto_start` 的持久化控制面
-- `runtime host_notify.enabled` 默认开启，而默认 sink 仍为 `log`
-- `runtime host-notify config show` 会显示 OpenClaw token 是否已配置、已注册 routes、自动识别到的 webhook 端口和最终生效的 `hook_url`
-- OpenClaw 适配器现在只保留纯 webhook 路径，基于本地 route registry 对已注册 routes 执行 fan-out
-- OpenClaw 作为 `host-notify` 的宿主接入推荐路径，可参考 `00-installation.md`
-- `runtime heartbeat` 在当前仓库状态下仍处于规划阶段
+- Business commands should not choose transport directly
+- `runtime apply` performs runtime bootstrap based on the current configuration and may trigger service-state changes caused by listener policy
+- `runtime listener start` now installs the service automatically when needed
+- `runtime listener config show/set` is the persistent control plane for `enabled`, `auto_install`, and `auto_start`
+- `runtime host_notify.enabled` is enabled by default, while the default sink remains `log`
+- `runtime host-notify config show` displays whether an OpenClaw token is configured, the registered routes, the auto-detected webhook port, and the final effective `hook_url`
+- The OpenClaw adapter now keeps only the pure webhook path and performs fan-out to registered routes based on the local route registry
+- OpenClaw is the recommended host integration path for `host-notify`; see `00-installation.md`
+- `runtime heartbeat` is still in the planning stage in the current repository
 
-## 相关参考
+## Related References
 
 - `03-messaging.md`
 - `01-onboarding.md`

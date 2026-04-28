@@ -9,8 +9,8 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "Error: jq is required to run scripts/release/publish-gitee-release.sh" >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "Error: node is required to run scripts/release/publish-gitee-release.sh" >&2
   exit 1
 fi
 
@@ -36,8 +36,7 @@ Optional environment variables:
   GITEE_REPO       Gitee repository name (default: awiki-cli)
   GITEE_GIT_URL    Optional git remote URL for pushing tags to Gitee
                    Example: git@gitee.com:agentconnect/awiki-cli.git
-  GITEE_API_PROXY  Optional proxy URL for Gitee API requests. By default,
-                   Gitee API requests are sent directly.
+  GITEE_API_PROXY  Optional proxy URL for Gitee API requests.
   GITEE_API_NO_PROXY Optional no_proxy value for Gitee API requests
   GITHUB_OWNER     GitHub repository owner (default: AgentConnect)
   GITHUB_REPO      GitHub repository name (default: awiki-cli)
@@ -50,9 +49,84 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
+json_value() {
+  local json_file="$1"
+  local expression="$2"
+
+  node - "${json_file}" "${expression}" <<'NODE'
+const fs = require('fs');
+const file = process.argv[2];
+const expression = process.argv[3];
+const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+const value = Function('data', `return (${expression});`)(data);
+if (value === undefined || value === null) {
+  process.exit(0);
+}
+if (typeof value === 'object') {
+  process.stdout.write(JSON.stringify(value));
+} else {
+  process.stdout.write(String(value));
+}
+NODE
+}
+
+local_tag_commit() {
+  local tag="$1"
+  git rev-parse -q --verify "refs/tags/${tag}^{commit}" 2>/dev/null || true
+}
+
+remote_tag_commit() {
+  local remote="$1"
+  local tag="$2"
+  local output
+
+  output="$(git ls-remote --tags "${remote}" "refs/tags/${tag}^{}" "refs/tags/${tag}" 2>/dev/null || true)"
+  if [[ -z "${output}" ]]; then
+    return
+  fi
+
+  awk '
+    $2 ~ /\^\{\}$/ { print $1; found=1; exit }
+    !found && $2 ~ /^refs\/tags\// { fallback=$1 }
+    END {
+      if (!found && fallback != "") {
+        print fallback
+      }
+    }
+  ' <<<"${output}"
+}
+
+ensure_remote_tag_matches_local() {
+  local remote="$1"
+  local remote_label="$2"
+  local tag="$3"
+  local local_commit
+  local remote_commit
+
+  local_commit="$(local_tag_commit "${tag}")"
+  if [[ -z "${local_commit}" ]]; then
+    echo "Error: local tag ${tag} is unavailable after fetch/create." >&2
+    exit 1
+  fi
+
+  remote_commit="$(remote_tag_commit "${remote}" "${tag}")"
+  if [[ -n "${remote_commit}" ]]; then
+    if [[ "${remote_commit}" != "${local_commit}" ]]; then
+      echo "Error: ${remote_label} tag ${tag} already exists but points to ${remote_commit}, local tag points to ${local_commit}." >&2
+      exit 1
+    fi
+
+    echo "${remote_label} tag ${tag} already exists and points to the expected commit; reusing it."
+    return
+  fi
+
+  echo "Pushing tag ${tag} to ${remote_label}..."
+  git push "${remote}" "refs/tags/${tag}:refs/tags/${tag}"
+}
+
 VERSION=""
 if [[ -f package.json ]]; then
-  VERSION="$(jq -r '.version // empty' package.json)"
+  VERSION="$(json_value package.json 'typeof data.version === "string" ? data.version.trim() : ""')"
 fi
 
 TAG="${1:-}"
@@ -186,39 +260,48 @@ if [[ "${github_status}" != "200" ]]; then
   exit 1
 fi
 
-release_id="$(jq -r '.id // empty' "${release_json}")"
+release_id="$(json_value "${release_json}" 'data.id || ""')"
 if [[ -z "${release_id}" ]]; then
   echo "Error: GitHub release metadata did not include an id." >&2
   cat "${release_json}" >&2
   exit 1
 fi
 
-release_name="$(jq -r '.name // empty' "${release_json}")"
+release_name="$(json_value "${release_json}" 'data.name || ""')"
 if [[ -z "${release_name}" ]]; then
   release_name="${TAG}"
 fi
-release_body="$(jq -r '.body // ""' "${release_json}")"
-release_target="$(jq -r '.target_commitish // empty' "${release_json}")"
-prerelease_flag="$(jq -r 'if .prerelease then "true" else "false" end' "${release_json}")"
+release_body="$(json_value "${release_json}" 'data.body || ""')"
+release_target="$(json_value "${release_json}" 'data.target_commitish || ""')"
+prerelease_flag="$(json_value "${release_json}" 'data.prerelease ? "true" : "false"')"
 
-asset_count="$(jq '.assets | length' "${release_json}")"
+asset_count="$(json_value "${release_json}" 'Array.isArray(data.assets) ? data.assets.length : 0')"
 if [[ "${asset_count}" -eq 0 ]]; then
   echo "Error: GitHub release ${TAG} has no uploaded assets to mirror." >&2
   exit 1
 fi
 
 asset_manifest="${tmp_dir}/asset-manifest.tsv"
-jq -r '.assets[] | [.name, .browser_download_url] | @tsv' "${release_json}" > "${asset_manifest}"
+node - "${release_json}" > "${asset_manifest}" <<'NODE'
+const fs = require('fs');
+const release = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+for (const asset of release.assets || []) {
+  const name = asset.name || '';
+  const url = asset.browser_download_url || '';
+  if (name && url) {
+    process.stdout.write(`${name}\t${url}\n`);
+  }
+}
+NODE
 
 echo "Ensuring local tag ${TAG} exists..."
 if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
 fi
 
-echo "Pushing tag ${TAG} to Gitee..."
 git remote add gitee "${GITEE_GIT_URL}" 2>/dev/null || \
   git remote set-url gitee "${GITEE_GIT_URL}"
-git push gitee "refs/tags/${TAG}:refs/tags/${TAG}"
+ensure_remote_tag_matches_local gitee Gitee "${TAG}"
 
 assets_dir="${download_dir}"
 echo "Downloading GitHub release assets to ${assets_dir}..."
@@ -239,7 +322,7 @@ gitee_lookup_status="$(curl_gitee -sS -L -o "${gitee_release_json}" -w '%{http_c
 
 gitee_release_id=""
 if [[ "${gitee_lookup_status}" == "200" ]]; then
-  gitee_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${gitee_release_json}")"
+  gitee_release_id="$(json_value "${gitee_release_json}" 'data && typeof data === "object" && !Array.isArray(data) ? (data.id || "") : ""')"
 fi
 
 if [[ -n "${gitee_release_id}" ]]; then
@@ -264,7 +347,7 @@ else
     "${create_args[@]}" \
     "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases")"
 
-  gitee_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${create_json}")"
+  gitee_release_id="$(json_value "${create_json}" 'data && typeof data === "object" && !Array.isArray(data) ? (data.id || "") : ""')"
   if [[ -n "${gitee_release_id}" ]]; then
     cp "${create_json}" "${gitee_release_json}"
     echo "Created Gitee release for ${TAG}."
@@ -273,7 +356,7 @@ else
     gitee_lookup_status="$(curl_gitee -sS -L -o "${gitee_release_json}" -w '%{http_code}' \
       "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}")"
     if [[ "${gitee_lookup_status}" == "200" ]]; then
-      gitee_release_id="$(jq -r 'if type == "object" then (.id // empty) else empty end' "${gitee_release_json}")"
+      gitee_release_id="$(json_value "${gitee_release_json}" 'data && typeof data === "object" && !Array.isArray(data) ? (data.id || "") : ""')"
     fi
   fi
 
@@ -292,7 +375,7 @@ else
   fi
 fi
 
-existing_assets="$(jq -r '.assets[]?.name' "${gitee_release_json}")"
+existing_assets="$(json_value "${gitee_release_json}" 'Array.isArray(data.assets) ? data.assets.map(asset => asset.name || "").filter(Boolean).join("\n") : ""')"
 
 local_assets=()
 while IFS= read -r asset_path; do

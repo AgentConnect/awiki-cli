@@ -26,6 +26,11 @@ This repo does not yet ship executable Python code, but contributors should use 
 - `uv run pytest` — run tests
 - `uv run python -m awiki_cli ...` — run the CLI locally
 
+## Release
+
+- Use `scripts/release/release-one-click.sh [version] --channel beta|stable` for one-step releases.
+- Put local release secrets in ignored `scripts/release/release.env.local`; never commit tokens.
+
 If you add a new command or API integration, update the matching architecture doc and verify the sibling service API docs still match the behavior.
 
 ## Coding Style & Naming Conventions
@@ -42,6 +47,8 @@ If you add a new command or API integration, update the matching architecture do
 - Name test files `test_<module>.py`.
 - Cover command parsing, API client behavior, and output formatting.
 - For cross-service flows, validate request/response assumptions against `../user-service` and `../message-service` docs before merging.
+- After completing any development task, run the unit test suite before handing off the change to catch unintended regressions. For the current Go implementation, use `go test ./...`; when coverage gates are relevant, also run `make coverage-check`.
+- When adding new production code or changing existing behavior, add or update the corresponding unit tests in the same change. New functionality should not be delivered without regression coverage for its stable behavior and key error paths.
 
 ## Commit & Pull Request Guidelines
 

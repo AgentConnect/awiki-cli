@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/traceutil"
+	"github.com/agentconnect/awiki-cli/internal/transportcfg"
 )
 
 type identityServiceError = identity.ServiceError
@@ -62,7 +63,7 @@ func (s *Service) CreatePage(ctx context.Context, params CreatePageParams) (*Com
 		payload["visibility"] = visibility
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "create", payload, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, contentRPCEndpoint, "create", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -81,7 +82,7 @@ func (s *Service) ListPages(ctx context.Context) (*CommandResult, error) {
 		return nil, err
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "list", map[string]any{}, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, contentRPCEndpoint, "list", map[string]any{}, auth, &result); err != nil {
 		return nil, err
 	}
 	count := 0
@@ -112,7 +113,7 @@ func (s *Service) GetPage(ctx context.Context, slug string) (*CommandResult, err
 		return nil, ErrSlugRequired
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "get", map[string]any{"slug": slug}, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, contentRPCEndpoint, "get", map[string]any{"slug": slug}, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -156,7 +157,7 @@ func (s *Service) UpdatePage(ctx context.Context, params UpdatePageParams) (*Com
 		return nil, ErrNoUpdateFields
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "update", payload, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, contentRPCEndpoint, "update", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -182,7 +183,7 @@ func (s *Service) RenamePage(ctx context.Context, params RenamePageParams) (*Com
 	}
 	var result map[string]any
 	payload := map[string]any{"old_slug": slug, "new_slug": target}
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "rename", payload, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, contentRPCEndpoint, "rename", payload, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -207,7 +208,7 @@ func (s *Service) DeletePage(ctx context.Context, slug string) (*CommandResult, 
 		return nil, ErrSlugRequired
 	}
 	var result map[string]any
-	if err := s.remote.AuthenticatedRPCCall(ctx, contentRPCEndpoint, "delete", map[string]any{"slug": slug}, auth, &result); err != nil {
+	if err := s.remote.AuthenticatedRPCCallProfile(ctx, transportcfg.ProfileRPCDefault, contentRPCEndpoint, "delete", map[string]any{"slug": slug}, auth, &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
@@ -226,7 +227,7 @@ func (s *Service) requireAuth(ctx context.Context) (*identity.StoredIdentity, *a
 	if err != nil {
 		return nil, nil, err
 	}
-	session, err := s.authSession(record)
+	session, err := s.authSession(ctx, record)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -251,7 +252,7 @@ func (s *Service) requireActiveIdentity() (*identity.StoredIdentity, error) {
 	return record, nil
 }
 
-func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session, error) {
+func (s *Service) authSession(ctx context.Context, record *identity.StoredIdentity) (*authsdk.Session, error) {
 	if record == nil {
 		return nil, fmt.Errorf("%w: active identity is required", identity.ErrAuthRequired)
 	}
@@ -267,13 +268,17 @@ func (s *Service) authSession(record *identity.StoredIdentity) (*authsdk.Session
 		record.JWTToken,
 		func(token string) error { return s.manager.UpdateJWT(record.IdentityName, token) },
 	)
+	session.RememberScope(s.config.ServiceBaseURL)
+	session.RememberScope(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint))
 	session.SetBearer(s.config.ServiceBaseURL, record.JWTToken)
 	session.SetBearer(appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint), record.JWTToken)
 	if strings.TrimSpace(record.JWTToken) == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		refreshCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileAuthRefresh)
 		defer cancel()
+		finish := traceutil.EnsureJWTPhase(ctx, "content_bootstrap")
+		defer finish()
 		if _, err := session.EnsureJWT(
-			ctx,
+			refreshCtx,
 			s.remote.Client(),
 			appconfig.JoinBaseURL(s.config.ServiceBaseURL, didAuthRPCEndpoint),
 		); err != nil {

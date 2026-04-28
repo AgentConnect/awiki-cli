@@ -225,6 +225,7 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			With:   stringValue(request.Params["with"]),
 			Limit:  intValue(request.Params["limit"]),
 			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
 		})
 		if err != nil {
 			return nil, err
@@ -350,7 +351,12 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		}
 		return client.SendRPC(context.Background(), "group.list_members", params)
 	case "group.list_messages":
-		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
+		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{
+			Group:  stringValue(request.Params["group"]),
+			Limit:  intValue(request.Params["limit"]),
+			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -479,6 +485,11 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 		s.dispatchHostNotification(ctx, event, shouldNotify)
 		return
 	}
+	if record, ok := messageRecordFromMailNotification(notification, session.record.IdentityName); ok {
+		_ = store.StoreMessage(ctx, s.db, record)
+		s.dispatchHostNotification(ctx, event, shouldNotify)
+		return
+	}
 	if record, ok := messageRecordFromGroupIncoming(notification, session.record.IdentityName); ok {
 		senderHandle, _ := s.syncIncomingContact(ctx, session, record.SenderDID, "group.incoming", record.GroupDID)
 		ApplyHostNotificationHandles(event, senderHandle, normalizeListenerHandle(session.record.Handle))
@@ -552,6 +563,110 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 		Metadata:       metadataValue(params),
 		CredentialName: identityName,
 	}, true
+}
+
+// messageRecordFromMailNotification maps a lightweight mail.notification payload into a local MessageRecord.
+//
+// The message-service v2 side pushes notifications in the shape:
+//
+//	{"jsonrpc":"2.0","method":"mail.notification","params":{
+//	    "mailbox_did": "...",
+//	    "mailbox_address": "alice@awiki.ai",
+//	    "from_addr": "sender@example.com",
+//	    "subject": "Subject",
+//	    "preview": "Body preview ...",
+//	    "has_attachments": true,
+//	    "message_id": "uuid"
+//	}}
+//
+// We persist this as an inbound local message with:
+//   - owner_did = mailbox_did
+//   - thread_id = mail:<mailbox_address>
+//   - content_type = "text/plain"
+//   - metadata.source_kind = "mail"
+//   - content = human-readable summary text
+func messageRecordFromMailNotification(notification map[string]any, identityName string) (store.MessageRecord, bool) {
+	method, _ := notification["method"].(string)
+	if method != "mail.notification" {
+		return store.MessageRecord{}, false
+	}
+	params, ok := notification["params"].(map[string]any)
+	if !ok {
+		return store.MessageRecord{}, false
+	}
+	mailboxDID := stringValue(params["mailbox_did"])
+	if mailboxDID == "" {
+		return store.MessageRecord{}, false
+	}
+	mailboxAddress := stringValue(params["mailbox_address"])
+	fromAddr := stringValue(params["from_addr"])
+	subject := stringValue(params["subject"])
+	preview := stringValue(params["preview"])
+	hasAttachments := boolValue(params["has_attachments"])
+	messageID := stringValue(params["message_id"])
+	if strings.TrimSpace(messageID) == "" {
+		// Fallback to a locally generated identifier if message_id was not provided.
+		messageID = fmt.Sprintf("mail:%s:%d", mailboxAddress, time.Now().UTC().UnixNano())
+	}
+	if strings.TrimSpace(mailboxAddress) == "" {
+		mailboxAddress = mailboxDID
+	}
+	threadID := fmt.Sprintf("mail:%s", strings.TrimSpace(mailboxAddress))
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	sentAt := time.Now().UTC().Format(time.RFC3339)
+	content := buildMailNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
+
+	return store.MessageRecord{
+		MsgID:          messageID,
+		OwnerDID:       mailboxDID,
+		ThreadID:       threadID,
+		Direction:      0,
+		SenderDID:      "",
+		ReceiverDID:    mailboxDID,
+		ContentType:    "text/plain",
+		Content:        content,
+		Title:          "[邮件] " + subject,
+		ServerSeq:      nil,
+		SentAt:         sentAt,
+		IsE2EE:         false,
+		IsRead:         false,
+		Metadata:       metadataValue(mailNotificationMetadata(params)),
+		CredentialName: identityName,
+	}, true
+}
+
+func buildMailNotificationContent(mailboxAddress string, fromAddr string, subject string, preview string, hasAttachments bool) string {
+	contentLines := []string{
+		fmt.Sprintf("[邮件] 收件邮箱: %s", mailboxAddress),
+	}
+	if fromAddr != "" {
+		contentLines = append(contentLines, fmt.Sprintf("发件人: %s", fromAddr))
+	}
+	if subject != "" {
+		contentLines = append(contentLines, fmt.Sprintf("主题: %s", subject))
+	}
+	if preview != "" {
+		contentLines = append(contentLines, "", preview)
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(这封邮件包含附件)")
+	}
+	return strings.Join(contentLines, "\n")
+}
+
+func mailNotificationMetadata(params map[string]any) map[string]any {
+	metadata := mapValue(params)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	copied := make(map[string]any, len(metadata)+1)
+	for key, value := range metadata {
+		copied[key] = value
+	}
+	copied["source_kind"] = "mail"
+	return copied
 }
 
 func messageRecordFromGroupIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {
