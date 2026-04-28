@@ -1,6 +1,6 @@
 {
   "name": "@awiki/cli",
-  "version": "1.0.10",
+  "version": "1.0.11-beta.1",
   "description": "Awiki command-line interface (awiki-cli)",
   "engines": {
     "node": ">=18"
