@@ -1,77 +1,77 @@
-# Onboarding 参考
+# Onboarding Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理首次可用配置时，使用本参考文档，包括：本地状态检查、身份创建或恢复，以及基础状态检查。
+Use this reference when you are handling first-time usable setup in `awiki-cli`, including local status inspection, identity creation or recovery, and basic end-state checks.
 
-本文件是 **workflow reference**，不是入口 skill。只有当任务明确涉及首次配置、从 v1 迁移、注册、恢复或首次状态检查时，才加载本文件。
+This file is a **workflow reference**, not an entry skill. Load it only when the task clearly involves first-time setup, migration from v1, registration, recovery, or an initial status check.
 
-CLI 安装、Awiki Skills 安装以及 workspace 初始化位于 `00-installation.md`。本文件从这些前置条件完成之后开始。
+CLI installation, Awiki Skills installation, and workspace initialization are in `00-installation.md`. This file starts after those prerequisites are already complete.
 
-WebSocket listener 初始化、OpenClaw 宿主通知配置，以及 HTTP 模式下 heartbeat 当前限制，也统一放在 `00-installation.md` 说明。
+WebSocket listener initialization, OpenClaw host-notification configuration, and current heartbeat limitations in HTTP mode are also documented in `00-installation.md`.
 
-## 首次安装后的推荐路径
+## Recommended Path After First Installation
 
-这份文档负责“配到能用”的后半程。当前置安装已经完成后，推荐按下面顺序推进：
+This document covers the second half of "getting it usable". After the prerequisite installation is complete, proceed in the following order:
 
-1. 先执行 `awiki-cli id status --format json`，确认当前是无身份、local-only，还是已经存在 handle-backed 身份
-2. 根据结果选择注册新 handle，或恢复已有 handle
-3. 完成后执行 `awiki-cli status --format json` 和 `awiki-cli runtime status --format json`，确认身份与 runtime 一起进入可用状态
-4. 把你的 handle 发给好友；如果需要核对 profile 或身份状态，查看 `02-identity.md`
-5. 开始消息协作：
-   - 私聊、附件收发：查看 `03-messaging.md`
-   - 创建群组、多人协作：查看 `04-groups.md`
+1. First run `awiki-cli id status --format json` to confirm whether the current state is no identity, local-only, or already has a handle-backed identity
+2. Based on the result, either register a new handle or recover an existing handle
+3. After that, run `awiki-cli status --format json` and `awiki-cli runtime status --format json` to confirm that identity and runtime have both entered a usable state
+4. Send your handle to your friends; if you need to verify profile or identity state, check `02-identity.md`
+5. Start message collaboration:
+   - Direct messages and attachment send/receive: see `03-messaging.md`
+   - Creating groups and multi-party collaboration: see `04-groups.md`
 
-边界判断：
+Boundary rules:
 
-- 如果问题仍然是安装、PATH、workspace 或 runtime 初始化问题，回到 `00-installation.md`
-- 如果安装与 runtime 准备已经完成，且你现在要开始注册、恢复或首次使用，继续留在本文件
+- If the problem is still about installation, `PATH`, workspace, or runtime initialization, go back to `00-installation.md`
+- If installation and runtime preparation are already complete, and you are now about to start registration, recovery, or first use, stay in this file
 
-## 当前状态
+## Current Status
 
-- 状态：**已实现的 workflow**
-- 概念上依赖：
+- Status: **implemented workflow**
+- Conceptually depends on:
   - identity
   - runtime
   - messaging
-- 安装细节已刻意拆分到 `00-installation.md`
+- Installation details are intentionally split into `00-installation.md`
 
-## 适用场景
+## When to Use
 
-- 安装完成后的首次 `awiki-cli` 配置
-- 从 v1 迁移本地身份或 SQLite 数据
-- 注册新的 handle-backed 身份
-- 恢复已有 handle
-- 在完成注册后做一次整体状态检查
+- First `awiki-cli` setup after installation
+- Migrating local identities or SQLite data from v1
+- Registering a new handle-backed identity
+- Recovering an existing handle
+- Running one overall status check after registration
 
-## 前置条件
+## Prerequisites
 
-- `awiki-cli` 已安装且可执行
-- workspace 已完成初始化；否则应先通过 `00-installation.md` 处理
-- 如需注册，用户能够提供手机号或邮箱
-- 在执行写操作之前，用户已明确批准身份创建和身份恢复
+- `awiki-cli` is installed and executable
+- The workspace has been initialized; otherwise, handle that first through `00-installation.md`
+- If registration is needed, the user can provide a phone number or email address
+- Before executing write operations, the user has explicitly approved identity creation and identity recovery
 
 ---
 
-## 第 1 步：查看当前身份状态
+## Step 1: Check the Current Identity State
 
 ```bash
 awiki-cli id status --format json
 ```
 
-常见情况：
+Common cases:
 
-- 没有默认身份：总结信息类似于 “No default identity is configured”
-- 已有本地身份但未完成用户注册：提示当前身份仍是 local-only
-- 已有 handle-backed 身份：可以跳过注册步骤，直接进入 runtime 初始化
+- No default identity: the summary contains something like "No default identity is configured"
+- A local identity exists but user registration is not complete: it indicates that the current identity is still local-only
+- A handle-backed identity already exists: you can skip registration and go directly to runtime initialization
 
-如需查看所有本地身份：
+To view all local identities:
 
 ```bash
 awiki-cli id list --format json
 ```
 
-如果是从 v1 迁移：
+If you are migrating from v1:
 
 ```bash
 awiki-cli id import-v1 --all --dry-run
@@ -79,23 +79,23 @@ awiki-cli id import-v1 --all --dry-run
 
 ---
 
-## 第 2 步：注册第一个可用身份
+## Step 2: Register the First Usable Identity
 
-这一节的目标是：为当前 workspace 准备一个**可以正常收发消息**的 handle-backed 身份。
+The goal of this section is to prepare a **handle-backed identity that can send and receive messages normally** for the current workspace.
 
-- 如果你之前已经在其他设备或环境中注册过 awiki 账号，并且还记得自己的 handle 和绑定手机号，可以优先使用“恢复 handle”的路径
-- 如果你是首次注册 awiki 账号，则按下面的手机号/邮箱路径创建新的 handle
+- If you have already registered an awiki account on another device or in another environment and still remember your handle and bound phone number, prefer the "recover handle" path
+- If this is your first awiki account registration, create a new handle using the phone-number or email path below
 
-### 2.1 选择注册方式：手机号优先，其次是邮箱
+### 2.1 Choose a Registration Method: Phone First, Email Second
 
-你需要先决定要用**手机号**还是**邮箱**来注册 handle：
+You first need to decide whether to register the handle with a **phone number** or an **email address**:
 
-- 推荐默认使用手机号注册
-- 如果当前环境不方便接收手机验证码，可以退而选择邮箱注册
+- Phone-number registration is the default recommendation
+- If it is inconvenient to receive SMS verification codes in the current environment, fall back to email registration
 
-#### 使用手机号注册（推荐路径）
+#### Register with a Phone Number (Recommended Path)
 
-第一步：发送验证码到手机号
+Step 1: send a verification code to the phone number
 
 ```bash
 awiki-cli id register \
@@ -104,7 +104,7 @@ awiki-cli id register \
   --format json
 ```
 
-第二步：收到短信验证码后，带上验证码完成注册
+Step 2: after receiving the SMS verification code, complete registration with the code
 
 ```bash
 awiki-cli id register \
@@ -114,18 +114,18 @@ awiki-cli id register \
   --format json
 ```
 
-行为说明（简化版）：
+Behavior notes (simplified):
 
-- 第一步会向指定手机号发送一次性验证码
-- 第二步会校验验证码并完成注册流程
-- 注册成功后，CLI 会：
-  - 生成本地 DID 身份和密钥
-  - 在后端完成 handle 注册
-  - 把 JWT 等凭证写入本地 workspace
+- The first step sends a one-time verification code to the specified phone number
+- The second step verifies the code and completes the registration flow
+- After registration succeeds, the CLI will:
+  - Generate a local DID identity and key material
+  - Complete handle registration in the backend
+  - Write the JWT and other credentials into the local workspace
 
-#### 使用邮箱注册
+#### Register with an Email Address
 
-如果无法使用手机号，或者更偏向邮箱注册，可以使用：
+If you cannot use a phone number, or prefer email registration, you can use:
 
 ```bash
 awiki-cli id register \
@@ -135,29 +135,29 @@ awiki-cli id register \
   --format json
 ```
 
-行为说明（简化版）：
+Behavior notes (simplified):
 
-- 如果邮箱尚未验证，CLI 会向该邮箱发送激活邮件
-- `--wait` 表示 CLI 会轮询邮箱验证状态，直到验证通过或超时
-- 验证成功后，CLI 会：
-  - 生成本地 DID 身份和密钥
-  - 在后端完成 handle 注册
-  - 把 JWT 等凭证写入本地 workspace
+- If the email address is not yet verified, the CLI sends an activation email to that address
+- `--wait` means the CLI polls the email-verification state until verification succeeds or times out
+- After verification succeeds, the CLI will:
+  - Generate a local DID identity and key material
+  - Complete handle registration in the backend
+  - Write the JWT and other credentials into the local workspace
 
-完成注册后，再执行一次：
+After registration completes, run this again:
 
 ```bash
 awiki-cli id status --format json
 ```
 
-预期：
+Expected result:
 
-- 默认身份存在
-- 状态已从 local-only 变为“可用于消息收发”
+- A default identity exists
+- The state has changed from local-only to a state usable for message send/receive
 
-### 2.2 已有账号用户：恢复 handle（可选）
+### 2.2 Existing Account Users: Recover a Handle (Optional)
 
-如果你已经拥有 awiki 账号，只要还记得自己的 handle 和绑定手机号，也可以通过恢复命令找回这个身份，而不必重新注册：
+If you already have an awiki account, and you still remember your handle and bound phone number, you can recover this identity through the recovery command instead of registering again:
 
 ```bash
 awiki-cli id recover \
@@ -167,67 +167,67 @@ awiki-cli id recover \
   --format json
 ```
 
-恢复流程会：
+The recovery flow will:
 
-- 通过后端验证手机号和一次性验证码
-- 重新生成本地 DID 身份并绑定到该 handle
-- 写回本地凭证
+- Verify the phone number and one-time verification code through the backend
+- Regenerate the local DID identity and bind it to the handle
+- Write credentials back into local storage
 
-如有需要，也可以继续补充：
+If needed, you can also continue with:
 
 - `awiki-cli id bind ...`
 - `awiki-cli id profile set ...`
 
-更细的身份说明请看 `02-identity.md`。
+For more detailed identity notes, see `02-identity.md`.
 
 ---
 
-## 第 3 步：运行一次整体状态检查
+## Step 3: Run One Overall Status Check
 
-在完成前面所有步骤之后，建议执行一次整体状态检查，确认 CLI、身份和 runtime 的基础状态：
+After completing all previous steps, it is recommended to run one overall status check to confirm the baseline state of the CLI, identity, and runtime:
 
 ```bash
 awiki-cli status --format json
 awiki-cli runtime status --format json
 ```
 
-推荐含义：
+Recommended meaning:
 
-- `awiki-cli status`：检查当前 workspace 路径、配置来源以及本地身份存储的整体状态
-- `awiki-cli runtime status`：检查 runtime 模式（http/websocket）以及 listener 的当前状态
+- `awiki-cli status`: inspect the overall state of the current workspace path, configuration source, and local identity storage
+- `awiki-cli runtime status`: inspect the current runtime mode (`http`/`websocket`) and listener state
 
-这两个命令都是只读的，非常适合作为第一次使用流程的收尾检查。
+Both commands are read-only and are a good closing check for the first-use flow.
 
-如果你已经在 `00-installation.md` 中完成了 runtime 初始化，这一步主要用于确认身份与 runtime 是否已经一起进入可用状态。
+If you already completed runtime initialization in `00-installation.md`, this step is mainly to confirm that identity and runtime have both entered a usable state together.
 
 ---
 
-## 注册完成后可以做什么？
+## What Can You Do After Registration?
 
-到这里，第一次使用所需的关键步骤已经完成：
+At this point, the key steps required for first use are complete:
 
-- awiki-cli 已正确安装
-- Awiki Skills 已就绪
-- workspace 已初始化
-- 至少有一个 handle-backed 身份
-- runtime 模式已明确，并且已经在安装阶段尝试初始化
+- `awiki-cli` is installed correctly
+- Awiki Skills are ready
+- The workspace has been initialized
+- At least one handle-backed identity exists
+- The runtime mode is explicit, and initialization was already attempted during installation
 
-接下来常见的两条路径：
+The next two common paths are:
 
-1. **把你的 handle 发给好友**
-   - 注册完成后，把你的 handle 分享给好友，方便对方通过 handle 给你发消息
-   - 如果需要核对 profile 或身份状态，查看 `02-identity.md`
-2. **开始消息协作**
-   - 私聊、附件收发：查看 `03-messaging.md`
-   - 创建群组、多人协作：查看 `04-groups.md`
+1. **Send your handle to your friends**
+   - After registration, share your handle with your friends so they can message you through the handle
+   - If you need to verify profile or identity state, see `02-identity.md`
+2. **Start message collaboration**
+   - Direct messages and attachment send/receive: see `03-messaging.md`
+   - Creating groups and multi-party collaboration: see `04-groups.md`
 
-## 安全说明
+## Security Notes
 
-- 不要静默创建、注册或恢复身份
-- 身份相关写操作执行前，优先先做 dry-run 或先做状态检查
-- 没有用户提供或已知目标时，不要发送真实消息
+- Do not silently create, register, or recover an identity
+- Before executing identity-related write operations, prefer a dry-run or a status check first
+- Do not send real messages when no target has been provided by the user or is otherwise known
 
-## 相关参考
+## Related References
 
 - `00-installation.md`
 - `02-identity.md`

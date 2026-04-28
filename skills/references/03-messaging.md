@@ -1,75 +1,75 @@
-# 消息参考
+# Messaging Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理私聊和群消息任务时，使用本参考文档，包括：inbox 审阅、私聊历史查看、附件发送与下载、已读状态更新，以及发送明文消息。
+Use this reference when you are handling direct-message and group-message tasks in `awiki-cli`, including inbox review, direct-message history lookup, attachment send/download, read-state updates, and sending plain-text messages.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及 direct message、group message、inbox、history、未读状态或当前 secure-message 契约时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves direct messages, group messages, inbox, history, unread state, or the current secure-message contract.
 
-## 当前状态
+## Current Status
 
-- 状态：**部分实现**
-- 当前已实现：
+- Status: **partially implemented**
+- Currently implemented:
   - `msg send`
   - `msg attachment download`
   - `msg inbox`
   - `msg history`
   - `msg mark-read`
-- 已保留但尚未实现：
+- Reserved but not yet implemented:
   - `msg secure status`
   - `msg secure init`
   - `msg secure repair`
   - `msg secure failed`
   - `msg secure retry`
   - `msg secure drop`
-- 契约中存在 `--secure on`，但当前服务端对 secure direct messaging 返回 unsupported
+- The contract includes `--secure on`, but the current server returns `unsupported` for secure direct messaging
 
-## 适用场景
+## When to Use
 
-- 发送私聊消息
-- 向已有群组发送文本
-- 向私聊或群消息发送附件
-- 从私聊或群消息中下载单个附件
-- 查看 inbox 或私聊历史
-- 标记消息已读
-- 理解当前 secure-message 契约及其限制
+- Send a direct message
+- Send text to an existing group
+- Send an attachment in a direct message or group message
+- Download a single attachment from a direct message or group message
+- View the inbox or direct-message history
+- Mark messages as read
+- Understand the current secure-message contract and its limitations
 
-## 核心概念
+## Core Concepts
 
-- **direct message**：一个身份发送给一个对端，使用 `--to` 选择
-- **group message**：一个身份发送到一个已有群组，使用 `--group` 选择
-- **inbox**：跨 direct 和 group 范围的聚合读路径
-- **history**：与单个目标之间的私聊线程历史
-- **read state**：本地未读状态跟踪
-- **secure messaging contract**：为未来 direct E2EE 流程预留的命令族
+- **direct message**: one identity sends to one target, selected with `--to`
+- **group message**: one identity sends to an existing group, selected with `--group`
+- **inbox**: an aggregated read path across direct and group scopes
+- **history**: the history of the direct-message thread with a single target
+- **read state**: local unread-state tracking
+- **secure messaging contract**: a reserved command family for future direct E2EE flows
 
-## 当前支持矩阵
+## Current Support Matrix
 
-| 范围 × 安全性 | 当前状态 | 说明 |
+| Scope × Security | Current Status | Notes |
 |---|---|---|
-| direct + plain | 已实现 | 使用 `msg send --to ...` |
-| direct + secure | 计划中 | 契约中存在 `--secure on`，但当前服务端返回 unsupported |
-| group + plain | 已实现 | 使用 `msg send --group ...` |
-| group + secure | 不支持 | 不在当前仓库路径内 |
+| direct + plain | Implemented | Use `msg send --to ...` |
+| direct + secure | Planned | The contract includes `--secure on`, but the current server returns `unsupported` |
+| group + plain | Implemented | Use `msg send --group ...` |
+| group + secure | Unsupported | Not part of the current repository path |
 
-## 资源模型
+## Resource Model
 
 - `Identity -> Direct Thread -> Message`
 - `Identity -> Group Membership -> Group Message`
 
-## 决策规则
+## Decision Rules
 
-- 给单个对象发送消息 -> `awiki-cli msg send --to <handle|did> --text ...`
-- 向群组发送消息 -> `awiki-cli msg send --group <group_did> --text ...`
-- 发送附件 -> `awiki-cli msg send (--to <handle|did> | --group <group_did>) --file ./hello.txt [--text "..."] [--mime-type ...]`
-- 从消息中保存一个文件 -> `awiki-cli msg attachment download ...`
-- 查看近期状态 -> `awiki-cli msg inbox ...`
-- 查看单个私聊线程 -> `awiki-cli msg history --with <handle|did>`
-- 清除未读状态 -> `awiki-cli msg mark-read ...`
-- 需要变更群生命周期 -> 使用 `04-groups.md`
-- 需要处理 transport setup -> 使用 `05-runtime.md`
+- Need to send a message to a single target -> `awiki-cli msg send --to <handle|did> --text ...`
+- Need to send a message to a group -> `awiki-cli msg send --group <group_did> --text ...`
+- Need to send an attachment -> `awiki-cli msg send (--to <handle|did> | --group <group_did>) --file ./hello.txt [--text "..."] [--mime-type ...]`
+- Need to save one file from a message -> `awiki-cli msg attachment download ...`
+- Need to inspect recent state -> `awiki-cli msg inbox ...`
+- Need to inspect one direct-message thread -> `awiki-cli msg history --with <handle|did>`
+- Need to clear unread state -> `awiki-cli msg mark-read ...`
+- Need to change group lifecycle state -> use `04-groups.md`
+- Need to handle transport setup -> use `05-runtime.md`
 
-## Canonical 命令
+## Canonical Commands
 
 - `awiki-cli msg send --to <target> --text "Hello"`
 - `awiki-cli msg send --group <group_did> --text "Hello group"`
@@ -79,59 +79,59 @@
 - `awiki-cli msg history --with <target> [--limit <n>] [--cursor <cursor>]`
 - `awiki-cli msg mark-read <MESSAGE_ID...>`
 
-## 常见模式
+## Common Patterns
 
-### 先 dry-run 再发送私聊
+### Dry-Run Before Sending a Direct Message
 
 1. `awiki-cli msg send --to alice --text "Hello" --dry-run`
 2. `awiki-cli msg send --to alice --text "Hello"`
 
-### 先检查成员关系，再向群组发送
+### Check Membership First, Then Send to a Group
 
 1. `awiki-cli group get --group <group_did>`
 2. `awiki-cli msg send --group <group_did> --text "Hello group" --dry-run`
 3. `awiki-cli msg send --group <group_did> --text "Hello group"`
 
-### 发送一个附件
+### Send an Attachment
 
 1. `awiki-cli msg send --to alice --file ./hello.txt --text "hello attachment" --dry-run`
 2. `awiki-cli msg send --to alice --file ./hello.txt --text "hello attachment"`
 
-### 先定位消息，再下载单个附件
+### Find the Message First, Then Download One Attachment
 
 1. `awiki-cli msg history --with alice --limit 50`
 2. `awiki-cli msg attachment download --with alice --message-id <message_id> --output ./downloads/file.bin --dry-run`
 3. `awiki-cli msg attachment download --with alice --message-id <message_id> --output ./downloads/file.bin`
 
-### 只读取未读私聊项
+### Read Only Unread Direct-Message Items
 
 `awiki-cli msg inbox --scope direct --unread --limit 20`
 
-## 副作用与确认
+## Side Effects and Confirmation
 
-- 需要显式确认：
+- Require explicit confirmation:
   - `msg send`
   - `msg attachment download`
   - `msg mark-read`
   - `msg inbox --mark-read`
-- 发送消息或下载附件前，优先使用 `--dry-run`
+- Prefer `--dry-run` before sending a message or downloading an attachment
 
-## 错误处理
+## Error Handling
 
-- target 或 body 不清楚 -> 检查 `awiki-cli schema msg send`
-- 附件下载命令形状不清楚 -> 检查 `awiki-cli schema msg attachment download`
-- auth/setup 错误 -> 确认活动身份已完成注册
-- transport unavailable -> 使用 `05-runtime.md`
-- 请求 secure 但当前不支持 -> 说明该 secure 路径在当前仓库中仍处于规划阶段
+- The target or body is unclear -> check `awiki-cli schema msg send`
+- The attachment-download command shape is unclear -> check `awiki-cli schema msg attachment download`
+- auth/setup error -> confirm that the active identity has completed registration
+- transport unavailable -> use `05-runtime.md`
+- secure is requested but currently unsupported -> explain that the secure path is still in the planning stage in the current repository
 
-## 实现说明
+## Implementation Notes
 
-- runtime mode 由 runtime 领域决定，而不是由消息命令决定
-- `msg send` 同时覆盖文本发送与附件发送；附件发送使用 `--file`，并可选附带 `--text` 作为 caption
-- `msg secure` 子命令已保留，但尚未实现
-- 不要把当前仓库状态描述成已支持端到端 secure direct messaging
+- Runtime mode is determined by the runtime domain, not by messaging commands
+- `msg send` covers both text sending and attachment sending; attachment sending uses `--file` and can optionally include `--text` as a caption
+- The `msg secure` subcommand is reserved but not yet implemented
+- Do not describe the current repository state as already supporting end-to-end secure direct messaging
 
-## 相关参考
+## Related References
 
 - `04-groups.md`
 - `05-runtime.md`

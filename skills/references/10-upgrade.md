@@ -1,79 +1,78 @@
-# 升级参考
+# Upgrade Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理版本升级任务时，使用本参考文档，包括：升级 CLI、刷新 Awiki Skills，以及在需要时重启 listener。
+Use this reference when you are handling version-upgrade tasks in `awiki-cli`, including upgrading the CLI, refreshing Awiki Skills, and restarting the listener when needed.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及 upgrade、update、npm 升级、版本过旧或 skill 刷新时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves upgrade, update, npm upgrades, outdated versions, or skill refresh.
 
-## 适用场景
+## When to Use
 
-- 用户要升级 `awiki-cli`
-- CLI 提示有新版本可用
-- CLI 提示当前版本低于最小支持版本
-- 用户要刷新当前 Agent 中的 Awiki Skills
+- The user wants to upgrade `awiki-cli`
+- The CLI indicates that a new version is available
+- The CLI indicates that the current version is lower than the minimum supported version
+- The user wants to refresh Awiki Skills in the current Agent
 
-## 升级 `awiki-cli`
+## Upgrade `awiki-cli`
 
-推荐路径：
+Recommended path:
 
 ```bash
 awiki-cli upgrade
 ```
 
-这行命令会先检查版本；当存在新版本或当前版本低于最小支持版本时，会执行下面的命令（如果你希望直接执行 npm 全局升级，也可以使用）：
+This command checks the version first. When a newer version exists, or when the current version is below the minimum supported version, it executes the following command. If you want to run the global npm upgrade directly, you can also use it yourself:
 
 ```bash
 npm install -g @awiki/cli@latest
 ```
 
-如果你所在网络无法访问 `registry.npmjs.org`，请改用：
+If your network cannot access `registry.npmjs.org`, use:
 
 ```bash
 npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
 ```
 
-升级完成后，新开一个 shell，再执行：
+After the upgrade is complete, open a new shell and run:
 
 ```bash
 awiki-cli version
 ```
 
-## 刷新 Awiki Skills
+## Refresh Awiki Skills
 
-升级 CLI 不会自动刷新当前 Agent 中已安装的 Awiki Skills。要刷新 skill，请重新执行安装命令。
+Upgrading the CLI does not automatically refresh the Awiki Skills already installed in the current Agent. To refresh the skill, run the installation command again.
 
-如果当前环境可以稳定访问 GitHub：
-
-```bash
-npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <你的-agent-id> -y -g
-```
-
-如果你在中国大陆环境中安装，推荐优先使用 Gitee：
+If the current environment can reliably access GitHub:
 
 ```bash
-npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <你的-agent-id> -y -g
+npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <your-agent-id> -y -g
 ```
 
-如果你不确定 `--agent` 的值，务必回到 `00-installation.md` 查表。
+If you are installing from mainland China, it is recommended to prefer Gitee:
 
-## 验证
+```bash
+npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <your-agent-id> -y -g
+```
 
-先确认当前版本：
+If you are unsure about the value of `--agent`, make sure to go back to `00-installation.md` and check the table.
+
+## Verification
+
+First confirm the current version:
 
 ```bash
 awiki-cli version
 ```
 
-如果当前使用的是 websocket listener，再执行：
+If you are currently using the websocket listener, also run:
 
 ```bash
 awiki-cli runtime listener restart
 awiki-cli runtime listener status
 ```
 
-## 相关参考
+## Related References
 
 - `00-installation.md`
 - `05-runtime.md`
-

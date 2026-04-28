@@ -1,155 +1,155 @@
-# 安装参考
+# Installation Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理低频环境准备任务时，使用本参考文档，包括：安装 `awiki-cli`、把 Awiki Skills 安装到 agent 环境中，以及初始化 workspace 根目录。
+Use this reference when you are handling infrequent environment-setup tasks in `awiki-cli`, including installing `awiki-cli`, installing Awiki Skills into the agent environment, and initializing the workspace root directory.
 
-本文件刻意与 onboarding 分离，因此在日常使用中，**不会**默认加载这类较长的安装说明。
+This file is intentionally separated from onboarding, so these longer installation instructions are **not** loaded by default during day-to-day use.
 
-## 适用场景
+## When to Use
 
-- 用户尚未安装 `awiki-cli`
-- 用户需要把 Awiki Skills 安装到 agent 环境中
-- 用户需要在首次使用前初始化或隔离 workspace 根目录
+- The user has not installed `awiki-cli` yet
+- The user needs to install Awiki Skills into the agent environment
+- The user needs to initialize or isolate the workspace root directory before first use
 
 
 ---
 
-## 第 1 步：安装 `awiki-cli`
+## Step 1: Install `awiki-cli`
 
-执行以下命令全局安装 CLI：
+Run the following command to install the CLI globally:
 
 ```bash
 npm install -g @awiki/cli@latest
 ```
 
-如果 `registry.npmjs.org` 不可达，请改用：
+If `registry.npmjs.org` is unreachable, use:
 
 ```bash
 npm install -g @awiki/cli@latest --registry=https://registry.npmmirror.com
 ```
 
-安装完成后，验证 CLI 是否可用：
+After installation, verify that the CLI is available:
 
 ```bash
 awiki-cli version --format json
 ```
 
-预期：
+Expected result:
 
-- 命令可以正常执行
-- 输出是包含 `data.version` 字段的 JSON
+- The command runs successfully
+- The output is JSON containing the `data.version` field
 
-如果 `awiki-cli` 命令不可用，优先检查全局 npm bin 目录是否在 `PATH` 中，或参考当前环境文档修复全局 npm 安装。
+If the `awiki-cli` command is unavailable, first check whether the global npm bin directory is in `PATH`, or consult the current environment documentation to fix the global npm installation.
 
 ---
 
-## 第 2 步：安装 Awiki Skills
+## Step 2: Install Awiki Skills
 
-这一节的目标是：在你当前使用的 Agent 里，为自己安装一份 awiki Skills。
+The goal of this section is to install a copy of the awiki Skills for yourself in the Agent you are currently using.
 
-总体思路：
+Overall approach:
 
-1. 先判断你当前使用的是哪种 Agent
-2. 从下表找到对应的 `--agent` 参数
-3. 用带有 `--agent` 的命令安装 Awiki Skills
+1. First determine which Agent you are currently using
+2. Find the corresponding `--agent` parameter in the table below
+3. Install Awiki Skills using a command that includes `--agent`
 
-### 2.1 找到你所属的 Agent
+### 2.1 Find Your Agent
 
 
-|Agent环境|`--agent`|
+| Agent Environment | `--agent` |
 |--------------|----------------|
-|OpenClaw|`openclaw`|
-|ClaudeCode|`claude-code`|
-|Cursor|`cursor`|
-|GitHubCopilot|`github-copilot`|
-|OpenCode|`opencode`|
-|Pi|`pi`|
-|Qoder|`qoder`|
-|Antigravity|`antigravity`|
-|CodeBuddy|`codebuddy`|
-|Codex|`codex`|
-|Trae|`trae`|
-|TraeCN|`trae-cn`|
-|Windsurf|`windsurf`|
-|GeminiCLI|`gemini-cli`|
-|Continue|`continue`|
-|Amp|`amp`|
-|KimiCodeCLI|`kimi-cli`|
-|Replit|`replit`|
-|Universal|`universal`|
-|Warp|`warp`|
-|Cline|`cline`|
-|OpenHands|`openhands`|
-|RooCode|`roo`|
-|CommandCode|`command-code`|
-|CortexCode|`cortex`|
-|KiloCode|`kilo`|
-|MistralVibe|`mistral-vibe`|
-|QwenCode|`qwen-code`|
-|Firebender|`firebender`|
-|DeepAgents|`deepagents`|
-|Goose|`goose`|
-|Mux|`mux`|
-|Augment|`augment`|
-|IBMBob|`bob`|
-|Droid|`droid`|
-|Junie|`junie`|
-|iFlowCLI|`iflow-cli`|
-|KiroCLI|`kiro-cli`|
-|Kode|`kode`|
-|MCPJam|`mcpjam`|
-|Neovate|`neovate`|
-|Zencoder|`zencoder`|
-|Pochi|`pochi`|
-|AdaL|`adal`|
-|Crush|`crush`|
+| OpenClaw | `openclaw` |
+| ClaudeCode | `claude-code` |
+| Cursor | `cursor` |
+| GitHubCopilot | `github-copilot` |
+| OpenCode | `opencode` |
+| Pi | `pi` |
+| Qoder | `qoder` |
+| Antigravity | `antigravity` |
+| CodeBuddy | `codebuddy` |
+| Codex | `codex` |
+| Trae | `trae` |
+| TraeCN | `trae-cn` |
+| Windsurf | `windsurf` |
+| GeminiCLI | `gemini-cli` |
+| Continue | `continue` |
+| Amp | `amp` |
+| KimiCodeCLI | `kimi-cli` |
+| Replit | `replit` |
+| Universal | `universal` |
+| Warp | `warp` |
+| Cline | `cline` |
+| OpenHands | `openhands` |
+| RooCode | `roo` |
+| CommandCode | `command-code` |
+| CortexCode | `cortex` |
+| KiloCode | `kilo` |
+| MistralVibe | `mistral-vibe` |
+| QwenCode | `qwen-code` |
+| Firebender | `firebender` |
+| DeepAgents | `deepagents` |
+| Goose | `goose` |
+| Mux | `mux` |
+| Augment | `augment` |
+| IBMBob | `bob` |
+| Droid | `droid` |
+| Junie | `junie` |
+| iFlowCLI | `iflow-cli` |
+| KiroCLI | `kiro-cli` |
+| Kode | `kode` |
+| MCPJam | `mcpjam` |
+| Neovate | `neovate` |
+| Zencoder | `zencoder` |
+| Pochi | `pochi` |
+| AdaL | `adal` |
+| Crush | `crush` |
 
 
-### 2.2 安装 Awiki Skills
+### 2.2 Install Awiki Skills
 
-如果你所在环境可以稳定访问 GitHub，也可以使用官方 GitHub 仓库地址：
-
-```bash
-npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <你的-agent-id> -y -g
-```
-
-中国大陆用户推荐优先使用 Gitee 仓库地址进行安装：
+If your environment can reliably access GitHub, you can use the official GitHub repository URL:
 
 ```bash
-npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <你的-agent-id> -y -g
+npx skills add https://github.com/AgentConnect/awiki-cli.git --agent <your-agent-id> -y -g
 ```
 
-如果你确实希望给所有支持的 Agent 都安装 Awiki Skills，可以直接删掉 `--agent <你的-agent-id>` 参数。
+If you are in mainland China, it is recommended to prefer the Gitee repository URL:
 
-如果当前环境中没有 `npx skills add`，或者该命令执行失败，请改用 Awiki 仓库作为 skill 源，让当前 Agent 按自身支持的方式加载：
+```bash
+npx skills add https://gitee.com/agentconnect/awiki-cli.git --agent <your-agent-id> -y -g
+```
 
-- Gitee：[https://gitee.com/agentconnect/awiki-cli](https://gitee.com/agentconnect/awiki-cli)
-- GitHub：[https://github.com/AgentConnect/awiki-cli](https://github.com/AgentConnect/awiki-cli)
+If you really want to install Awiki Skills for all supported Agents, you can remove the `--agent <your-agent-id>` parameter entirely.
 
-下载后再项目根路径下进入skills文件夹安装skill。
+If `npx skills add` is unavailable in the current environment, or if that command fails, use the Awiki repository as the skill source and let the current Agent load it using its own supported method:
+
+- Gitee: [https://gitee.com/agentconnect/awiki-cli](https://gitee.com/agentconnect/awiki-cli)
+- GitHub: [https://github.com/AgentConnect/awiki-cli](https://github.com/AgentConnect/awiki-cli)
+
+After downloading, enter the `skills` folder under the project root and install the skill there.
 
 ---
 
-## 第 3 步：初始化 Workspace
+## Step 3: Initialize the Workspace
 
-- 默认 workspace路径：`~/.awiki-cli/`
-- 通过覆盖环境变量修改路径：`AWIKI_CLI_WORKSPACE_HOME_DIR`
+- Default workspace path: `~/.awiki-cli/`
+- Override the path by setting the environment variable: `AWIKI_CLI_WORKSPACE_HOME_DIR`
 
-### 使用默认 workspace
+### Use the Default Workspace
 
 ```bash
 awiki-cli init
 ```
 
-当前重要行为：
+Current important behavior:
 
-- `awiki-cli init` 不只是创建目录和 `config.yaml`
-- 它还会初始化本地 sqlite schema，并应用 runtime policy
-- 在默认 websocket listener policy（`enabled = true`、`auto_install = true`、`auto_start = true`）下，这一步可能安装并启动 listener service
-- 如果当前环境对 service-manager 副作用敏感，应先执行 `awiki-cli init --dry-run`；但要明确当前 dry-run 不会完整展开 listener service install/start 的副作用
+- `awiki-cli init` does more than just create the directory and `config.yaml`
+- It also initializes the local SQLite schema and applies runtime policy
+- Under the default websocket listener policy (`enabled = true`, `auto_install = true`, `auto_start = true`), this step may install and start the listener service
+- If the current environment is sensitive to service-manager side effects, run `awiki-cli init --dry-run` first; however, note that the current dry-run does not fully expand listener service install/start side effects
 
-在 workspace 根目录下，预期会看到：
+Inside the workspace root directory, you should expect to see:
 
 - `config.yaml`
 - `identities/`
@@ -159,66 +159,66 @@ awiki-cli init
 - `logs/`
 - `upgrade/`
 
-### 可选：为单个 agent 隔离 workspace
+### Optional: Isolate the Workspace for a Single Agent
 
 ```bash
 export AWIKI_CLI_WORKSPACE_HOME_DIR=~/awiki-workspaces/agent-1
 awiki-cli init
 ```
 
-从此以后，所有 config、identities、data、cache 和 logs 都会位于该目录下。
+From that point on, all config, identities, data, cache, and logs will live in that directory.
 
-当 websocket mode 与 listener 自动管理仍然启用时，隔离 workspace 中同样适用上述 runtime-policy 副作用。
+If websocket mode and automatic listener management are still enabled, the same runtime-policy side effects apply in the isolated workspace as well.
 
 ---
 
-## 第 4 步：启用 runtime（推荐）
+## Step 4: Enable Runtime (Recommended)
 
-完成 workspace 初始化后，建议继续完成 runtime 初始化。
+After initializing the workspace, it is recommended to continue by completing runtime initialization.
 
-### 4.1 WebSocket 模式（推荐）
+### 4.1 WebSocket Mode (Recommended)
 
-推荐默认使用 WebSocket 模式，接收消息和通知更加实时：
+WebSocket mode is recommended by default because message and notification delivery is more real-time:
 
 ```bash
 awiki-cli runtime setup --mode websocket
 ```
 
-当前重要行为：
+Current important behavior:
 
-- 在 websocket 模式下，`runtime setup` 会在更新配置后应用 runtime policy
-- 使用默认 listener policy（`enabled = true`、`auto_install = true`、`auto_start = true`）时，这一步可能安装并启动 listener service
-- 对 websocket `runtime setup`，应将其视为可能变更 system-service 状态的步骤
+- In websocket mode, `runtime setup` applies runtime policy after updating the configuration
+- When the default listener policy is used (`enabled = true`, `auto_install = true`, `auto_start = true`), this step may install and start the listener service
+- Treat websocket `runtime setup` as a step that may change system-service state
 
-如果你只做一次性调用、不需要长连接，也可以使用 HTTP 模式：
+If you only need one-off calls and do not need a long-lived connection, you can also use HTTP mode:
 
 ```bash
 awiki-cli runtime setup --mode http
 ```
 
-### 4.1.1 启动并检查 listener
+### 4.1.1 Start and Check the Listener
 
 ```bash
 awiki-cli runtime listener start
 awiki-cli runtime listener status --format json
 ```
 
-预期：
+Expected result:
 
-- listener 状态为 running
-- 输出中包含当前工作区的 socket 路径等信息
+- The listener status is `running`
+- The output includes the socket path for the current workspace and related information
 
-如果 `runtime setup` 完成后 listener 已经运行，则不需要重复执行 `runtime listener start`。
+If the listener is already running after `runtime setup`, there is no need to run `runtime listener start` again.
 
-如果当前还没有 handle-backed 身份，WebSocket listener 可能暂时无法完成完整连接；这不影响你继续进入 `01-onboarding.md` 完成身份注册。注册完成后，再执行一次 `awiki-cli runtime listener status --format json` 或 `awiki-cli runtime status --format json` 复检即可。
+If you do not yet have a handle-backed identity, the WebSocket listener may not be able to complete a full connection yet. This does not prevent you from continuing into `01-onboarding.md` to finish identity registration. After registration, run `awiki-cli runtime listener status --format json` or `awiki-cli runtime status --format json` once more to verify.
 
-### 4.1.2 为宿主智能体配置通知（OpenClaw）
+### 4.1.2 Configure Host Notifications for the Host Agent (OpenClaw)
 
-如果你在 WebSocket 模式下希望把新消息或群组事件通知给宿主智能体，当前推荐使用 OpenClaw sink。
+If you want new messages or group events to notify the host agent while using WebSocket mode, the currently recommended path is the OpenClaw sink.
 
-先确认 **Webhook 侧的配置是在 OpenClaw 里修改**，不是在 awiki-cli 里直接生成。也就是说，你需要先在 OpenClaw 的配置文件中把 hooks 打开，再回到 awiki-cli 配置 `host-notify openclaw`。
+First confirm that the **Webhook-side configuration is changed in OpenClaw**, not generated directly inside `awiki-cli`. In other words, you need to enable hooks in the OpenClaw config file first, then return to `awiki-cli` to configure `host-notify openclaw`.
 
-推荐的 OpenClaw hooks 配置形态如下（示意）：
+The recommended OpenClaw hooks configuration looks like this (example):
 
 ```json
 {
@@ -233,15 +233,15 @@ awiki-cli runtime listener status --format json
 }
 ```
 
-重点说明：
+Key notes:
 
-- `path` 建议保持 `/hooks`；如果你改成别的值，awiki-cli 也会按 `gateway.port + hooks.path + /agent` 自动推导 webhook URL
-- `allowRequestSessionKey` 可以保持 `false`
-- token 是否启用由 OpenClaw 配置决定；如果启用了，就需要在 awiki-cli 里写入同一个 token
+- It is recommended to keep `path` as `/hooks`; if you change it to another value, awiki-cli will still automatically derive the webhook URL from `gateway.port + hooks.path + /agent`
+- `allowRequestSessionKey` can remain `false`
+- Whether token validation is enabled is determined by the OpenClaw configuration; if it is enabled, you need to write the same token into awiki-cli
 
-也就是说，**Webhook 要先改 OpenClaw 配置里的 hooks，再回到 awiki-cli 启用 openclaw sink 并注册 route**。
+In other words, **first update `hooks` in the OpenClaw config, then come back to awiki-cli to enable the openclaw sink and register a route**.
 
-建议命令顺序：
+Recommended command order:
 
 ```bash
 awiki-cli runtime host-notify config show
@@ -252,43 +252,43 @@ awiki-cli runtime host-notify openclaw route add --session-key <session-key>
 awiki-cli runtime host-notify config show
 ```
 
-说明：
+Notes:
 
-- `runtime host-notify` 默认是启用的，但默认 `sink` 是 `log`；如果要通知宿主智能体，需要把 `sink` 改成 `openclaw`
-- `hook_url` 通常不需要手工填写；awiki-cli 会优先读取 `~/.openclaw/openclaw.json` 中的 `gateway.port` 和 `hooks.path`，自动推导出有效的 webhook URL
-- 如果 OpenClaw hooks 启用了 token 校验，awiki-cli 会按以下顺序解析 token：
+- `runtime host-notify` is enabled by default, but the default `sink` is `log`; if you want to notify the host agent, you need to switch `sink` to `openclaw`
+- You usually do not need to fill in `hook_url` manually; awiki-cli will first read `gateway.port` and `hooks.path` from `~/.openclaw/openclaw.json`, then automatically derive a valid webhook URL
+- If OpenClaw hooks have token validation enabled, awiki-cli resolves the token in the following order:
   - `runtime.host_notify.openclaw.token`
   - `OPENCLAW_HOOK_TOKEN`
-  - `~/.openclaw/openclaw.json` 中的 `hooks.token`
-- 如果你希望显式覆盖自动探测到的 token，仍然可以使用 `runtime host-notify openclaw set-token --value <token>` 写入 token
-- `runtime host-notify config show` 会显示 token 是否已配置，但不会暴露 token 内容
-- `route add` 支持两种输入方式：
-  - 显式指定 `--channel <channel> --to <target>`
-  - 指定 `--session-key <session-key>`，由 awiki-cli 本地解析出 `channel/to`
-- 通常由宿主 agent 执行 `route add`，因为只有宿主 agent 知道当前对话的 `channel`、`to` 或 `session-key`
-- `route add` 成功后，awiki-cli 会自动向该 route 发送一条确认消息；后续 awiki 的消息通知就会通过纯 webhook 路径投递到这些已注册 routes
-- OpenClaw hook URL 必须保持在 loopback 地址上
+  - `hooks.token` in `~/.openclaw/openclaw.json`
+- If you want to explicitly override the auto-detected token, you can still use `runtime host-notify openclaw set-token --value <token>` to write the token
+- `runtime host-notify config show` will indicate whether a token is configured, but will not expose the token content
+- `route add` supports two input forms:
+  - Explicitly specify `--channel <channel> --to <target>`
+  - Specify `--session-key <session-key>`, letting awiki-cli resolve `channel/to` locally
+- Normally the host agent performs `route add`, because only the host agent knows the current `channel`, `to`, or `session-key`
+- After `route add` succeeds, awiki-cli will automatically send a confirmation message to that route; subsequent awiki message notifications will be delivered to those registered routes through a pure webhook path
+- The OpenClaw hook URL must remain on a loopback address
 
-如果只需要本地日志通知，而不需要宿主智能体接入，可以保持默认 `sink = log`。
+If you only need local log notifications and do not need host-agent integration, you can keep the default `sink = log`.
 
-### 4.2 HTTP 模式（一次性调用）
+### 4.2 HTTP Mode (One-Off Calls)
 
-如果你只做一次性调用、不需要长连接，也可以使用 HTTP 模式：
+If you only need one-off calls and do not need a long-lived connection, you can also use HTTP mode:
 
 ```bash
 awiki-cli runtime setup --mode http
 ```
 
-HTTP 模式的特点：
+Characteristics of HTTP mode:
 
-- 不依赖本地 WebSocket listener 持续运行
-- 更适合单次命令调用或调试场景
-- 不会提供 WebSocket 下行消息接收能力
-- 如果你希望宿主智能体持续感知新消息、新状态或身份异常，需要由宿主智能体自己开启 heartbeat 或循环定时任务
+- It does not depend on a continuously running local WebSocket listener
+- It is more suitable for one-off CLI calls or debugging scenarios
+- It does not provide WebSocket downstream message receiving capability
+- If you want the host agent to continuously observe new messages, new status, or identity anomalies, the host agent must start its own heartbeat or looped scheduled task
 
-### 4.3 HTTP 模式下的宿主定时检查
+### 4.3 Host-Side Periodic Checks in HTTP Mode
 
-如果宿主智能体需要周期性做运行状态检查，当前只能由宿主环境自行调度普通 CLI 命令，例如：
+If the host agent needs to perform periodic runtime-state checks, this currently has to be scheduled by the host environment itself using ordinary CLI commands, for example:
 
 ```bash
 awiki-cli status --format json
@@ -296,19 +296,19 @@ awiki-cli runtime status --format json
 awiki-cli msg inbox --unread --limit 20 --format json
 ```
 
-推荐理解为：
+Recommended interpretation:
 
-- `awiki-cli status --format json`：检查 workspace、配置来源和身份状态
-- `awiki-cli runtime status --format json`：检查当前 runtime 模式与 listener 状态
-- `awiki-cli msg inbox --unread --limit 20 --format json`：检查是否有新的未读消息
+- `awiki-cli status --format json`: Check the workspace, configuration source, and identity state
+- `awiki-cli runtime status --format json`: Check the current runtime mode and listener state
+- `awiki-cli msg inbox --unread --limit 20 --format json`: Check whether there are new unread messages
 
-这类调度属于**宿主智能体侧的 heartbeat / 定时轮询**。
+This scheduling belongs to the **host-agent-side heartbeat / periodic polling**.
 
-### 4.3.1 OpenClaw 心跳示例
+### 4.3.1 OpenClaw Heartbeat Example
 
-如果宿主智能体运行在 OpenClaw 中，建议开启 OpenClaw 自身的 heartbeat，并把间隔设置为 **15 分钟或更短**。
+If the host agent runs in OpenClaw, it is recommended to enable OpenClaw's own heartbeat and set the interval to **15 minutes or less**.
 
-OpenClaw 配置示意：
+Example OpenClaw configuration:
 
 ```jsonc
 // openclaw.json
@@ -324,30 +324,30 @@ OpenClaw 配置示意：
 }
 ```
 
-在 HTTP 模式下，OpenClaw heartbeat 的职责是作为宿主的**循环定时任务触发器**，周期性执行上面的普通 CLI 检查命令。
+In HTTP mode, the responsibility of OpenClaw heartbeat is to act as the host's **looped scheduled-task trigger**, periodically executing the ordinary CLI inspection commands above.
 
-也就是说，OpenClaw heartbeat 开启后，宿主智能体应在 heartbeat tick 上至少做这些事情：
+In other words, after OpenClaw heartbeat is enabled, the host agent should at least do the following on each heartbeat tick:
 
-1. 运行 `awiki-cli status --format json`
-2. 运行 `awiki-cli runtime status --format json`
-3. 运行 `awiki-cli msg inbox --unread --limit 20 --format json`
+1. Run `awiki-cli status --format json`
+2. Run `awiki-cli runtime status --format json`
+3. Run `awiki-cli msg inbox --unread --limit 20 --format json`
 
-如果宿主环境不是 OpenClaw，也应使用 cron、系统调度器或平台自带的周期任务机制，以相同方式执行这些检查命令。
+If the host environment is not OpenClaw, use cron, a system scheduler, or the platform's built-in periodic task mechanism to run the same inspection commands in the same way.
 
 ---
 
-## 下一步
+## Next Step
 
-当以下条件都满足时，说明安装阶段已经结束，可以切换到 `01-onboarding.md`：
+When all of the following are true, the installation phase is complete and you can switch to `01-onboarding.md`:
 
-- `awiki-cli` 已可执行
-- Awiki Skills 已安装到当前 Agent
-- workspace 已初始化
-- runtime 模式已明确，且 listener 至少完成过一次状态检查
+- `awiki-cli` is executable
+- Awiki Skills are installed into the current Agent
+- The workspace has been initialized
+- The runtime mode has been made explicit, and the listener has completed at least one status check
 
-进入 `01-onboarding.md` 后，优先按“查看当前身份状态 -> 注册或恢复一个可用身份 -> 做一次整体状态检查”的顺序继续。
+After entering `01-onboarding.md`, continue in this order: "check current identity state -> register or recover a usable identity -> run one overall status check".
 
-## 相关参考
+## Related References
 
 - `01-onboarding.md`
 - `05-runtime.md`
