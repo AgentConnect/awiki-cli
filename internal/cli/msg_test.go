@@ -29,6 +29,9 @@ func TestMsgDryRunPlansRenderStableContracts(t *testing.T) {
 				if target["kind"] != "direct" || target["did"] != "bob" {
 					t.Fatalf("target = %#v, want direct bob", target)
 				}
+				if target["handle"] != "bob.awiki.ai" {
+					t.Fatalf("target.handle = %#v, want bob.awiki.ai", target["handle"])
+				}
 				if plan["message_type"] != "text" {
 					t.Fatalf("plan.message_type = %#v, want text", plan["message_type"])
 				}
@@ -59,6 +62,9 @@ func TestMsgDryRunPlansRenderStableContracts(t *testing.T) {
 			verifyPlan: func(t *testing.T, plan map[string]any) {
 				if plan["with"] != "bob" || plan["cursor"] != "seq-2" || plan["limit"] != float64(15) {
 					t.Fatalf("plan = %#v, want with/cursor/limit", plan)
+				}
+				if plan["with_handle"] != "bob.awiki.ai" {
+					t.Fatalf("plan.with_handle = %#v, want bob.awiki.ai", plan["with_handle"])
 				}
 			},
 		},

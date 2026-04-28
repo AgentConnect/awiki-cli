@@ -156,6 +156,10 @@ func parseBool(raw string) bool {
 	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }
 
+func updateCacheOnlyEnabled() bool {
+	return parseBool(os.Getenv("AWIKI_CLI_UPDATE_CACHE_ONLY"))
+}
+
 func cachePath(resolved *appconfig.Resolved) (string, error) {
 	if resolved == nil {
 		return "", errors.New("config is nil")
@@ -175,6 +179,7 @@ func loadMetadata(ctx context.Context, resolved *appconfig.Resolved, ttlSeconds 
 	if cacheErr == nil {
 		if m, ok, err := readCache(cacheFile, ttlSeconds); err == nil {
 			if ok {
+				m.Source = "cache"
 				if !preferFresh {
 					return m, nil
 				}
@@ -188,6 +193,12 @@ func loadMetadata(ctx context.Context, resolved *appconfig.Resolved, ttlSeconds 
 			// Any cache read error is treated as soft; we still try network.
 			cached = Metadata{}
 		}
+	}
+	if updateCacheOnlyEnabled() {
+		if cached.LatestVersion != "" {
+			return cached, nil
+		}
+		return zero, errors.New("update cache-only mode is enabled but no cached metadata is available")
 	}
 
 	network, err := fetchFromRegistry(ctx)

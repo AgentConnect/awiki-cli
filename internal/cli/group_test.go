@@ -49,6 +49,9 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				if request["Member"] != "bob" {
 					t.Fatalf("request.Member = %#v, want %q", request["Member"], "bob")
 				}
+				if plan["member_handle"] != "bob.awiki.ai" {
+					t.Fatalf("plan.member_handle = %#v, want bob.awiki.ai", plan["member_handle"])
+				}
 			},
 		},
 		{

@@ -106,7 +106,11 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 	}
 	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason}
 	if a.globals.DryRun {
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
+		plan := map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}
+		if completed := message.CompleteBareHandle(member, service.Config().DIDDomain); completed != strings.TrimSpace(member) {
+			plan["member_handle"] = completed
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group membership change planned", nil, a.identityMeta())
 	}
 	var result *message.CommandResult
 	if memberAction == "add" {

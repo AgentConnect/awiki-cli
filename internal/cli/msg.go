@@ -171,6 +171,9 @@ func (a *App) runMsgSend(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		action := "direct.send"
 		target := map[string]any{"did": to, "kind": "direct"}
+		if completed := message.CompleteBareHandle(to, service.Config().DIDDomain); completed != strings.TrimSpace(to) {
+			target["handle"] = completed
+		}
 		if strings.TrimSpace(group) != "" {
 			action = "group.send"
 			target = map[string]any{"did": group, "kind": "group"}
@@ -236,6 +239,9 @@ func (a *App) runMsgAttachmentDownload(cmd *cobra.Command, args []string) error 
 			"output":        outputPath,
 			"transport":     "http",
 		}}
+		if completed := message.CompleteBareHandle(with, service.Config().DIDDomain); completed != strings.TrimSpace(with) {
+			data["plan"].(map[string]any)["with_handle"] = completed
+		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: attachment download planned", nil, a.identityMeta())
 	}
 	result, err := service.DownloadAttachment(cmd.Context(), request)
@@ -276,6 +282,9 @@ func (a *App) runMsgInbox(cmd *cobra.Command, args []string) error {
 			"limit":        limit,
 			"mark_read":    markRead,
 		}}
+		if completed := message.CompleteBareHandle(with, service.Config().DIDDomain); completed != strings.TrimSpace(with) {
+			data["plan"].(map[string]any)["with_handle"] = completed
+		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: inbox read planned", nil, a.identityMeta())
 	}
 	result, err := service.Inbox(cmd.Context(), request)
@@ -308,6 +317,9 @@ func (a *App) runMsgHistory(cmd *cobra.Command, args []string) error {
 			"limit":        limit,
 			"cursor":       cursor,
 		}}
+		if completed := message.CompleteBareHandle(with, service.Config().DIDDomain); completed != strings.TrimSpace(with) {
+			data["plan"].(map[string]any)["with_handle"] = completed
+		}
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: direct history read planned", nil, a.identityMeta())
 	}
 	result, err := service.History(cmd.Context(), request)

@@ -42,6 +42,7 @@ This file is a **reference**, not an entry skill. Load it only when the task cle
 - **history**: the history of the direct-message thread with a single target
 - **read state**: local unread-state tracking
 - **secure messaging contract**: a reserved command family for future direct E2EE flows
+- **bare handle completion**: when a direct/group handle input is a bare handle like `alice`, `awiki-cli` completes it to `alice.<did_domain>` before handle lookup; explicit full handles keep their explicit domain, and DIDs pass through unchanged
 
 ## Current Support Matrix
 

@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -59,6 +60,74 @@ func TestRequireActiveIdentityAcceptsRegisteredUser(t *testing.T) {
 	}
 	if record.Handle != "alice" || record.UserID != "user-123" {
 		t.Fatalf("unexpected record = %#v", record)
+	}
+}
+
+func TestResolveTargetBypassesLookupForDID(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{resolved: testResolvedConfig(t)}
+	did := "did:wba:tenant.example:user:bob:e1_bob"
+
+	resolvedDID, resolvedHandle, err := service.resolveTarget(context.Background(), did)
+	if err != nil {
+		t.Fatalf("resolveTarget(did) error = %v", err)
+	}
+	if resolvedDID != did {
+		t.Fatalf("resolvedDID = %q, want %q", resolvedDID, did)
+	}
+	if resolvedHandle != "" {
+		t.Fatalf("resolvedHandle = %q, want empty", resolvedHandle)
+	}
+}
+
+func TestResolveTargetCompletesBareHandleUsingDIDDomain(t *testing.T) {
+	t.Parallel()
+
+	var captured rpcRequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/handle/rpc" {
+			http.NotFound(w, r)
+			return
+		}
+		captured = decodeRPCRequest(t, r)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      captured.ID,
+			"result": map[string]any{
+				"handle":      "bob",
+				"full_handle": "bob.tenant.example",
+				"did":         "did:wba:tenant.example:user:bob:e1_bob",
+				"domain":      "tenant.example",
+				"status":      "active",
+			},
+		})
+	}))
+	defer server.Close()
+
+	resolved := testResolvedConfig(t)
+	resolved.ServiceBaseURL = server.URL
+	resolved.DIDDomain = "tenant.example"
+	service, err := NewService(resolved)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	targetDID, targetHandle, err := service.resolveTarget(context.Background(), "Bob")
+	if err != nil {
+		t.Fatalf("resolveTarget() error = %v", err)
+	}
+	if captured.Method != "lookup" {
+		t.Fatalf("captured.Method = %q, want lookup", captured.Method)
+	}
+	if got := stringFromAny(captured.Params["handle"]); got != "bob.tenant.example" {
+		t.Fatalf("lookup handle = %q, want bob.tenant.example", got)
+	}
+	if targetDID != "did:wba:tenant.example:user:bob:e1_bob" {
+		t.Fatalf("targetDID = %q, want resolved DID", targetDID)
+	}
+	if targetHandle != "bob.tenant.example" {
+		t.Fatalf("targetHandle = %q, want full handle", targetHandle)
 	}
 }
 

@@ -94,7 +94,7 @@ func TestRunIDRecoverDryRunUsesHandleAndWarnsWhenIdentityFlagIsIgnored(t *testin
 		t.Fatalf("runIDRecover(--dry-run) error = %v", err)
 	}
 	for _, want := range []string{
-		`"target_handle": "zhuocheng"`,
+		`"target_handle": "zhuocheng.awiki.ai"`,
 		`"final_identity_name": "zhuocheng"`,
 		`"same_handle_candidates": []`,
 		`"excluded_identities": []`,
@@ -192,7 +192,8 @@ func TestRunIDRecoverWithoutOTPReturnsSendOTPSuccess(t *testing.T) {
 		`"action": "send_recover_otp"`,
 		`"verification_state": "otp_sent"`,
 		`"identity_name": "zhuocheng"`,
-		`"summary": "OTP sent for handle zhuocheng recovery"`,
+		`"full_handle": "zhuocheng.awiki.test"`,
+		`"summary": "OTP sent for handle zhuocheng.awiki.test recovery"`,
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("recover send-otp output %q missing %q", rendered, want)

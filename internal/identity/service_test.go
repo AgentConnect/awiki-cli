@@ -474,8 +474,8 @@ func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
 	if gotMethod != "recover_handle" {
 		t.Fatalf("rpc method = %q, want recover_handle", gotMethod)
 	}
-	if gotHandle != "zhuocheng" {
-		t.Fatalf("recover handle = %q, want zhuocheng", gotHandle)
+	if gotHandle != "zhuocheng.awiki.test" {
+		t.Fatalf("recover handle = %q, want zhuocheng.awiki.test", gotHandle)
 	}
 	if gotRecoveredDID == "" {
 		t.Fatal("recovered DID is empty")

@@ -741,17 +741,21 @@ func (s *Service) resolveTarget(ctx context.Context, target string) (string, str
 	if strings.HasPrefix(target, "did:") {
 		return target, "", nil
 	}
+	lookupHandle := CompleteBareHandle(target, s.resolved.DIDDomain)
 	finish := traceutil.HandleLookupPhase(ctx, "target_resolve")
 	defer finish()
 	var lookup map[string]any
-	if err := s.remote.RPCCall(ctx, "/user-service/handle/rpc", "lookup", map[string]any{"handle": target}, "", &lookup); err != nil {
+	if err := s.remote.RPCCall(ctx, "/user-service/handle/rpc", "lookup", map[string]any{"handle": lookupHandle}, "", &lookup); err != nil {
 		return "", "", err
 	}
 	did := stringFromAny(lookup["did"])
 	if did == "" {
 		return "", "", fmt.Errorf("%w: %s", ErrTargetRequired, target)
 	}
-	resolvedHandle := normalizeHandleValue(defaultString(stringFromAny(lookup["handle"]), target))
+	resolvedHandle := normalizeResolvedHandleValue(defaultString(
+		stringFromAny(lookup["full_handle"]),
+		defaultString(stringFromAny(lookup["handle"]), lookupHandle),
+	))
 	return did, resolvedHandle, nil
 }
 

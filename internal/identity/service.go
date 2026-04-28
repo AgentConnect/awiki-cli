@@ -184,9 +184,9 @@ func (s *Service) Create(displayName string, identityName string) (*CommandResul
 }
 
 func (s *Service) Register(ctx context.Context, params RegisterParams) (*CommandResult, error) {
-	handle := strings.TrimSpace(params.Handle)
-	if handle == "" {
-		return nil, fmt.Errorf("%w: handle is required", ErrInvalidInput)
+	target, err := NormalizeHandleInput(params.Handle, s.config.DIDDomain)
+	if err != nil {
+		return nil, err
 	}
 	phone := strings.TrimSpace(params.Phone)
 	email := strings.TrimSpace(strings.ToLower(params.Email))
@@ -198,7 +198,11 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	if err != nil {
 		return nil, err
 	}
-	alias := chooseNamedIdentity(params.IdentityName, existing, handle)
+	aliasBase := target.LocalPart
+	if target.ExplicitDomain {
+		aliasBase = target.FullHandle
+	}
+	alias := chooseNamedIdentity(params.IdentityName, existing, aliasBase)
 
 	if phone != "" && strings.TrimSpace(params.OTP) == "" {
 		normalizedPhone, err := normalizePhone(phone)
@@ -213,13 +217,14 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 			Data: map[string]any{
 				"action":             "send_handle_otp",
 				"identity_name":      alias,
-				"handle":             handle,
+				"handle":             target.LocalPart,
+				"full_handle":        target.FullHandle,
 				"method":             "phone",
 				"phone":              normalizedPhone,
 				"verification_state": "otp_sent",
 				"result":             result,
 			},
-			Summary: fmt.Sprintf("OTP sent for handle %s", handle),
+			Summary: fmt.Sprintf("OTP sent for handle %s", target.FullHandle),
 		}, nil
 	}
 
@@ -238,13 +243,14 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 					Data: map[string]any{
 						"action":             "send_registration_email",
 						"identity_name":      alias,
-						"handle":             handle,
+						"handle":             target.LocalPart,
+						"full_handle":        target.FullHandle,
 						"method":             "email",
 						"email":              email,
 						"verification_state": "email_sent",
 						"result":             sendResult,
 					},
-					Summary: fmt.Sprintf("Activation email sent for handle %s", handle),
+					Summary: fmt.Sprintf("Activation email sent for handle %s", target.FullHandle),
 				}, nil
 			}
 			timeout := params.VerificationTimeout
@@ -264,7 +270,8 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 					Data: map[string]any{
 						"action":             "wait_for_registration_email",
 						"identity_name":      alias,
-						"handle":             handle,
+						"handle":             target.LocalPart,
+						"full_handle":        target.FullHandle,
 						"method":             "email",
 						"email":              email,
 						"verification_state": "pending",
@@ -277,9 +284,9 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           s.config.DIDDomain,
-		PathPrefix:         []string{handle},
-		ProofDomain:        s.config.DIDDomain,
+		Hostname:           target.EffectiveDomain,
+		PathPrefix:         []string{target.LocalPart},
+		ProofDomain:        target.EffectiveDomain,
 		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
 		ANPServiceDID:      s.config.ANPServiceDID,
 	})
@@ -288,7 +295,7 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 	registerParams := map[string]any{
 		"did_document": generated.DIDDocument,
-		"handle":       handle,
+		"handle":       target.LocalPart,
 	}
 	if phone != "" {
 		normalizedPhone, err := normalizePhone(phone)
@@ -313,8 +320,9 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 		DID:                     stringValue(result["did"], generated.DID),
 		UniqueID:                generated.UniqueID,
 		UserID:                  stringValue(result["user_id"], ""),
-		DisplayName:             handle,
-		Handle:                  handle,
+		DisplayName:             target.LocalPart,
+		Handle:                  defaultString(stringValue(result["handle"], ""), target.LocalPart),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), target.FullHandle),
 		JWTToken:                stringValue(result["access_token"], ""),
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -330,11 +338,12 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 		Data: map[string]any{
 			"action":             "register_handle",
 			"identity":           summary,
+			"full_handle":        target.FullHandle,
 			"method":             ternaryString(phone != "", "phone", "email"),
 			"verification_state": "completed",
 			"result":             result,
 		},
-		Summary: fmt.Sprintf("Handle %s registered successfully", handle),
+		Summary: fmt.Sprintf("Handle %s registered successfully", target.FullHandle),
 	}, nil
 }
 
@@ -487,9 +496,13 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 	data := map[string]any{}
 	warnings := make([]string, 0)
 	if handle != "" {
+		target, err := NormalizeHandleInput(handle, s.config.DIDDomain)
+		if err != nil {
+			return nil, err
+		}
 		var lookup map[string]any
 		finish := traceutil.HandleLookupPhase(ctx, "handle_to_did")
-		err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": handle}, "", &lookup)
+		err = s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": target.FullHandle}, "", &lookup)
 		finish()
 		if err != nil {
 			return nil, err
@@ -497,10 +510,10 @@ func (s *Service) Resolve(ctx context.Context, handle string, did string) (*Comm
 		data["lookup"] = lookup
 		did = stringValue(lookup["did"], "")
 		if did == "" {
-			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, handle)
+			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, target.FullHandle)
 		}
 		var profile map[string]any
-		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"handle": handle}, "", &profile); err == nil {
+		if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", map[string]any{"did": did}, "", &profile); err == nil {
 			data["public_profile"] = profile
 		} else {
 			warnings = append(warnings, fmt.Sprintf("Public profile lookup failed: %v", err))
@@ -586,10 +599,9 @@ func (s *Service) RecoverPreview(params RecoverParams) (*CommandResult, error) {
 }
 
 func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandResult, error) {
-	handle := strings.TrimSpace(params.Handle)
 	phone := strings.TrimSpace(params.Phone)
 	otp := strings.TrimSpace(params.OTP)
-	if handle == "" || phone == "" {
+	if strings.TrimSpace(params.Handle) == "" || phone == "" {
 		return nil, fmt.Errorf("%w: handle and phone are required", ErrInvalidInput)
 	}
 	plan, err := s.buildRecoverPlan(params)
@@ -610,20 +622,21 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 			Data: map[string]any{
 				"action":             "send_recover_otp",
 				"identity_name":      plan.FinalIdentityName,
-				"handle":             handle,
+				"handle":             plan.TargetLocalPart,
+				"full_handle":        plan.TargetHandle,
 				"method":             "phone",
 				"phone":              normalizedPhone,
 				"verification_state": "otp_sent",
 				"result":             result,
 			},
-			Summary: fmt.Sprintf("OTP sent for handle %s recovery", handle),
+			Summary: fmt.Sprintf("OTP sent for handle %s recovery", plan.TargetHandle),
 		}, nil
 	}
 
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           s.config.DIDDomain,
-		PathPrefix:         []string{handle},
-		ProofDomain:        s.config.DIDDomain,
+		Hostname:           plan.EffectiveDomain,
+		PathPrefix:         []string{plan.TargetLocalPart},
+		ProofDomain:        plan.EffectiveDomain,
 		ANPServiceEndpoint: s.config.ANPServiceEndpoint,
 		ANPServiceDID:      s.config.ANPServiceDID,
 	})
@@ -632,7 +645,7 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 	}
 	recoverParams := map[string]any{
 		"did_document": generated.DIDDocument,
-		"handle":       handle,
+		"handle":       plan.TargetHandle,
 		"phone":        normalizedPhone,
 		"otp_code":     sanitizeOTP(otp),
 	}
@@ -644,7 +657,7 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		}
 		activeBefore = strings.TrimSpace(fileConfig.Identity.Active)
 	}
-	backupPath, err := s.manager.BackupIdentitiesForHandleRecovery(handle, plan.SameHandleCandidates, plan.FinalIdentityName, plan.TempIdentityName, activeBefore)
+	backupPath, err := s.manager.BackupIdentitiesForHandleRecovery(plan.TargetHandle, plan.SameHandleCandidates, plan.FinalIdentityName, plan.TempIdentityName, activeBefore)
 	if err != nil {
 		return nil, err
 	}
@@ -657,8 +670,9 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 		DID:                     stringValue(result["did"], generated.DID),
 		UniqueID:                generated.UniqueID,
 		UserID:                  stringValue(result["user_id"], ""),
-		DisplayName:             handle,
-		Handle:                  handle,
+		DisplayName:             plan.TargetLocalPart,
+		Handle:                  defaultString(stringValue(result["handle"], ""), plan.TargetLocalPart),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), plan.TargetHandle),
 		JWTToken:                stringValue(result["access_token"], ""),
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -677,12 +691,13 @@ func (s *Service) Recover(ctx context.Context, params RecoverParams) (*CommandRe
 			"archived_identities": plan.ArchivedIdentityNames(),
 			"archived_dids":       plan.ArchivedDIDs(),
 			"old_dids":            plan.OldOwnerDIDsInMergeOrder(),
+			"full_handle":         plan.TargetHandle,
 			"final_identity_name": plan.FinalIdentityName,
 			"temp_identity_name":  plan.TempIdentityName,
 			"active_before":       activeBefore,
 			"result":              result,
 		},
-		Summary: fmt.Sprintf("Handle %s recovered successfully", handle),
+		Summary: fmt.Sprintf("Handle %s recovered successfully", plan.TargetHandle),
 	}, nil
 }
 
@@ -804,6 +819,7 @@ func (s *Service) ReplaceDID(ctx context.Context, params ReplaceDIDParams) (*Com
 		UserID:                  stringValue(result["user_id"], record.UserID),
 		DisplayName:             record.DisplayName,
 		Handle:                  stringValue(result["handle"], record.Handle),
+		FullHandle:              defaultString(stringValue(result["full_handle"], ""), record.FullHandle),
 		JWTToken:                newToken,
 		DIDDocument:             generated.DIDDocument,
 		Key1PrivatePEM:          generated.Key1PrivatePEM,
@@ -854,19 +870,49 @@ func (s *Service) GetProfile(ctx context.Context, self bool, handle string, did 
 		}, nil
 	}
 	params := map[string]any{}
+	subject := map[string]any{}
 	if handle != "" {
-		params["handle"] = handle
+		target, err := NormalizeHandleInput(handle, s.config.DIDDomain)
+		if err != nil {
+			return nil, err
+		}
+		var lookup map[string]any
+		finish := traceutil.HandleLookupPhase(ctx, "profile_handle_to_did")
+		err = s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCDefault, handleRPCEndpoint, "lookup", map[string]any{"handle": target.FullHandle}, "", &lookup)
+		finish()
+		if err != nil {
+			return nil, err
+		}
+		resolvedDID := stringValue(lookup["did"], "")
+		if resolvedDID == "" {
+			return nil, fmt.Errorf("%w: handle %s did not resolve to a did", ErrIdentityNotFound, target.FullHandle)
+		}
+		params["handle"] = target.FullHandle
+		params["did"] = resolvedDID
+		subject["handle"] = target.LocalPart
+		subject["full_handle"] = target.FullHandle
+		subject["domain"] = target.EffectiveDomain
+		subject["did"] = resolvedDID
 	}
 	if did != "" {
 		params["did"] = did
+		if _, exists := subject["did"]; !exists {
+			subject["did"] = did
+		}
 	}
 	var result map[string]any
-	if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", params, "", &result); err != nil {
+	profileParams := map[string]any{}
+	if resolvedDID, ok := params["did"].(string); ok && strings.TrimSpace(resolvedDID) != "" {
+		profileParams["did"] = resolvedDID
+	} else {
+		profileParams = params
+	}
+	if err := s.remote.rpcCallProfile(ctx, transportcfg.ProfileRPCReadHeavy, didProfileRPCEndpoint, "get_public_profile", profileParams, "", &result); err != nil {
 		return nil, err
 	}
 	return &CommandResult{
 		Data: map[string]any{
-			"subject": params,
+			"subject": subject,
 			"profile": result,
 		},
 		Summary: "Fetched public profile",
@@ -1124,6 +1170,7 @@ func identitySummaryFromRecord(record *StoredIdentity) *IdentitySummary {
 		UserID:                  record.UserID,
 		DisplayName:             record.DisplayName,
 		Handle:                  record.Handle,
+		FullHandle:              record.FullHandle,
 		CreatedAt:               record.CreatedAt,
 		DirName:                 record.DirName,
 		IsDefault:               record.IsDefault,

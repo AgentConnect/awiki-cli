@@ -252,3 +252,68 @@ func TestCheckFreshFallsBackToStaleCache(t *testing.T) {
 		t.Fatalf("decision.HasNewerVersion = false, want true; decision = %+v", decision)
 	}
 }
+
+func TestCheckFreshCacheOnlyUsesCachedMetadataWithoutNetwork(t *testing.T) {
+	originalURLs := append([]string(nil), npmLatestURLs...)
+	npmLatestURLs = nil
+	t.Cleanup(func() {
+		npmLatestURLs = originalURLs
+	})
+	t.Setenv("AWIKI_CLI_UPDATE_CACHE_ONLY", "1")
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "network should not be used in cache-only mode", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	npmLatestURLs = []string{server.URL}
+
+	originalVersion := buildinfo.Version
+	buildinfo.Version = "1.0.9"
+	t.Cleanup(func() {
+		buildinfo.Version = originalVersion
+	})
+
+	cacheDir := t.TempDir()
+	cacheFile := filepath.Join(cacheDir, "update", "metadata.json")
+	if err := os.MkdirAll(filepath.Dir(cacheFile), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	meta := Metadata{
+		LatestVersion:       "1.0.10",
+		MinSupportedVersion: "1.0.9",
+		RetrievedAt:         time.Now().UTC(),
+		Source:              "network",
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if err := os.WriteFile(cacheFile, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	resolved := &appconfig.Resolved{
+		Paths: appconfig.Paths{
+			CacheDir: cacheDir,
+		},
+	}
+
+	decision, err := CheckFresh(context.Background(), resolved)
+	if err != nil {
+		t.Fatalf("CheckFresh() error = %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("network requests = %d, want 0", requests)
+	}
+	if decision.LatestVersion != "1.0.10" {
+		t.Fatalf("decision.LatestVersion = %q, want %q", decision.LatestVersion, "1.0.10")
+	}
+	if decision.MetadataSource != "cache" {
+		t.Fatalf("decision.MetadataSource = %q, want %q", decision.MetadataSource, "cache")
+	}
+	if !decision.HasNewerVersion {
+		t.Fatalf("decision.HasNewerVersion = false, want true; decision = %+v", decision)
+	}
+}

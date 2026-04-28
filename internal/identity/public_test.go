@@ -15,6 +15,7 @@ func TestPublicDataStripsInternalUserIDFields(t *testing.T) {
 			DID:          "did:wba:awiki.ai:user:alice",
 			UserID:       "user-123",
 			Handle:       "alice",
+			FullHandle:   "alice.awiki.ai",
 		},
 		"legacy_scan": LegacyScan{
 			IndexedEntries: map[string]IndexEntry{
@@ -23,6 +24,7 @@ func TestPublicDataStripsInternalUserIDFields(t *testing.T) {
 					DID:            "did:wba:awiki.ai:user:alice",
 					UserID:         "user-123",
 					Handle:         "alice",
+					FullHandle:     "alice.awiki.ai",
 				},
 			},
 			HasLegacy: true,
@@ -30,8 +32,9 @@ func TestPublicDataStripsInternalUserIDFields(t *testing.T) {
 		"result": map[string]any{
 			"user_id": "user-123",
 			"nested": map[string]any{
-				"userId": "user-456",
-				"handle": "alice",
+				"userId":      "user-456",
+				"handle":      "alice",
+				"full_handle": "alice.awiki.ai",
 			},
 		},
 	}
@@ -47,7 +50,7 @@ func TestPublicDataStripsInternalUserIDFields(t *testing.T) {
 			t.Fatalf("sanitized output %q still contains %q", output, forbidden)
 		}
 	}
-	if !strings.Contains(output, "alice") {
+	if !strings.Contains(output, "alice") || !strings.Contains(output, "alice.awiki.ai") {
 		t.Fatalf("sanitized output %q lost public handle fields", output)
 	}
 }

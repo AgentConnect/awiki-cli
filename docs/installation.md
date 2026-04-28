@@ -206,11 +206,15 @@ flag > config.yaml > default
 > - `service_base_url`：CLI 连接 user-service / content / group / message 的统一平台基础地址
 > - 域内 message RPC：`<service_base_url>/im/rpc`
 > - 域内 message WebSocket：`<service_base_url>/im/ws`
-> - `did_domain`：生成 DID 的 provider domain；多租户身份可与 `service_base_url` 不同
+> - `did_domain`：生成 bare-handle DID 的 provider domain；同时，CLI 在所有支持 handle 输入的 id/msg/group 入口里，如果用户只输入 bare handle（如 `alice`），都会先补全成 `alice.<did_domain>` 再做 lookup / register / recover。若用户显式输入 full handle（如 `alice.example.com`），则该次命令以显式 domain 为准，不会被 `did_domain` 覆盖；多租户身份可与 `service_base_url` 不同
 > - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址，默认从 `service_base_url` 推导
 > - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID，默认从 `service_base_url` 推导
 >
 > 多租户示例：`service_base_url=https://awiki.ai`、`did_domain=a.com` 时，CLI 连接 awiki.ai 后端，但生成的 DID 使用 `a.com`。
+>
+> - `awiki-cli msg send --to alice --text "hi"` 会先把目标补成 `alice.a.com`
+> - `awiki-cli id recover --handle alice` 会按 `alice.a.com` 生成新 DID，并向服务端提交该 canonical full handle
+> - `awiki-cli id register --handle alice.partner.com` 会按 `partner.com` 生成 DID，但仍只把 local-part `alice` 发给 `did-auth.register`
 
 ### 3.3 本地开发配置
 
