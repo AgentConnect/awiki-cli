@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Use this reference when you are handling content-page lifecycle tasks in `awiki-cli`, including creating pages, listing pages, reading pages, updating pages, renaming slugs, and deleting pages.
+Use this reference when you are handling **handle-level content-page** lifecycle tasks in `awiki-cli`, including creating pages, listing pages, reading pages, updating pages, renaming slugs, and deleting pages.
 
-This file is a **reference**, not an entry skill. Load it only when the task clearly involves content pages, slugs, markdown publishing, or visibility changes.
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves handle-level content pages, slugs, markdown publishing, or visibility changes. For tenant bare-domain pages, use `references/11-site-pages.md` instead.
 
 ## Current Status
 
@@ -23,6 +23,7 @@ This file is a **reference**, not an entry skill. Load it only when the task cle
 - **title**: the display title of the page
 - **markdown body**: the page content provided by `--markdown` or `--markdown-file`
 - **visibility**: `public`, `draft`, or `unlisted`
+- **scope**: this reference only covers pages bound to one handle; it does not cover tenant bare-domain site pages
 
 ## Decision Rules
 
@@ -41,6 +42,12 @@ This file is a **reference**, not an entry skill. Load it only when the task cle
 - `awiki-cli page update --slug <slug> [--title ...] [--markdown ... | --markdown-file ...] [--visibility ...]`
 - `awiki-cli page rename --slug <slug> --to <new_slug>`
 - `awiki-cli page delete --slug <slug>`
+
+## Boundary
+
+- `page` = handle-level content page.
+- `site` = tenant bare-domain page with explicit `--domain`.
+- Do not route tenant root or `/pages/{slug}.md` tasks to `awiki-cli page ...`.
 
 ## Common Patterns
 

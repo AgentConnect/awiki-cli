@@ -243,6 +243,22 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runPageRename
 	case "page.delete":
 		return a.runPageDelete
+	case "site.root.get":
+		return a.runSiteRootGet
+	case "site.root.set":
+		return a.runSiteRootSet
+	case "site.page.list":
+		return a.runSitePageList
+	case "site.page.get":
+		return a.runSitePageGet
+	case "site.page.create":
+		return a.runSitePageCreate
+	case "site.page.update":
+		return a.runSitePageUpdate
+	case "site.page.rename":
+		return a.runSitePageRename
+	case "site.page.delete":
+		return a.runSitePageDelete
 	case "runtime.status":
 		return a.runRuntimeStatus
 	case "runtime.apply":

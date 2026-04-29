@@ -106,3 +106,25 @@ func TestCatalogPublishesConfigSetCommand(t *testing.T) {
 		t.Fatalf("spec.Flags = %#v, want did-domain flag", spec.Flags)
 	}
 }
+
+func TestCatalogPublishesTenantSiteCommands(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	for _, name := range []string{
+		"site",
+		"site root get",
+		"site root set",
+		"site page list",
+		"site page get",
+		"site page create",
+		"site page update",
+		"site page rename",
+		"site page delete",
+	} {
+		if _, ok := catalog.Lookup(name); !ok {
+			t.Fatalf("Lookup(%q) = false, want true", name)
+		}
+	}
+}

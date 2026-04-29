@@ -127,3 +127,20 @@ func TestNewIndexPublishesMailTopic(t *testing.T) {
 		t.Fatalf("architecture.References = %v, want docs/architecture/awiki-mail-cli.md", architecture.References)
 	}
 }
+
+func TestNewIndexPublishesSiteTopic(t *testing.T) {
+	t.Parallel()
+
+	index := NewIndex()
+
+	topic, ok := index.Lookup("site")
+	if !ok {
+		t.Fatal(`Lookup("site") = false, want true`)
+	}
+	if topic.Name != "site" {
+		t.Fatalf("topic.Name = %q, want %q", topic.Name, "site")
+	}
+	if len(topic.References) == 0 || topic.References[0] != "docs/architecture/awiki-site-pages.md" {
+		t.Fatalf("topic.References = %v, want first reference to awiki-site-pages.md", topic.References)
+	}
+}
