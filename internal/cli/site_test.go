@@ -2,7 +2,6 @@ package cli
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/cmdmeta"
@@ -137,7 +136,14 @@ func TestRunSiteRootSetRequiresExplicitBodySource(t *testing.T) {
 	if err == nil {
 		t.Fatal("runSiteRootSet() error = nil, want validation error")
 	}
-	if !strings.Contains(err.Error(), "Provide --markdown or --markdown-file") {
-		t.Fatalf("runSiteRootSet() error = %v, want explicit body source hint", err)
+	var exitErr *output.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("errors.As(%T, *output.ExitError) = false", err)
+	}
+	if exitErr.Detail.Code != "invalid_argument" {
+		t.Fatalf("exitErr.Detail.Code = %q, want invalid_argument", exitErr.Detail.Code)
+	}
+	if exitErr.Detail.Hint != "Provide --markdown or --markdown-file." {
+		t.Fatalf("exitErr.Detail.Hint = %q, want explicit body source hint", exitErr.Detail.Hint)
 	}
 }
