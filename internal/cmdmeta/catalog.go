@@ -117,6 +117,7 @@ func defaultSpecs() []CommandSpec {
 		{Name: "completion.powershell", Use: "powershell", Short: "Generate PowerShell completion", Phase: "phase1", Implemented: true, Handler: "completion.powershell"},
 		{Name: "config", Use: "config", Short: "Inspect resolved CLI configuration", Phase: "phase1", Implemented: true},
 		{Name: "config.show", Use: "show", Short: "Show resolved configuration values", Phase: "phase1", Implemented: true, Handler: "config.show", Outputs: []string{"json", "pretty", "table"}},
+		{Name: "config.set", Use: "set", Short: "Update persistent CLI configuration", Phase: "phase1", Implemented: true, Handler: "config.set", SideEffect: true, Outputs: []string{"json", "pretty"}, Flags: []FlagSpec{{Name: "did-domain", Type: "string", Usage: "Bare DID provider domain to persist in services.did_domain"}}},
 		{Name: "id", Use: "id", Short: "Identity lifecycle commands", Phase: "phase1", Implemented: true},
 		{Name: "id.status", Use: "status", Short: "Show identity status", Phase: "phase2", Implemented: true, Handler: "id.status", Outputs: []string{"json", "pretty"}},
 		{Name: "id.create", Use: "create", Short: "Create local DID material for bootstrap or migration", Phase: "phase2", Hidden: true, Implemented: true, Handler: "id.create", SideEffect: true, Outputs: []string{"json", "pretty"}, Flags: []FlagSpec{{Name: "name", Type: "string", Usage: "Identity display name", Required: true}, {Name: "identity", Type: "string", Usage: "Identity alias override"}}},

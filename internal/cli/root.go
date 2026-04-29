@@ -155,6 +155,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runVersion
 	case "config.show":
 		return a.runConfigShow
+	case "config.set":
+		return a.runConfigSet
 	case "id.status":
 		return a.runIDStatus
 	case "id.create":

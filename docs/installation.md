@@ -328,6 +328,9 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 
 # 查看当前配置
 ./awiki-cli config show
+
+# 更新 did_domain（修改后不需要重启 listener）
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### 4.4 运行测试
@@ -535,6 +538,7 @@ rm ~/.awiki-cli/data/awiki-cli.db
 
 ```bash
 ./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### Q: v1 身份迁移

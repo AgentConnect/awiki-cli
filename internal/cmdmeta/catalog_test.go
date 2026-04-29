@@ -86,3 +86,23 @@ func TestCatalogPublishesTopLevelMailCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogPublishesConfigSetCommand(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	spec, ok := catalog.Lookup("config set")
+	if !ok {
+		t.Fatal(`Lookup("config set") = false, want true`)
+	}
+	if spec.Hidden {
+		t.Fatalf("spec.Hidden = %t, want false", spec.Hidden)
+	}
+	if !spec.SideEffect {
+		t.Fatal("spec.SideEffect = false, want true")
+	}
+	if len(spec.Flags) != 1 || spec.Flags[0].Name != "did-domain" {
+		t.Fatalf("spec.Flags = %#v, want did-domain flag", spec.Flags)
+	}
+}
