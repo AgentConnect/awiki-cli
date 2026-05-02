@@ -70,6 +70,24 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:        "group e2ee status exposes exec provider data dir without advertising discovery",
+			spec:        "group.e2ee.status",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group"},
+			wantSummary: "Dry run: group e2ee status planned",
+			wantAction:  "group.e2ee.status",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["provider"] != "exec" {
+					t.Fatalf("plan.provider = %#v, want exec", plan["provider"])
+				}
+				if plan["discovery_advertised"] != false {
+					t.Fatalf("plan.discovery_advertised = %#v, want false", plan["discovery_advertised"])
+				}
+				if plan["mls_data_dir"] == "" {
+					t.Fatal("plan.mls_data_dir should be populated")
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -94,6 +112,8 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupKick(cmd, nil)
 				case "group.messages":
 					return app.runGroupMessages(cmd, nil)
+				case "group.e2ee.status":
+					return app.runGroupE2EEStatus(cmd, nil)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil

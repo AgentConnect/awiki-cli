@@ -64,6 +64,7 @@
 **internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。
 **internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。
+**internal/cli/group_e2ee.go**: P6 group E2EE contract-test 诊断/维护命令处理器；只暴露本地 exec provider/status/KeyPackage 计划，不宣称真实 OpenMLS 已可用。
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。
@@ -92,6 +93,7 @@
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。
 **internal/message/secure.go**: P5 direct E2EE secure send 的首版编排层，使用 ANP Go SDK direct_e2ee、本地文件会话/预密钥存储和 HTTP JSON-RPC；key-service 请求绑定当前 DID 文档里 `ANPMessageService.serviceDid`，并在有可用 sidecar OPK 时优先用 OPK 建链（本地保存 `p5-one-time-prekeys/`）；HTTP inbox/history 现已接入入站密文解密与会话推进，并会顺带补发本地 prekey bundle；轮询路径解密 direct-init 成功后会自动发送 encrypted ACK 并尝试 flush 该 peer 的 `e2ee_outbox`；当 initiator 仍处于 `pending-confirmation` 时，新的 secure 发送会进入 `e2ee_outbox` 排队。
 **internal/message/secure_control.go**: secure 控制面与恢复辅助，负责 secure ack/init payload、pending 阶段的 `e2ee_outbox` 排队、secure outbox flush，以及 `msg secure status/init/repair/failed/retry/drop` 需要的本地会话/发件箱读取与重试逻辑。
+**internal/message/group_e2ee_provider.go**: `anp-mls` exec provider 抽象；JSON request 走 stdin、response 走 stdout、日志/错误走 stderr，默认 MLS 状态目录为 `<workspace>/mls`，保持 Go 主工程 pure Go / no CGO。
 **internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。
 **internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。

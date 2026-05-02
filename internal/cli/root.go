@@ -241,6 +241,14 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupMembers
 	case "group.messages":
 		return a.runGroupMessages
+	case "group.e2ee.status":
+		return a.runGroupE2EEStatus
+	case "group.e2ee.publish-key-package":
+		return a.runGroupE2EEPublishKeyPackage
+	case "group.e2ee.pending":
+		return a.runGroupE2EEPending
+	case "group.e2ee.repair":
+		return a.runGroupE2EERepair
 	case "page.create":
 		return a.runPageCreate
 	case "page.list":

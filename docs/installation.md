@@ -116,6 +116,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 | runtime 目录 | `~/.awiki-cli/runtime/` | 无 |
 | 缓存目录 | `~/.awiki-cli/cache/` | 无 |
 | 日志目录 | `~/.awiki-cli/logs/` | 无 |
+| MLS 状态目录（P6 group E2EE contract-test/未来 OpenMLS） | `~/.awiki-cli/mls/` | 无 |
 
 > 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
@@ -128,6 +129,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - `data/awiki-cli.db`
 > - `cache/`
 > - `runtime/`
+> - `mls/`（由 `anp-mls` exec provider 使用；MLS 私有状态不写入主业务 SQLite）
 > - `logs/`
 > - workspace upgrade 元数据
 > - upgrade lock / journal
