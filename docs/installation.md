@@ -116,7 +116,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 | runtime 目录 | `~/.awiki-cli/runtime/` | 无 |
 | 缓存目录 | `~/.awiki-cli/cache/` | 无 |
 | 日志目录 | `~/.awiki-cli/logs/` | 无 |
-| MLS 状态目录（P6 group E2EE contract-test/未来 OpenMLS） | `~/.awiki-cli/mls/` | 无 |
+| MLS 状态目录（P6 group E2EE / `anp-mls`） | `~/.awiki-cli/mls/` | 无 |
 
 > 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
@@ -134,6 +134,17 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - workspace upgrade 元数据
 > - upgrade lock / journal
 > - 备份快照
+
+
+### 3.3 `anp-mls` binary discovery
+
+Group E2EE commands keep the Go CLI pure-Go/no-CGO by invoking the Rust `anp-mls` binary as a one-shot process. Discovery order is:
+
+1. `AWIKI_ANP_MLS_BINARY` absolute path override.
+2. Runtime/test injected provider path.
+3. `PATH` lookup for `anp-mls`.
+
+Plain direct/group messaging does not require this binary. `awiki-cli doctor` reports an informational `anp_mls` check when the binary is missing; group E2EE commands return an actionable remediation error.
 
 ### 3.2 config.yaml
 

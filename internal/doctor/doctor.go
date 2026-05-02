@@ -10,6 +10,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/message"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
 	"github.com/agentconnect/awiki-cli/internal/store"
@@ -45,6 +46,7 @@ func Run(resolved *config.Resolved) Report {
 		runtimeCheck(resolved),
 		identityStoreCheck(resolved),
 		sqliteCheck(resolved),
+		anpMLSCheck(resolved),
 		upgradeStateCheck(resolved),
 		legacyCheck(resolved),
 	}
@@ -68,6 +70,36 @@ func Run(resolved *config.Resolved) Report {
 		summary = "Doctor found warnings"
 	}
 	return Report{Checks: checks, Summary: summary, Counts: counts}
+}
+
+func anpMLSCheck(resolved *config.Resolved) Check {
+	provider := message.NewDefaultMLSExecProvider(resolved)
+	binary, err := provider.ResolveBinaryPath()
+	status := "ok"
+	summary := "anp-mls binary is available for group E2EE operations"
+	if err != nil {
+		status = "info"
+		summary = "anp-mls binary not found; plain messaging is unaffected, but group E2EE commands will fail"
+	}
+	return Check{
+		Name:    "anp_mls",
+		Status:  status,
+		Summary: summary,
+		Details: map[string]any{
+			"binary":           binary,
+			"data_dir":         provider.DataDir,
+			"env_override":     message.ANPMLSBinaryEnv,
+			"plain_unaffected": true,
+			"error":            errorString(err),
+		},
+	}
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func buildCheck(resolved *config.Resolved) Check {

@@ -34,15 +34,24 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	}
 	groupDID := stringFromAny(result["group_did"])
 	warnings = append(warnings, s.syncGroupState(ctx, record, groupDID, true)...)
+	var e2eeResult map[string]any
+	if groupRequestUsesE2EE(request) {
+		e2eeCandidate, e2eeWarnings := s.createGroupE2EE(ctx, record, groupDID)
+		e2eeResult, warnings = appendE2EEResult(warnings, e2eeCandidate, e2eeWarnings)
+	}
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, groupDID)
 	members, _ := s.readCachedGroupMembers(ctx, record, groupDID, 100)
+	data := map[string]any{
+		"group":    snapshot,
+		"members":  members,
+		"delivery": result,
+		"source":   groupControlSource(result),
+	}
+	if e2eeResult != nil {
+		data["e2ee"] = e2eeResult
+	}
 	return &CommandResult{
-		Data: map[string]any{
-			"group":    snapshot,
-			"members":  members,
-			"delivery": result,
-			"source":   groupControlSource(result),
-		},
+		Data:     data,
 		Summary:  fmt.Sprintf("Created group %s", groupDID),
 		Warnings: compactWarnings(warnings),
 	}, nil
@@ -134,7 +143,16 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 	warnings = append(warnings, s.syncGroupState(ctx, record, request.Group, true)...)
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
 	members, _ := s.readCachedGroupMembers(ctx, record, request.Group, 100)
-	return &CommandResult{Data: map[string]any{"group": snapshot, "members": members, "delivery": result, "member": map[string]any{"did": memberDID, "handle": memberHandle}}, Summary: fmt.Sprintf("Updated group membership via %s", action), Warnings: compactWarnings(warnings)}, nil
+	var e2eeResult map[string]any
+	if action == "add" && (request.E2EE || groupSnapshotUsesE2EE(snapshot)) {
+		e2eeCandidate, e2eeWarnings := s.addGroupMemberE2EE(ctx, record, request.Group, memberDID)
+		e2eeResult, warnings = appendE2EEResult(warnings, e2eeCandidate, e2eeWarnings)
+	}
+	data := map[string]any{"group": snapshot, "members": members, "delivery": result, "member": map[string]any{"did": memberDID, "handle": memberHandle}}
+	if e2eeResult != nil {
+		data["e2ee"] = e2eeResult
+	}
+	return &CommandResult{Data: data, Summary: fmt.Sprintf("Updated group membership via %s", action), Warnings: compactWarnings(warnings)}, nil
 }
 
 func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*CommandResult, error) {
@@ -257,6 +275,11 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 		warnings = append(warnings, httpWarnings...)
 	}
 	warnings = append(warnings, s.persistGroupMessages(ctx, record, request.Group, result)...)
+	decryptWarnings, decryptedResult := s.maybeDecryptGroupMessages(ctx, record, request.Group, result)
+	warnings = append(warnings, decryptWarnings...)
+	if decryptedResult != nil {
+		result = decryptedResult
+	}
 	messages, _ := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
 	if len(messages) == 0 {
 		messages = messagesFromResult(result["messages"])
@@ -273,11 +296,25 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 		return nil, ErrTextRequired
 	}
 	if request.SecureMode == "on" {
-		return nil, ErrSecureNotSupported
+		// For groups, --secure on selects the explicit group E2EE path when the
+		// cached group summary indicates group-e2ee.
+		record, err := s.requireActiveIdentity(request.IdentityName)
+		if err != nil {
+			return nil, err
+		}
+		snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
+		if !groupSnapshotUsesE2EE(snapshot) {
+			return nil, ErrSecureNotSupported
+		}
+		return s.sendGroupE2EE(ctx, record, request)
 	}
 	record, err := s.requireActiveIdentity(request.IdentityName)
 	if err != nil {
 		return nil, err
+	}
+	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
+	if groupSnapshotUsesE2EE(snapshot) {
+		return s.sendGroupE2EE(ctx, record, request)
 	}
 	sourceMode := s.runtimeConfig().Mode
 	transport, warnings, err := s.transportFor(record)
@@ -301,6 +338,14 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 		warnings = append(warnings, httpWarnings...)
 	}
 	return s.persistGroupSendResult(ctx, record, request, result, warnings, sourceMode)
+}
+
+func appendE2EEResult(warnings []string, result map[string]any, e2eeWarnings []string) (map[string]any, []string) {
+	warnings = append(warnings, e2eeWarnings...)
+	if result == nil {
+		return nil, warnings
+	}
+	return result, warnings
 }
 
 func (s *Service) syncGroupState(ctx context.Context, record *identity.StoredIdentity, groupDID string, includeMembers bool) []string {

@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -17,6 +19,7 @@ const (
 	GroupE2EESecurityProfile      = "group-e2ee"
 	GroupE2EEContractArtifactMode = "contract-test"
 	DefaultANPMLSBinary           = "anp-mls"
+	ANPMLSBinaryEnv               = "AWIKI_ANP_MLS_BINARY"
 )
 
 type MLSRequest struct {
@@ -67,9 +70,8 @@ type MLSExecProvider struct {
 
 func NewDefaultMLSExecProvider(resolved *appconfig.Resolved) MLSExecProvider {
 	return MLSExecProvider{
-		BinaryPath: DefaultANPMLSBinary,
-		DataDir:    DefaultMLSDataDir(resolved),
-		Timeout:    15 * time.Second,
+		DataDir: DefaultMLSDataDir(resolved),
+		Timeout: 15 * time.Second,
 	}
 }
 
@@ -80,11 +82,40 @@ func DefaultMLSDataDir(resolved *appconfig.Resolved) string {
 	return filepath.Join(resolved.Paths.WorkspaceHomeDir, "mls")
 }
 
-func (p MLSExecProvider) Call(ctx context.Context, domain string, action string, req MLSRequest) (*MLSResponse, error) {
-	binary := p.BinaryPath
-	if binary == "" {
-		binary = DefaultANPMLSBinary
+func (p MLSExecProvider) ResolveBinaryPath() (string, error) {
+	candidates := make([]string, 0, 3)
+	if envPath := strings.TrimSpace(os.Getenv(ANPMLSBinaryEnv)); envPath != "" {
+		candidates = append(candidates, envPath)
 	}
+	if injected := strings.TrimSpace(p.BinaryPath); injected != "" {
+		candidates = append(candidates, injected)
+	}
+	candidates = append(candidates, DefaultANPMLSBinary)
+
+	seen := map[string]struct{}{}
+	for _, candidate := range candidates {
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if filepath.IsAbs(candidate) || strings.ContainsRune(candidate, filepath.Separator) {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+				return candidate, nil
+			}
+			continue
+		}
+		if resolved, err := exec.LookPath(candidate); err == nil {
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"unable to locate anp-mls binary (checked %s, injected path, then PATH). Set %s to an absolute anp-mls path, build/install anp-mls, or run `awiki-cli doctor` for diagnostics",
+		ANPMLSBinaryEnv,
+		ANPMLSBinaryEnv,
+	)
+}
+
+func (p MLSExecProvider) Call(ctx context.Context, domain string, action string, req MLSRequest) (*MLSResponse, error) {
 	timeout := p.Timeout
 	if timeout <= 0 {
 		timeout = 15 * time.Second
@@ -93,9 +124,22 @@ func (p MLSExecProvider) Call(ctx context.Context, domain string, action string,
 	if runner == nil {
 		runner = OSMLSCommandRunner{}
 	}
+	binary := strings.TrimSpace(p.BinaryPath)
+	if binary == "" || p.Runner == nil {
+		resolvedBinary, err := p.ResolveBinaryPath()
+		if err != nil {
+			return nil, err
+		}
+		binary = resolvedBinary
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
+	}
+	if p.DataDir != "" {
+		if err := os.MkdirAll(p.DataDir, 0o700); err != nil {
+			return nil, fmt.Errorf("prepare anp-mls data dir %s: %w", p.DataDir, err)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -118,4 +162,60 @@ func (p MLSExecProvider) Call(ctx context.Context, domain string, action string,
 		return &resp, fmt.Errorf("anp-mls returned ok=false")
 	}
 	return &resp, nil
+}
+
+func (p MLSExecProvider) GenerateKeyPackage(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "key-package", "generate", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) CreateGroup(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "create", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) AddMember(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "add-member", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) ProcessWelcome(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "welcome", "process", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) Encrypt(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "message", "encrypt", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) Decrypt(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "message", "decrypt", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) Status(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "status", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
 }

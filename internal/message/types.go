@@ -112,20 +112,22 @@ type directSendResult struct {
 }
 
 type GroupCreateRequest struct {
-	IdentityName        string
-	Name                string
-	Description         string
-	Discoverability     string
-	AdmissionMode       string
-	Slug                string
-	Goal                string
-	Rules               string
-	MessagePrompt       string
-	DocURL              string
-	AttachmentsAllowed  *bool
-	MaxMembers          string
-	MemberMaxMessages   *int64
-	MemberMaxTotalChars *int64
+	IdentityName           string
+	Name                   string
+	Description            string
+	Discoverability        string
+	AdmissionMode          string
+	MessageSecurityProfile string
+	E2EE                   bool
+	Slug                   string
+	Goal                   string
+	Rules                  string
+	MessagePrompt          string
+	DocURL                 string
+	AttachmentsAllowed     *bool
+	MaxMembers             string
+	MemberMaxMessages      *int64
+	MemberMaxTotalChars    *int64
 }
 
 type GroupGetRequest struct {
@@ -152,6 +154,7 @@ type GroupMemberRequest struct {
 	Member       string
 	Role         string
 	ReasonText   string
+	E2EE         bool
 }
 
 type GroupLeaveRequest struct {

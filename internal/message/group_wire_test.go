@@ -138,6 +138,89 @@ func TestBuildGroupCreateRPCParamsAppliesDefaultPolicyContract(t *testing.T) {
 	}
 }
 
+func TestBuildGroupCreateRPCParamsAppliesGroupE2EEProfile(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupCreateRPCParams(
+		record,
+		nil,
+		"did:wba:awiki.ai:services:message:e1_service",
+		GroupCreateRequest{Name: "Encrypted Group", E2EE: true},
+	)
+	if err != nil {
+		t.Fatalf("BuildGroupCreateRPCParams() error = %v", err)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	policy := mustMapValue(t, body["group_policy"], "body.group_policy")
+	if got := stringFromAny(policy["message_security_profile"]); got != GroupE2EESecurityProfile {
+		t.Fatalf("message_security_profile = %q, want %q", got, GroupE2EESecurityProfile)
+	}
+	if got := stringFromAny(policy["bootstrap_security_profile"]); got != GroupE2EESecurityProfile {
+		t.Fatalf("bootstrap_security_profile = %q, want %q", got, GroupE2EESecurityProfile)
+	}
+}
+
+func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EESendRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", map[string]any{
+		"crypto_group_id_b64u": "Y3J5cHRv",
+		"epoch":                "1",
+		"private_message_b64u": "Y2lwaGVy",
+		"epoch_authenticator":  "YXV0aA",
+		"group_state_ref":      map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group"},
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EESendRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != GroupE2EEProfile {
+		t.Fatalf("meta.profile = %q, want %q", got, GroupE2EEProfile)
+	}
+	if got := stringFromAny(meta["security_profile"]); got != GroupE2EESecurityProfile {
+		t.Fatalf("meta.security_profile = %q, want %q", got, GroupE2EESecurityProfile)
+	}
+	if got := stringFromAny(meta["content_type"]); got != "application/anp-group-cipher+json" {
+		t.Fatalf("meta.content_type = %q, want group cipher", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if _, ok := body["application_plaintext"]; ok {
+		t.Fatalf("plaintext leaked into E2EE send body: %#v", body)
+	}
+	if _, ok := body["group_cipher_object"]; !ok {
+		t.Fatalf("group_cipher_object missing: %#v", body)
+	}
+}
+
+func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EEAddRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", "did:wba:awiki.ai:user:bob:e1_bob", map[string]any{
+		"crypto_group_id_b64u": "Y3J5cHRv",
+		"epoch":                "2",
+		"epoch_authenticator":  "YXV0aDI",
+		"welcome_b64u":         "d2VsY29tZQ",
+		"commit_b64u":          "Y29tbWl0",
+		"key_package_id":       "kp-bob-1",
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EEAddRPCParams() error = %v", err)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["subject_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		t.Fatalf("subject_did = %q, want bob", got)
+	}
+	if got := stringFromAny(body["key_package_id"]); got != "kp-bob-1" {
+		t.Fatalf("key_package_id = %q, want leased id", got)
+	}
+	if got := stringFromAny(body["subject_key_package_id"]); got != "kp-bob-1" {
+		t.Fatalf("subject_key_package_id = %q, want leased id", got)
+	}
+}
+
 func TestBuildGroupMembersRPCParamsDefaultsLimitToHundred(t *testing.T) {
 	t.Parallel()
 
@@ -182,5 +265,23 @@ func TestBuildGroupMessagesRPCParamsDefaultsLimitToFifty(t *testing.T) {
 	}
 	if _, ok := body["skip"]; ok {
 		t.Fatalf("body.skip should be absent when skip is zero: %#v", body)
+	}
+}
+
+func testStoredIdentity(t *testing.T) *identity.StoredIdentity {
+	t.Helper()
+	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
+		Hostname:    "awiki.ai",
+		PathPrefix:  []string{"user"},
+		ProofDomain: "awiki.ai",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	return &identity.StoredIdentity{
+		IdentityName:   "alice",
+		DID:            generated.DID,
+		DIDDocument:    generated.DIDDocument,
+		Key1PrivatePEM: generated.Key1PrivatePEM,
 	}
 }

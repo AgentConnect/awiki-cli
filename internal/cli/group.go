@@ -13,6 +13,8 @@ func (a *App) runGroupCreate(cmd *cobra.Command, args []string) error {
 	description, _ := cmd.Flags().GetString("description")
 	discoverability, _ := cmd.Flags().GetString("discoverability")
 	admissionMode, _ := cmd.Flags().GetString("admission-mode")
+	messageSecurityProfile, _ := cmd.Flags().GetString("message-security-profile")
+	e2ee, _ := cmd.Flags().GetBool("e2ee")
 	slug, _ := cmd.Flags().GetString("slug")
 	goal, _ := cmd.Flags().GetString("goal")
 	rules, _ := cmd.Flags().GetString("rules")
@@ -27,20 +29,22 @@ func (a *App) runGroupCreate(cmd *cobra.Command, args []string) error {
 		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
 	}
 	request := message.GroupCreateRequest{
-		IdentityName:        a.globals.Identity,
-		Name:                name,
-		Description:         description,
-		Discoverability:     discoverability,
-		AdmissionMode:       admissionMode,
-		Slug:                slug,
-		Goal:                goal,
-		Rules:               rules,
-		MessagePrompt:       messagePrompt,
-		DocURL:              docURL,
-		AttachmentsAllowed:  attachmentsAllowed,
-		MaxMembers:          maxMembers,
-		MemberMaxMessages:   memberMaxMessages,
-		MemberMaxTotalChars: memberMaxTotalChars,
+		IdentityName:           a.globals.Identity,
+		Name:                   name,
+		Description:            description,
+		Discoverability:        discoverability,
+		AdmissionMode:          admissionMode,
+		MessageSecurityProfile: messageSecurityProfile,
+		E2EE:                   e2ee,
+		Slug:                   slug,
+		Goal:                   goal,
+		Rules:                  rules,
+		MessagePrompt:          messagePrompt,
+		DocURL:                 docURL,
+		AttachmentsAllowed:     attachmentsAllowed,
+		MaxMembers:             maxMembers,
+		MemberMaxMessages:      memberMaxMessages,
+		MemberMaxTotalChars:    memberMaxTotalChars,
 	}
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.create", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group create planned", nil, a.identityMeta())
@@ -100,11 +104,12 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 	member, _ := cmd.Flags().GetString("member")
 	role, _ := cmd.Flags().GetString("role")
 	reason, _ := cmd.Flags().GetString("reason")
+	e2ee, _ := cmd.Flags().GetBool("e2ee")
 	service, format, err := a.messageService()
 	if err != nil {
 		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
 	}
-	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason}
+	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason, E2EE: e2ee}
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
 	}

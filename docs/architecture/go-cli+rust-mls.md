@@ -1,8 +1,9 @@
 > **阶段口径（2026-05 P6 contract-first slice）**
 >
 > 本文是早期 Rust/OpenMLS 工程方案草稿，不代表当前已落地能力。
-> 当前实现只落地 `anp-mls` one-shot exec provider、P6 wire/storage/API 与
-> `contract-test` 非加密 artifact 骨架；**不宣称真实 OpenMLS 群端到端加密已可用**。
+> 当前 CLI 实现已接入 `anp-mls` one-shot exec provider、P6 wire/storage/API、KeyPackage 发布、
+> `group create --message-security-profile group-e2ee` / `--e2ee`、group-e2ee add/send/decrypt 编排。
+> `contract-test` 非加密 artifact 只能通过显式 flag 启用；真实 OpenMLS 可用性仍以 `anp-mls` 后端和系统测试验收为准。
 > HTTP server / daemon、OpenMLS `StorageProvider`、真实 MLS group state 持久化、
 > snapshot、多设备同步等内容均是后续设计方向，不属于本阶段验收范围。
 > 对外 discovery 必须继续隐藏 `anp.group.e2ee.v1` / `group-e2ee`，并由 feature flag

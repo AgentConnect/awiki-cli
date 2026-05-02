@@ -117,10 +117,10 @@ awiki-cli msg mark-read MSG_ID...
 
 `msg attachment download` 会按 `message_id` 分页扫描 direct history 或 group messages，直到命中目标附件消息，而不是只检查最新一页结果。
 
-awiki-cli group create --name "Agent War Room" [--description "..."] [--discoverability private|listed|public] [--admission-mode admin-add|open-join] [--slug agent-war-room] [--goal "..."] [--rules "..."] [--message-prompt "..."] [--doc-url "https://..."] [--attachments-allowed] [--max-members 500] [--member-max-messages 10] [--member-max-total-chars 2000] [--identity alice]
+awiki-cli group create --name "Agent War Room" [--description "..."] [--discoverability private|listed|public] [--admission-mode admin-add|open-join] [--message-security-profile transport-protected|group-e2ee] [--e2ee] [--slug agent-war-room] [--goal "..."] [--rules "..."] [--message-prompt "..."] [--doc-url "https://..."] [--attachments-allowed] [--max-members 500] [--member-max-messages 10] [--member-max-total-chars 2000] [--identity alice]
 awiki-cli group get --group GROUP_DID [--identity alice]
 awiki-cli group join --group GROUP_DID [--reason "..."] [--identity alice]
-awiki-cli group add --group GROUP_DID --member did:wba:... [--role member|admin] [--reason "..."] [--identity alice]
+awiki-cli group add --group GROUP_DID --member did:wba:... [--role member|admin] [--reason "..."] [--e2ee] [--identity alice]
 awiki-cli group remove --group GROUP_DID --member did:wba:... [--reason "..."] [--identity alice]
 awiki-cli group members --group GROUP_DID [--limit 100] [--identity alice]
 awiki-cli group messages --group GROUP_DID [--limit 50] [--cursor CURSOR] [--identity alice]

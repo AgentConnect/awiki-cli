@@ -24,6 +24,10 @@ func BuildGroupCreateRPCParams(record *identity.StoredIdentity, manager *identit
 	if len(policy) == 0 {
 		policy = buildGroupPolicyPatch("open-join", boolPtr(true), "500", nil, nil)
 	}
+	if securityProfile := normalizedGroupSecurityProfile(request); securityProfile != "" {
+		policy["message_security_profile"] = securityProfile
+		policy["bootstrap_security_profile"] = securityProfile
+	}
 	meta := map[string]any{
 		"anp_version":      "1.0",
 		"profile":          "anp.group.base.v1",
@@ -161,6 +165,104 @@ func BuildGroupSendRPCParams(record *identity.StoredIdentity, manager *identity.
 	}
 	body := map[string]any{"text": text}
 	payload := signedPayload{Method: "group.send", Meta: meta, Body: body}
+	originProof, err := buildOriginProof(auth, payload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"meta": meta,
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
+		"body": body,
+	}, nil
+}
+
+func BuildGroupE2EECreateRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, mlsHead map[string]any) (map[string]any, error) {
+	return buildGroupE2EERPCParams(record, manager, groupDID, "group.e2ee.create", e2eeHeadBody(groupDID, "", mlsHead), "")
+}
+
+func BuildGroupE2EEAddRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, mlsHead map[string]any) (map[string]any, error) {
+	body := e2eeHeadBody(groupDID, memberDID, mlsHead)
+	if value, ok := mlsHead["welcome_b64u"]; ok {
+		body["welcome_b64u"] = value
+	}
+	if value, ok := mlsHead["commit_b64u"]; ok {
+		body["commit_b64u"] = value
+	}
+	if value, ok := mlsHead["ratchet_tree_b64u"]; ok {
+		body["ratchet_tree_b64u"] = value
+	}
+	if value, ok := mlsHead["key_package_id"]; ok {
+		body["key_package_id"] = value
+		body["subject_key_package_id"] = value
+	}
+	return buildGroupE2EERPCParams(record, manager, groupDID, "group.e2ee.add", body, "")
+}
+
+func BuildGroupE2EESendRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, cipher map[string]any) (map[string]any, error) {
+	return buildGroupE2EERPCParams(record, manager, groupDID, "group.e2ee.send", map[string]any{"group_cipher_object": cipher}, "application/anp-group-cipher+json")
+}
+
+func BuildGroupE2EEPublishKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, packageResult map[string]any) (map[string]any, error) {
+	serviceDID = strings.TrimSpace(serviceDID)
+	if serviceDID == "" {
+		return nil, fmt.Errorf("message service did is required")
+	}
+	auth, err := newAuthContext(record, manager)
+	if err != nil {
+		return nil, err
+	}
+	groupKeyPackage, _ := packageResult["group_key_package"].(map[string]any)
+	if len(groupKeyPackage) == 0 {
+		return nil, fmt.Errorf("group_key_package is required")
+	}
+	meta := map[string]any{
+		"anp_version":      "1.0",
+		"profile":          GroupE2EEProfile,
+		"security_profile": GroupE2EESecurityProfile,
+		"sender_did":       record.DID,
+		"target":           map[string]any{"kind": "service", "did": serviceDID},
+		"operation_id":     "op-" + generateOperationID(),
+		"created_at":       nowRFC3339(),
+		"content_type":     "application/json",
+	}
+	body := map[string]any{"group_key_package": groupKeyPackage}
+	payload := signedPayload{Method: "group.e2ee.publish_key_package", Meta: meta, Body: body}
+	originProof, err := buildOriginProof(auth, payload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"meta": meta,
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
+		"body": body,
+	}, nil
+}
+
+func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, targetDID string) (map[string]any, error) {
+	serviceDID = strings.TrimSpace(serviceDID)
+	targetDID = strings.TrimSpace(targetDID)
+	if serviceDID == "" {
+		return nil, fmt.Errorf("message service did is required")
+	}
+	if targetDID == "" {
+		return nil, ErrMemberRequired
+	}
+	auth, err := newAuthContext(record, manager)
+	if err != nil {
+		return nil, err
+	}
+	meta := map[string]any{
+		"anp_version":      "1.0",
+		"profile":          GroupE2EEProfile,
+		"security_profile": GroupE2EESecurityProfile,
+		"sender_did":       record.DID,
+		"target":           map[string]any{"kind": "service", "did": serviceDID},
+		"operation_id":     "op-" + generateOperationID(),
+		"created_at":       nowRFC3339(),
+		"content_type":     "application/json",
+	}
+	body := map[string]any{"target_did": targetDID}
+	payload := signedPayload{Method: "group.e2ee.get_key_package", Meta: meta, Body: body}
 	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
 		return nil, err
@@ -346,6 +448,77 @@ func buildGroupPolicyPatch(admissionMode string, attachmentsAllowed *bool, maxMe
 		}
 	}
 	return patch
+}
+
+func normalizedGroupSecurityProfile(request GroupCreateRequest) string {
+	if request.E2EE {
+		return GroupE2EESecurityProfile
+	}
+	switch strings.TrimSpace(request.MessageSecurityProfile) {
+	case "", "transport-protected":
+		return ""
+	case GroupE2EESecurityProfile:
+		return GroupE2EESecurityProfile
+	default:
+		return strings.TrimSpace(request.MessageSecurityProfile)
+	}
+}
+
+func buildGroupE2EERPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, method string, body map[string]any, contentType string) (map[string]any, error) {
+	groupDID = strings.TrimSpace(groupDID)
+	if groupDID == "" {
+		return nil, ErrGroupRequired
+	}
+	auth, err := newAuthContext(record, manager)
+	if err != nil {
+		return nil, err
+	}
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	meta := map[string]any{
+		"anp_version":      "1.0",
+		"profile":          GroupE2EEProfile,
+		"security_profile": GroupE2EESecurityProfile,
+		"sender_did":       record.DID,
+		"target":           map[string]any{"kind": "group", "did": groupDID},
+		"operation_id":     "op-" + generateOperationID(),
+		"created_at":       nowRFC3339(),
+		"content_type":     contentType,
+	}
+	if method == "group.e2ee.send" {
+		meta["message_id"] = "msg-" + generateOperationID()
+	}
+	payload := signedPayload{Method: method, Meta: meta, Body: body}
+	originProof, err := buildOriginProof(auth, payload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"meta": meta,
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
+		"body": body,
+	}, nil
+}
+
+func e2eeHeadBody(groupDID string, memberDID string, mlsHead map[string]any) map[string]any {
+	body := map[string]any{
+		"group_state_ref": map[string]any{
+			"group_did": groupDID,
+		},
+	}
+	for _, key := range []string{"crypto_group_id_b64u", "epoch", "epoch_authenticator", "epoch_authenticator_b64u", "suite", "last_handshake_digest"} {
+		if value, ok := mlsHead[key]; ok {
+			body[key] = value
+		}
+	}
+	if value, ok := body["epoch_authenticator_b64u"]; ok {
+		body["epoch_authenticator"] = value
+	}
+	if memberDID != "" {
+		body["subject_did"] = memberDID
+	}
+	return body
 }
 
 func boolPtr(value bool) *bool {

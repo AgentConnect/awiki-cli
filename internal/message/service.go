@@ -19,9 +19,10 @@ import (
 )
 
 type Service struct {
-	resolved *appconfig.Resolved
-	manager  *identity.Manager
-	remote   *identity.RemoteClient
+	resolved    *appconfig.Resolved
+	manager     *identity.Manager
+	remote      *identity.RemoteClient
+	mlsProvider *MLSExecProvider
 }
 
 func NewService(resolved *appconfig.Resolved) (*Service, error) {
@@ -34,6 +35,13 @@ func NewService(resolved *appconfig.Resolved) (*Service, error) {
 		manager:  identity.NewManager(resolved.Paths),
 		remote:   remote,
 	}, nil
+}
+
+func (s *Service) groupMLSProvider() MLSExecProvider {
+	if s != nil && s.mlsProvider != nil {
+		return *s.mlsProvider
+	}
+	return NewDefaultMLSExecProvider(s.resolved)
 }
 
 func (s *Service) Config() *appconfig.Resolved {

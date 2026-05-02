@@ -88,6 +88,22 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:        "group create e2ee alias maps to group-e2ee request",
+			spec:        "group.create",
+			setFlags:    map[string]string{"name": "Secret Group", "e2ee": "true"},
+			wantSummary: "Dry run: group create planned",
+			wantAction:  "group.create",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				request, ok := plan["request"].(map[string]any)
+				if !ok {
+					t.Fatalf("plan.request type = %T, want map[string]any", plan["request"])
+				}
+				if request["E2EE"] != true {
+					t.Fatalf("request.E2EE = %#v, want true", request["E2EE"])
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
