@@ -221,6 +221,40 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 	}
 }
 
+func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EEPublishKeyPackageRPCParams(record, nil, "did:wba:awiki.ai:services:message:e1_service", map[string]any{
+		"group_key_package": map[string]any{
+			"owner_did":                record.DID,
+			"key_package_id":           "kp-bob-main",
+			"suite":                    "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
+			"mls_key_package_b64u":     "a3A",
+			"did_wba_binding":          map[string]any{"agent_did": record.DID},
+			"device_id":                "bob-main",
+			"private_key_package_b64u": "must-not-leak",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EEPublishKeyPackageRPCParams() error = %v", err)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	groupKeyPackage := mustMapValue(t, body["group_key_package"], "body.group_key_package")
+	if _, ok := groupKeyPackage["device_id"]; ok {
+		t.Fatalf("device_id leaked into service KeyPackage payload: %#v", groupKeyPackage)
+	}
+	if _, ok := groupKeyPackage["private_key_package_b64u"]; ok {
+		t.Fatalf("private provider field leaked into service KeyPackage payload: %#v", groupKeyPackage)
+	}
+	if got := stringFromAny(groupKeyPackage["key_package_id"]); got != "kp-bob-main" {
+		t.Fatalf("key_package_id = %q, want kp-bob-main", got)
+	}
+	if _, ok := params["auth"]; !ok {
+		t.Fatalf("auth missing from publish params: %#v", params)
+	}
+}
+
 func TestBuildGroupMembersRPCParamsDefaultsLimitToHundred(t *testing.T) {
 	t.Parallel()
 

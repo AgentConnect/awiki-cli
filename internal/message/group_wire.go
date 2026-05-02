@@ -215,6 +215,7 @@ func BuildGroupE2EEPublishKeyPackageRPCParams(record *identity.StoredIdentity, m
 	if len(groupKeyPackage) == 0 {
 		return nil, fmt.Errorf("group_key_package is required")
 	}
+	groupKeyPackage = sanitizeGroupKeyPackageForService(groupKeyPackage)
 	meta := map[string]any{
 		"anp_version":      "1.0",
 		"profile":          GroupE2EEProfile,
@@ -272,6 +273,26 @@ func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
+}
+
+func sanitizeGroupKeyPackageForService(input map[string]any) map[string]any {
+	allowed := map[string]struct{}{
+		"owner_did":            {},
+		"key_package_id":       {},
+		"suite":                {},
+		"mls_key_package_b64u": {},
+		"did_wba_binding":      {},
+		"expires_at":           {},
+		"non_cryptographic":    {},
+		"artifact_mode":        {},
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		if _, ok := allowed[key]; ok {
+			output[key] = value
+		}
+	}
+	return output
 }
 
 func BuildGroupGetRPCParams(record *identity.StoredIdentity, request GroupGetRequest) (map[string]any, error) {
