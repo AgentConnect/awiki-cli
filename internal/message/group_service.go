@@ -127,6 +127,10 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 		return nil, err
 	}
 	request.Member = memberDID
+	var preMutationSnapshot map[string]any
+	if action == "add" {
+		preMutationSnapshot, _ = s.readCachedGroupSnapshot(ctx, record, request.Group)
+	}
 	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
 		return nil, err
@@ -144,7 +148,7 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
 	members, _ := s.readCachedGroupMembers(ctx, record, request.Group, 100)
 	var e2eeResult map[string]any
-	if action == "add" && (request.E2EE || groupSnapshotUsesE2EE(snapshot)) {
+	if action == "add" && groupMemberMutationUsesE2EE(request, preMutationSnapshot, snapshot) {
 		e2eeCandidate, e2eeWarnings := s.addGroupMemberE2EE(ctx, record, request.Group, memberDID)
 		e2eeResult, warnings = appendE2EEResult(warnings, e2eeCandidate, e2eeWarnings)
 	}
@@ -274,12 +278,12 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 		warnings = append(warnings, websocketHTTPFallbackWarning(wsErr))
 		warnings = append(warnings, httpWarnings...)
 	}
-	warnings = append(warnings, s.persistGroupMessages(ctx, record, request.Group, result)...)
 	decryptWarnings, decryptedResult := s.maybeDecryptGroupMessages(ctx, record, request.Group, result)
 	warnings = append(warnings, decryptWarnings...)
 	if decryptedResult != nil {
 		result = decryptedResult
 	}
+	warnings = append(warnings, s.persistGroupMessages(ctx, record, request.Group, result)...)
 	messages, _ := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
 	if len(messages) == 0 {
 		messages = messagesFromResult(result["messages"])

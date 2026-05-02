@@ -129,6 +129,74 @@ func TestShouldUseCachedGroupFallbackRejectsInactiveViewerErrors(t *testing.T) {
 	}
 }
 
+func TestGroupMemberMutationUsesPreMutationE2EESnapshot(t *testing.T) {
+	t.Parallel()
+
+	preMutation := map[string]any{
+		"metadata": `{"message_security_profile":"group-e2ee","group_e2ee":{"epoch":"1"}}`,
+	}
+	postMutation := map[string]any{
+		"metadata": `{"group_state_version":"2"}`,
+	}
+	if !groupMemberMutationUsesE2EE(GroupMemberRequest{}, preMutation, postMutation) {
+		t.Fatal("groupMemberMutationUsesE2EE() = false, want true from pre-mutation E2EE summary")
+	}
+	if !groupMemberMutationUsesE2EE(GroupMemberRequest{E2EE: true}, nil, nil) {
+		t.Fatal("groupMemberMutationUsesE2EE() = false, want true from explicit E2EE request")
+	}
+	if groupMemberMutationUsesE2EE(GroupMemberRequest{}, nil, postMutation) {
+		t.Fatal("groupMemberMutationUsesE2EE() = true, want false for non-E2EE snapshots")
+	}
+}
+
+func TestLocalIdentityByDIDFindsStoredMemberForWelcomeProcessing(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	manager := identity.NewManager(resolved.Paths)
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "alice",
+		UserID:       "user-alice",
+		DisplayName:  "Alice",
+		Handle:       "alice",
+	})
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "bob",
+		UserID:       "user-bob",
+		DisplayName:  "Bob",
+		Handle:       "bob",
+	})
+	bob, err := manager.Load("bob")
+	if err != nil {
+		t.Fatalf("Load(bob) error = %v", err)
+	}
+	service := &Service{resolved: resolved, manager: manager}
+
+	found, err := service.localIdentityByDID(bob.DID)
+	if err != nil {
+		t.Fatalf("localIdentityByDID() error = %v", err)
+	}
+	if found.IdentityName != "bob" {
+		t.Fatalf("localIdentityByDID() identity = %q, want bob", found.IdentityName)
+	}
+}
+
+func TestGroupE2EEWelcomeDeviceIDUsesPublicKeyPackageDevice(t *testing.T) {
+	t.Parallel()
+
+	leasedPackage := map[string]any{
+		"group_key_package": map[string]any{
+			"device_id": "bob-main",
+		},
+	}
+	if got := groupE2EEWelcomeDeviceID(leasedPackage); got != "bob-main" {
+		t.Fatalf("groupE2EEWelcomeDeviceID() = %q, want bob-main", got)
+	}
+	if got := groupE2EEWelcomeDeviceID(nil); got != "default" {
+		t.Fatalf("groupE2EEWelcomeDeviceID(nil) = %q, want default", got)
+	}
+}
+
 func writeCachedGroupState(t *testing.T, resolved *appconfig.Resolved, record *identity.StoredIdentity, group store.GroupRecord, members []store.GroupMemberRecord) {
 	t.Helper()
 

@@ -3,6 +3,8 @@ package message
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -126,7 +128,6 @@ func (p MLSExecProvider) ResolveBinaryPath() (string, error) {
 	)
 }
 
-
 func isExecutableFile(info os.FileInfo) bool {
 	if info == nil || info.IsDir() {
 		return false
@@ -234,16 +235,17 @@ func (p MLSExecProvider) Call(ctx context.Context, domain string, action string,
 	if err != nil {
 		return nil, err
 	}
-	if p.DataDir != "" {
-		if err := os.MkdirAll(p.DataDir, 0o700); err != nil {
-			return nil, fmt.Errorf("prepare anp-mls data dir %s: %w", p.DataDir, err)
+	dataDir := p.effectiveDataDir(req)
+	if dataDir != "" {
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			return nil, fmt.Errorf("prepare anp-mls data dir %s: %w", dataDir, err)
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	args := []string{domain, action, "--json-in", "-"}
-	if p.DataDir != "" {
-		args = append(args, "--data-dir", p.DataDir)
+	if dataDir != "" {
+		args = append(args, "--data-dir", dataDir)
 	}
 	stdout, stderr, err := runner.Run(ctx, binary, args, body)
 	if err != nil && len(stdout) == 0 {
@@ -260,6 +262,90 @@ func (p MLSExecProvider) Call(ctx context.Context, domain string, action string,
 		return &resp, fmt.Errorf("anp-mls returned ok=false")
 	}
 	return &resp, nil
+}
+
+func (p MLSExecProvider) effectiveDataDir(req MLSRequest) string {
+	baseDir := strings.TrimSpace(p.DataDir)
+	if baseDir == "" {
+		return ""
+	}
+	agentDID := strings.TrimSpace(req.AgentDID)
+	if agentDID == "" {
+		for _, key := range []string{"agent_did", "owner_did", "actor_did", "sender_did", "recipient_did"} {
+			if value := stringFromAny(req.Params[key]); value != "" {
+				agentDID = value
+				break
+			}
+		}
+	}
+	if agentDID == "" {
+		return baseDir
+	}
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID == "" {
+		deviceID = stringFromAny(req.Params["device_id"])
+	}
+	if deviceID == "" {
+		deviceID = "default"
+	}
+	return filepath.Join(baseDir, "agents", mlsAgentKey(agentDID), safeMLSPathComponent(deviceID))
+}
+
+func (p MLSExecProvider) candidateDeviceIDs(agentDID string) []string {
+	agentDID = strings.TrimSpace(agentDID)
+	if agentDID == "" {
+		return []string{"default"}
+	}
+	candidates := []string{"default"}
+	baseDir := strings.TrimSpace(p.DataDir)
+	if baseDir == "" {
+		return candidates
+	}
+	entries, err := os.ReadDir(filepath.Join(baseDir, "agents", mlsAgentKey(agentDID)))
+	if err != nil {
+		return candidates
+	}
+	seen := map[string]struct{}{"default": {}}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		deviceID := strings.TrimSpace(entry.Name())
+		if deviceID == "" {
+			continue
+		}
+		if _, ok := seen[deviceID]; ok {
+			continue
+		}
+		seen[deviceID] = struct{}{}
+		candidates = append(candidates, deviceID)
+	}
+	return candidates
+}
+
+func mlsAgentKey(agentDID string) string {
+	sum := sha256.Sum256([]byte(agentDID))
+	return base64.RawURLEncoding.EncodeToString(sum[:])[:24]
+}
+
+func safeMLSPathComponent(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "default"
+	}
+	var builder strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			builder.WriteRune(r)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return "default"
+	}
+	return builder.String()
 }
 
 func (p MLSExecProvider) GenerateKeyPackage(ctx context.Context, req MLSRequest) (map[string]any, error) {

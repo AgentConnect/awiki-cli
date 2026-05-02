@@ -167,7 +167,7 @@ By default the script builds `../anp/anp/rust` with Cargo and copies `anp-mls` t
 export AWIKI_ANP_MLS_BINARY=/absolute/path/to/anp-mls
 ```
 
-The MLS private state directory remains `~/.awiki-cli/mls/` (or the current `AWIKI_CLI_WORKSPACE_HOME_DIR` equivalent). `doctor` reports the directory permissions plus `state.db` and `state.lock` status, including warnings when cached group-E2EE groups exist but MLS state is missing.
+The MLS private state root remains `~/.awiki-cli/mls/` (or the current `AWIKI_CLI_WORKSPACE_HOME_DIR` equivalent). Runtime OpenMLS state is agent/device-scoped under that root (`mls/agents/<agent-hash>/<device>/state.db`) so two local identities do not share private KeyPackage storage. Incoming decrypt first tries the default device and then scans the local agent-scoped device directories, allowing one-shot CLI commands to restore state for KeyPackages published with a named device. `doctor` reports the root directory permissions plus state file status, including warnings when cached group-E2EE groups exist but MLS state is missing.
 
 ### 3.2 config.yaml
 

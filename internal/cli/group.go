@@ -120,7 +120,7 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 		result, err = service.RemoveGroupMember(cmd.Context(), request)
 	}
 	if err != nil {
-		return a.messageExit(err, "Make sure the group and member exist and the active identity has the required role.")
+		return a.messageExit(err, "Make sure the group and member exist and the active identity has the owner role required for membership changes.")
 	}
 	if result == nil {
 		return commandResultMissing(cmd.CommandPath())

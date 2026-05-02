@@ -93,13 +93,14 @@
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。
 **internal/message/secure.go**: P5 direct E2EE secure send 的首版编排层，使用 ANP Go SDK direct_e2ee、本地文件会话/预密钥存储和 HTTP JSON-RPC；key-service 请求绑定当前 DID 文档里 `ANPMessageService.serviceDid`，并在有可用 sidecar OPK 时优先用 OPK 建链（本地保存 `p5-one-time-prekeys/`）；HTTP inbox/history 现已接入入站密文解密与会话推进，并会顺带补发本地 prekey bundle；轮询路径解密 direct-init 成功后会自动发送 encrypted ACK 并尝试 flush 该 peer 的 `e2ee_outbox`；当 initiator 仍处于 `pending-confirmation` 时，新的 secure 发送会进入 `e2ee_outbox` 排队。
 **internal/message/secure_control.go**: secure 控制面与恢复辅助，负责 secure ack/init payload、pending 阶段的 `e2ee_outbox` 排队、secure outbox flush，以及 `msg secure status/init/repair/failed/retry/drop` 需要的本地会话/发件箱读取与重试逻辑。
-**internal/message/group_e2ee_provider.go**: `anp-mls` exec provider 抽象；按 `AWIKI_ANP_MLS_BINARY`、测试/运行时注入路径、`PATH` 顺序发现二进制；JSON request 走 stdin、response 走 stdout、日志/错误走 stderr，默认 MLS 状态目录为 `<workspace>/mls`，保持 Go 主工程 pure Go / no CGO。
-**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器。
+**internal/message/group_e2ee_provider.go**: `anp-mls` exec provider 抽象；按 `AWIKI_ANP_MLS_BINARY`、测试/运行时注入路径、`PATH` 顺序发现二进制；JSON request 走 stdin、response 走 stdout、日志/错误走 stderr，默认 MLS 根目录为 `<workspace>/mls`，实际 OpenMLS 私有状态按 agent/device 分到子目录，并可扫描同一 agent 下的本地 device state 供收件解密恢复，保持 Go 主工程 pure Go / no CGO。
+**internal/message/group_e2ee_service.go**: group E2EE 业务编排层；负责 KeyPackage 发布、owner create/add、send encrypt、messages decrypt，并在同一工作区存在目标成员身份时本地处理 add 返回的 welcome notice，使 one-shot `anp-mls` agent/device 状态可恢复。
+**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器；group E2EE send 会在签名/发送前裁剪 provider-local MLS 字段，只把 P6 service 允许的 opaque cipher 字段送到 message-service。
 **internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。
 **internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store；支持收件后自动 DID→Handle 补全，以及按 handle 聚合历史 DID 消息。
 **internal/message/contact_sync.go**: direct inbox/history 的联系人补全与 Handle 历史 DID 聚合辅助。
-**internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑。
+**internal/message/group_service.go**: group lifecycle、group message、本地群缓存同步与群 inbox 聚合逻辑；E2EE 群消息在落本地 message view 前先尝试解密，避免返回缓存时覆盖已解密展示内容。
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。
 **internal/message/proof_test.go**: origin_proof round-trip 测试。
 **internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。
@@ -218,7 +219,7 @@
 
 - `msg` 域中 direct plain 已实现，P5 secure direct 出站首版已接入；HTTP inbox/history 的 P5 入站自动解密、轮询 direct-init 自动 ACK 与 outbox flush 已接入；websocket listener 已能解密 secure incoming、自动 first-reply/ack，并在 secure ack 后尝试 flush `e2ee_outbox`；`msg secure status/init/repair/failed/retry/drop` 有首版，但完整 runtime 联调与更强系统测试仍未完成
 - `group` 域的 plain lifecycle / local view / group messaging 已接入，`people` 仍大多为 stub；`page` 已完成 content pages 首版
-- secure E2EE 业务流目前只完成 P5 出站首版；group E2EE 已接入 CLI 侧 `anp-mls` exec 编排、KeyPackage 发布、group-e2ee create/add/send 与轮询消息本地解密分支，但真实 OpenMLS 完整验收仍依赖 `anp-mls` 与 message-service P6 后端联调。
+- secure E2EE 业务流目前只完成 P5 出站首版；group E2EE 已接入 CLI 侧 `anp-mls` exec 编排、KeyPackage 发布、group-e2ee create/add/send 与轮询消息本地解密分支，并已有隐藏 focused target 覆盖真实 OpenMLS Alice/Bob 最小闭环；对外 discovery 仍保持隐藏，完整 MLS 群管理能力仍未实现。
 
 ## 开发与验证约定
 

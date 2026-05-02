@@ -166,11 +166,13 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 
 	record := testStoredIdentity(t)
 	params, err := BuildGroupE2EESendRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", map[string]any{
-		"crypto_group_id_b64u": "Y3J5cHRv",
-		"epoch":                "1",
-		"private_message_b64u": "Y2lwaGVy",
-		"epoch_authenticator":  "YXV0aA",
-		"group_state_ref":      map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group"},
+		"crypto_group_id_b64u":  "Y3J5cHRv",
+		"openmls_group_id_b64u": "provider-local",
+		"epoch":                 "1",
+		"private_message_b64u":  "Y2lwaGVy",
+		"epoch_authenticator":   "YXV0aA",
+		"group_state_ref":       map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group"},
+		"application_plaintext": map[string]any{"text": "secret"},
 	})
 	if err != nil {
 		t.Fatalf("BuildGroupE2EESendRPCParams() error = %v", err)
@@ -189,8 +191,18 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 	if _, ok := body["application_plaintext"]; ok {
 		t.Fatalf("plaintext leaked into E2EE send body: %#v", body)
 	}
+	groupCipher := mustMapValue(t, body["group_cipher_object"], "body.group_cipher_object")
 	if _, ok := body["group_cipher_object"]; !ok {
 		t.Fatalf("group_cipher_object missing: %#v", body)
+	}
+	if _, ok := groupCipher["openmls_group_id_b64u"]; ok {
+		t.Fatalf("provider-local OpenMLS group id leaked into service body: %#v", groupCipher)
+	}
+	if _, ok := groupCipher["application_plaintext"]; ok {
+		t.Fatalf("plaintext leaked into service cipher object: %#v", groupCipher)
+	}
+	if got := stringFromAny(groupCipher["crypto_group_id_b64u"]); got != "Y3J5cHRv" {
+		t.Fatalf("crypto_group_id_b64u = %q, want Y3J5cHRv", got)
 	}
 }
 
@@ -241,8 +253,8 @@ func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *tes
 	}
 	body := mustMapValue(t, params["body"], "params.body")
 	groupKeyPackage := mustMapValue(t, body["group_key_package"], "body.group_key_package")
-	if _, ok := groupKeyPackage["device_id"]; ok {
-		t.Fatalf("device_id leaked into service KeyPackage payload: %#v", groupKeyPackage)
+	if got := stringFromAny(groupKeyPackage["device_id"]); got != "bob-main" {
+		t.Fatalf("device_id = %q, want public device binding", got)
 	}
 	if _, ok := groupKeyPackage["private_key_package_b64u"]; ok {
 		t.Fatalf("private provider field leaked into service KeyPackage payload: %#v", groupKeyPackage)

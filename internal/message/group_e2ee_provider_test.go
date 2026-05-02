@@ -110,6 +110,42 @@ func TestMLSExecProviderPassesPlaintextOnStdinNotArgv(t *testing.T) {
 	if got := runner.args[len(runner.args)-2]; got != "--data-dir" {
 		t.Fatalf("args missing --data-dir before final value: %#v", runner.args)
 	}
+	dataDir := runner.args[len(runner.args)-1]
+	if !strings.Contains(dataDir, filepath.Join("agents")) || !strings.HasSuffix(dataDir, filepath.Join("agents", filepath.Base(filepath.Dir(dataDir)), "device-1")) {
+		t.Fatalf("data dir = %q, want agent-scoped device directory", dataDir)
+	}
+	if strings.Contains(dataDir, "did:wba") {
+		t.Fatalf("data dir leaked raw DID: %q", dataDir)
+	}
+}
+
+func TestMLSExecProviderCandidateDeviceIDsScansAgentScopedState(t *testing.T) {
+	root := t.TempDir()
+	agentDID := "did:wba:example.com:users:bob:e1"
+	agentDir := filepath.Join(root, "agents", mlsAgentKey(agentDID))
+	if err := os.MkdirAll(filepath.Join(agentDir, "bob-main"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(agentDir, "bob.backup"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "not-a-device"), []byte("state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := MLSExecProvider{DataDir: root}.candidateDeviceIDs(agentDID)
+	want := map[string]bool{"default": true, "bob-main": true, "bob.backup": true}
+	if len(got) != len(want) {
+		t.Fatalf("candidateDeviceIDs() = %#v, want keys %#v", got, want)
+	}
+	for _, deviceID := range got {
+		if !want[deviceID] {
+			t.Fatalf("candidateDeviceIDs() returned unexpected device %q in %#v", deviceID, got)
+		}
+	}
+	if got[0] != "default" {
+		t.Fatalf("candidateDeviceIDs()[0] = %q, want default first", got[0])
+	}
 }
 
 func TestMLSExecProviderRejectsNonExecutablePath(t *testing.T) {

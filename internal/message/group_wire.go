@@ -199,7 +199,25 @@ func BuildGroupE2EEAddRPCParams(record *identity.StoredIdentity, manager *identi
 }
 
 func BuildGroupE2EESendRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, cipher map[string]any) (map[string]any, error) {
-	return buildGroupE2EERPCParams(record, manager, groupDID, "group.e2ee.send", map[string]any{"group_cipher_object": cipher}, "application/anp-group-cipher+json")
+	return buildGroupE2EERPCParams(record, manager, groupDID, "group.e2ee.send", map[string]any{"group_cipher_object": sanitizeGroupCipherObjectForService(cipher)}, "application/anp-group-cipher+json")
+}
+
+func sanitizeGroupCipherObjectForService(cipher map[string]any) map[string]any {
+	sanitized := make(map[string]any)
+	for _, key := range []string{
+		"crypto_group_id_b64u",
+		"epoch",
+		"private_message_b64u",
+		"group_state_ref",
+		"epoch_authenticator",
+		"non_cryptographic",
+		"artifact_mode",
+	} {
+		if value, ok := cipher[key]; ok {
+			sanitized[key] = value
+		}
+	}
+	return sanitized
 }
 
 func BuildGroupE2EEPublishKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, packageResult map[string]any) (map[string]any, error) {
@@ -278,6 +296,7 @@ func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 func sanitizeGroupKeyPackageForService(input map[string]any) map[string]any {
 	allowed := map[string]struct{}{
 		"owner_did":            {},
+		"device_id":            {},
 		"key_package_id":       {},
 		"suite":                {},
 		"mls_key_package_b64u": {},
