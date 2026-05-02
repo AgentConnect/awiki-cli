@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -42,6 +43,16 @@ type MLSResponse struct {
 type MLSError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// MLSVersionInfo is the machine-readable compatibility contract returned by
+// `anp-mls system version --json-in -`.
+type MLSVersionInfo struct {
+	APIVersion        string   `json:"api_version"`
+	BinaryName        string   `json:"binary_name"`
+	BinaryVersion     string   `json:"binary_version,omitempty"`
+	BuildVersion      string   `json:"build_version,omitempty"`
+	SupportedCommands []string `json:"supported_commands"`
 }
 
 type MLSCommandRunner interface {
@@ -99,7 +110,7 @@ func (p MLSExecProvider) ResolveBinaryPath() (string, error) {
 		}
 		seen[candidate] = struct{}{}
 		if filepath.IsAbs(candidate) || strings.ContainsRune(candidate, filepath.Separator) {
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if info, err := os.Stat(candidate); err == nil && isExecutableFile(info) {
 				return candidate, nil
 			}
 			continue
@@ -113,6 +124,93 @@ func (p MLSExecProvider) ResolveBinaryPath() (string, error) {
 		ANPMLSBinaryEnv,
 		ANPMLSBinaryEnv,
 	)
+}
+
+
+func isExecutableFile(info os.FileInfo) bool {
+	if info == nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode()&0o111 != 0
+}
+
+func (p MLSExecProvider) ProbeVersion(ctx context.Context) (*MLSVersionInfo, error) {
+	timeout := p.Timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	runner := p.Runner
+	if runner == nil {
+		runner = OSMLSCommandRunner{}
+	}
+	binary := strings.TrimSpace(p.BinaryPath)
+	if binary == "" || p.Runner == nil {
+		resolvedBinary, err := p.ResolveBinaryPath()
+		if err != nil {
+			return nil, err
+		}
+		binary = resolvedBinary
+	}
+	req := MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "doctor-system-version",
+		Params:     map[string]any{},
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	stdout, stderr, err := runner.Run(ctx, binary, []string{"system", "version", "--json-in", "-"}, body)
+	if err != nil && len(stdout) == 0 {
+		return nil, fmt.Errorf("anp-mls version probe failed: %w: %s", err, string(stderr))
+	}
+	var resp MLSResponse
+	if decodeErr := json.Unmarshal(stdout, &resp); decodeErr != nil {
+		return nil, fmt.Errorf("decode anp-mls version response: %w: stderr=%s", decodeErr, string(stderr))
+	}
+	if !resp.OK {
+		if resp.Error != nil {
+			return nil, fmt.Errorf("anp-mls version probe error %s: %s", resp.Error.Code, resp.Error.Message)
+		}
+		return nil, fmt.Errorf("anp-mls version probe returned ok=false")
+	}
+	info, err := versionInfoFromResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+func versionInfoFromResponse(resp MLSResponse) (*MLSVersionInfo, error) {
+	resultBytes, err := json.Marshal(resp.Result)
+	if err != nil {
+		return nil, err
+	}
+	var info MLSVersionInfo
+	if err := json.Unmarshal(resultBytes, &info); err != nil {
+		return nil, fmt.Errorf("decode anp-mls version result: %w", err)
+	}
+	if info.APIVersion == "" {
+		info.APIVersion = resp.APIVersion
+	}
+	if strings.TrimSpace(info.APIVersion) == "" {
+		return nil, fmt.Errorf("anp-mls version response missing api_version")
+	}
+	if strings.TrimSpace(info.BinaryName) == "" {
+		return nil, fmt.Errorf("anp-mls version response missing binary_name")
+	}
+	if strings.TrimSpace(info.BinaryVersion) == "" && strings.TrimSpace(info.BuildVersion) == "" {
+		return nil, fmt.Errorf("anp-mls version response missing binary_version/build_version")
+	}
+	if len(info.SupportedCommands) == 0 {
+		return nil, fmt.Errorf("anp-mls version response missing supported_commands")
+	}
+	return &info, nil
 }
 
 func (p MLSExecProvider) Call(ctx context.Context, domain string, action string, req MLSRequest) (*MLSResponse, error) {

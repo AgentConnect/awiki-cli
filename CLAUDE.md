@@ -126,6 +126,8 @@
 **docs/plan/phase-0/audit-findings.md**: Phase 0 审计冲突与裁决。
 **docs/plan/phase-0/adr-index.md**: Phase 0 ADR 索引。
 
+**scripts/release/build-anp-mls.sh**: 本地 release hardening 辅助脚本，从同级 `../anp/anp/rust` 构建 `anp-mls` 并 stage 到 `dist/anp-mls/<os>-<arch>/`，用于 awiki-cli group E2EE helper 的打包或 `AWIKI_ANP_MLS_BINARY` 注入验证。
+
 ## 当前实现边界
 
 ### 已实现

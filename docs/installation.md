@@ -136,7 +136,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 > - 备份快照
 
 
-### 3.3 `anp-mls` binary discovery
+### 3.3 `anp-mls` binary discovery and release staging
 
 Group E2EE commands keep the Go CLI pure-Go/no-CGO by invoking the Rust `anp-mls` binary as a one-shot process. Discovery order is:
 
@@ -145,6 +145,29 @@ Group E2EE commands keep the Go CLI pure-Go/no-CGO by invoking the Rust `anp-mls
 3. `PATH` lookup for `anp-mls`.
 
 Plain direct/group messaging does not require this binary. `awiki-cli doctor` reports an informational `anp_mls` check when the binary is missing; group E2EE commands return an actionable remediation error.
+
+`awiki-cli doctor` also probes compatibility with the stable machine-readable contract:
+
+```bash
+anp-mls system version --json-in -
+```
+
+The response must include `api_version`, `binary_name`, `binary_version` or `build_version`, and `supported_commands`. The supported API for this CLI build is `anp-mls/v1`; a mismatch is reported as a warning with remediation instead of breaking plain messaging.
+
+For local release preparation, stage the Rust helper from the sibling ANP repository:
+
+```bash
+scripts/release/build-anp-mls.sh --dry-run
+scripts/release/build-anp-mls.sh
+```
+
+By default the script builds `../anp/anp/rust` with Cargo and copies `anp-mls` to `dist/anp-mls/<os>-<arch>/anp-mls`. Release jobs can bundle that file beside the `awiki-cli` archive, or users can place it on `PATH`. If a deployment keeps the helper outside the archive, set:
+
+```bash
+export AWIKI_ANP_MLS_BINARY=/absolute/path/to/anp-mls
+```
+
+The MLS private state directory remains `~/.awiki-cli/mls/` (or the current `AWIKI_CLI_WORKSPACE_HOME_DIR` equivalent). `doctor` reports the directory permissions plus `state.db` and `state.lock` status, including warnings when cached group-E2EE groups exist but MLS state is missing.
 
 ### 3.2 config.yaml
 

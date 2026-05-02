@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/message"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
@@ -250,6 +252,8 @@ func resolveDoctorConfigForWorkspace(t *testing.T, workspace string, keepEnvHits
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", workspace)
+	t.Setenv("AWIKI_ANP_MLS_BINARY", "")
+	t.Setenv("PATH", t.TempDir())
 	resolved, err := appconfig.Resolve(appconfig.Overrides{})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -272,4 +276,107 @@ func checkByName(t *testing.T, report Report, name string) Check {
 	}
 	t.Fatalf("check %q not found", name)
 	return Check{}
+}
+
+func TestANPMLSDoctorCompatibilityAndStateDiagnostics(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	binDir := t.TempDir()
+	writeFakeANPMLS(t, binDir, `{"ok":true,"api_version":"anp-mls/v1","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v1","binary_name":"anp-mls","binary_version":"test","supported_commands":["system version","key-package generate","group create"]}}`)
+	t.Setenv("PATH", binDir)
+	mlsDir := filepath.Join(resolved.Paths.WorkspaceHomeDir, "mls")
+	if err := os.MkdirAll(mlsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mlsDir, "state.db"), []byte("sqlite placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mlsDir, "state.lock"), []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Run(resolved)
+	check := checkByName(t, report, "anp_mls")
+	if check.Status != "ok" {
+		t.Fatalf("anp_mls status = %q, want ok; details=%#v", check.Status, check.Details)
+	}
+	if check.Details["data_dir_status"] != "ok" || check.Details["state_db_status"] != "ok" {
+		t.Fatalf("unexpected MLS state details: %#v", check.Details)
+	}
+	version, ok := check.Details["version"].(*message.MLSVersionInfo)
+	if !ok || version.BinaryName != "anp-mls" {
+		t.Fatalf("version detail = %#v", check.Details["version"])
+	}
+	if check.Details["remediation"] != "No action required." {
+		t.Fatalf("remediation = %#v", check.Details["remediation"])
+	}
+}
+
+func TestANPMLSDoctorVersionMismatchIsActionableWarning(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	binDir := t.TempDir()
+	writeFakeANPMLS(t, binDir, `{"ok":true,"api_version":"anp-mls/v0","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v0","binary_name":"anp-mls","binary_version":"old","supported_commands":["system version"]}}`)
+	t.Setenv("PATH", binDir)
+
+	report := Run(resolved)
+	check := checkByName(t, report, "anp_mls")
+	if check.Status != "warn" {
+		t.Fatalf("anp_mls status = %q, want warn; details=%#v", check.Status, check.Details)
+	}
+	if got := check.Details["compatibility_error"]; !strings.Contains(got.(string), "api_version") {
+		t.Fatalf("compatibility_error = %#v", got)
+	}
+	if got := check.Details["remediation"].(string); !strings.Contains(got, "api_version anp-mls/v1") {
+		t.Fatalf("remediation = %q", got)
+	}
+}
+
+func TestANPMLSDoctorWarnsWhenCachedE2EEGroupsHaveNoMLSState(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	binDir := t.TempDir()
+	writeFakeANPMLS(t, binDir, `{"ok":true,"api_version":"anp-mls/v1","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v1","binary_name":"anp-mls","binary_version":"test","supported_commands":["system version"]}}`)
+	t.Setenv("PATH", binDir)
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertGroup(context.Background(), db, store.GroupRecord{
+		OwnerDID:       "did:wba:alice.example",
+		GroupID:        "group-1",
+		Name:           "Secret group",
+		Metadata:       `{"message_security_profile":"group-e2ee"}`,
+		CredentialName: "alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Run(resolved)
+	check := checkByName(t, report, "anp_mls")
+	if check.Status != "warn" {
+		t.Fatalf("anp_mls status = %q, want warn; details=%#v", check.Status, check.Details)
+	}
+	if check.Details["e2ee_group_count"] != 1 {
+		t.Fatalf("e2ee_group_count = %#v, want 1", check.Details["e2ee_group_count"])
+	}
+	if check.Details["data_dir_status"] != "warn_missing_with_cached_groups" {
+		t.Fatalf("data_dir_status = %#v", check.Details["data_dir_status"])
+	}
+}
+
+func writeFakeANPMLS(t *testing.T, dir string, response string) string {
+	t.Helper()
+	if os.PathSeparator == ';' {
+		t.Skip("shell-script fake anp-mls is only used on Unix-like test hosts")
+	}
+	path := filepath.Join(dir, "anp-mls")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1 $2 $3 $4\" != \"system version --json-in -\" ]; then echo unexpected args >&2; exit 2; fi\n" +
+		"printf '%s' '" + strings.ReplaceAll(response, "'", "'\\''") + "'\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

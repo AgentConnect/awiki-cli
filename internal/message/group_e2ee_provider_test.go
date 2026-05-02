@@ -64,6 +64,9 @@ func TestMLSExecProviderBinaryDiscoveryOrder(t *testing.T) {
 func (r *recordingMLSRunner) Run(_ context.Context, _ string, args []string, stdin []byte) ([]byte, []byte, error) {
 	r.args = append([]string(nil), args...)
 	r.stdin = append([]byte(nil), stdin...)
+	if strings.Join(args, " ") == "system version --json-in -" {
+		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v1","binary_name":"anp-mls","binary_version":"test","supported_commands":["system version","message encrypt"]}}`), nil, nil
+	}
 	return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-1","result":{"non_cryptographic":true}}`), nil, nil
 }
 
@@ -106,5 +109,45 @@ func TestMLSExecProviderPassesPlaintextOnStdinNotArgv(t *testing.T) {
 	}
 	if got := runner.args[len(runner.args)-2]; got != "--data-dir" {
 		t.Fatalf("args missing --data-dir before final value: %#v", runner.args)
+	}
+}
+
+func TestMLSExecProviderRejectsNonExecutablePath(t *testing.T) {
+	if os.PathSeparator == ';' {
+		t.Skip("Windows executable bit semantics differ")
+	}
+	t.Setenv(ANPMLSBinaryEnv, "")
+	nonExecutable := filepath.Join(t.TempDir(), "anp-mls")
+	if err := os.WriteFile(nonExecutable, []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider := MLSExecProvider{BinaryPath: nonExecutable}
+	if got, err := provider.ResolveBinaryPath(); err == nil {
+		t.Fatalf("ResolveBinaryPath() = %q, nil error; want non-executable path rejected", got)
+	}
+}
+
+func TestMLSExecProviderProbeVersionUsesStableSystemContract(t *testing.T) {
+	runner := &recordingMLSRunner{}
+	provider := MLSExecProvider{BinaryPath: "anp-mls", DataDir: t.TempDir(), Runner: runner}
+	info, err := provider.ProbeVersion(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(runner.args, " "); got != "system version --json-in -" {
+		t.Fatalf("ProbeVersion args = %q, want stable system version probe", got)
+	}
+	if strings.Contains(strings.Join(runner.args, " "), provider.DataDir) {
+		t.Fatalf("ProbeVersion should not require or expose data dir args: %#v", runner.args)
+	}
+	if info.APIVersion != "anp-mls/v1" || info.BinaryName != "anp-mls" || info.BinaryVersion == "" {
+		t.Fatalf("ProbeVersion info = %#v", info)
+	}
+	var req MLSRequest
+	if err := json.Unmarshal(runner.stdin, &req); err != nil {
+		t.Fatal(err)
+	}
+	if req.RequestID != "doctor-system-version" || req.Params == nil {
+		t.Fatalf("ProbeVersion stdin request = %#v", req)
 	}
 }

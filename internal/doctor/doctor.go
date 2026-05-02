@@ -2,10 +2,13 @@ package doctor
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/buildinfo"
 	"github.com/agentconnect/awiki-cli/internal/config"
@@ -74,24 +77,248 @@ func Run(resolved *config.Resolved) Report {
 
 func anpMLSCheck(resolved *config.Resolved) Check {
 	provider := message.NewDefaultMLSExecProvider(resolved)
-	binary, err := provider.ResolveBinaryPath()
+	binary, resolveErr := provider.ResolveBinaryPath()
+	state := inspectMLSState(resolved, provider.DataDir)
+	details := map[string]any{
+		"binary":            binary,
+		"data_dir":          provider.DataDir,
+		"env_override":      message.ANPMLSBinaryEnv,
+		"plain_unaffected":  true,
+		"resolve_error":     errorString(resolveErr),
+		"remediation":       anpMLSRemediation(resolveErr, nil, nil, state),
+		"data_dir_status":   state.DataDirStatus,
+		"data_dir_exists":   state.DataDirExists,
+		"data_dir_error":    state.DataDirError,
+		"state_db":          state.StateDBPath,
+		"state_db_status":   state.StateDBStatus,
+		"state_db_error":    state.StateDBError,
+		"state_lock":        state.StateLockPath,
+		"state_lock_status": state.StateLockStatus,
+		"state_lock_error":  state.StateLockError,
+		"e2ee_group_count":  state.E2EEGroupCount,
+	}
 	status := "ok"
-	summary := "anp-mls binary is available for group E2EE operations"
-	if err != nil {
+	summary := "anp-mls binary and compatibility probe are ready for group E2EE operations"
+	if resolveErr != nil {
 		status = "info"
 		summary = "anp-mls binary not found; plain messaging is unaffected, but group E2EE commands will fail"
+		details["remediation"] = anpMLSRemediation(resolveErr, nil, nil, state)
+		return Check{Name: "anp_mls", Status: status, Summary: summary, Details: details}
 	}
-	return Check{
-		Name:    "anp_mls",
-		Status:  status,
-		Summary: summary,
-		Details: map[string]any{
-			"binary":           binary,
-			"data_dir":         provider.DataDir,
-			"env_override":     message.ANPMLSBinaryEnv,
-			"plain_unaffected": true,
-			"error":            errorString(err),
-		},
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	versionInfo, probeErr := provider.ProbeVersion(ctx)
+	details["version"] = versionInfo
+	details["probe_error"] = errorString(probeErr)
+	compatErr := anpMLSCompatibilityError(versionInfo)
+	details["compatibility_error"] = errorString(compatErr)
+	details["remediation"] = anpMLSRemediation(resolveErr, probeErr, compatErr, state)
+	if probeErr != nil {
+		status = "warn"
+		summary = "anp-mls binary is present but the version compatibility probe failed"
+	} else if compatErr != nil {
+		status = "warn"
+		summary = "anp-mls binary version is not compatible with this awiki-cli build"
+	} else if state.HasWarning() {
+		status = "warn"
+		summary = "anp-mls binary is compatible but MLS state needs attention"
+	}
+	return Check{Name: "anp_mls", Status: status, Summary: summary, Details: details}
+}
+
+type mlsStateInspection struct {
+	DataDirExists   bool
+	DataDirStatus   string
+	DataDirError    string
+	StateDBPath     string
+	StateDBStatus   string
+	StateDBError    string
+	StateLockPath   string
+	StateLockStatus string
+	StateLockError  string
+	E2EEGroupCount  int
+}
+
+func (s mlsStateInspection) HasWarning() bool {
+	return strings.HasPrefix(s.DataDirStatus, "warn") || strings.HasPrefix(s.StateDBStatus, "warn") || strings.HasPrefix(s.StateLockStatus, "warn")
+}
+
+func inspectMLSState(resolved *config.Resolved, dataDir string) mlsStateInspection {
+	state := mlsStateInspection{
+		DataDirStatus:   "missing",
+		StateDBPath:     filepath.Join(dataDir, "state.db"),
+		StateDBStatus:   "missing",
+		StateLockPath:   filepath.Join(dataDir, "state.lock"),
+		StateLockStatus: "missing",
+	}
+	if strings.TrimSpace(dataDir) == "" {
+		state.DataDirStatus = "not_configured"
+		state.StateDBPath = ""
+		state.StateLockPath = ""
+		return state
+	}
+	state.E2EEGroupCount = cachedGroupE2EECount(resolved)
+	if info, err := os.Stat(dataDir); err != nil {
+		if os.IsNotExist(err) {
+			if state.E2EEGroupCount > 0 {
+				state.DataDirStatus = "warn_missing_with_cached_groups"
+			} else {
+				state.DataDirStatus = "missing"
+			}
+		} else {
+			state.DataDirStatus = "warn_stat_failed"
+			state.DataDirError = err.Error()
+		}
+		return state
+	} else if !info.IsDir() {
+		state.DataDirStatus = "warn_not_directory"
+		return state
+	}
+	state.DataDirExists = true
+	state.DataDirStatus = "ok"
+	if err := canReadDir(dataDir); err != nil {
+		state.DataDirStatus = "warn_not_readable"
+		state.DataDirError = err.Error()
+	} else if err := canWriteDir(dataDir); err != nil {
+		state.DataDirStatus = "warn_not_writable"
+		state.DataDirError = err.Error()
+	}
+
+	if info, err := os.Stat(state.StateDBPath); err != nil {
+		if os.IsNotExist(err) {
+			if state.E2EEGroupCount > 0 {
+				state.StateDBStatus = "warn_missing_with_cached_groups"
+			} else {
+				state.StateDBStatus = "missing"
+			}
+		} else {
+			state.StateDBStatus = "warn_stat_failed"
+			state.StateDBError = err.Error()
+		}
+	} else if info.IsDir() {
+		state.StateDBStatus = "warn_not_file"
+	} else if err := canReadFile(state.StateDBPath); err != nil {
+		state.StateDBStatus = "warn_not_readable"
+		state.StateDBError = err.Error()
+	} else {
+		state.StateDBStatus = "ok"
+	}
+
+	if info, err := os.Stat(state.StateLockPath); err != nil {
+		if os.IsNotExist(err) {
+			state.StateLockStatus = "missing"
+		} else {
+			state.StateLockStatus = "warn_stat_failed"
+			state.StateLockError = err.Error()
+		}
+	} else if info.IsDir() {
+		state.StateLockStatus = "warn_not_file"
+	} else if err := canReadFile(state.StateLockPath); err != nil {
+		state.StateLockStatus = "warn_not_readable"
+		state.StateLockError = err.Error()
+	} else if time.Since(info.ModTime()) > 15*time.Minute {
+		state.StateLockStatus = "warn_stale_candidate"
+	} else {
+		state.StateLockStatus = "present_active_or_recent"
+	}
+	return state
+}
+
+func canReadDir(path string) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	_ = entries
+	return nil
+}
+
+func canWriteDir(path string) error {
+	probe, err := os.CreateTemp(path, ".awiki-cli-doctor-*")
+	if err != nil {
+		return err
+	}
+	name := probe.Name()
+	if err := probe.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
+}
+
+func canReadFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+func cachedGroupE2EECount(resolved *config.Resolved) int {
+	if resolved == nil || strings.TrimSpace(resolved.Paths.DatabaseFile) == "" || !pathExists(resolved.Paths.DatabaseFile) {
+		return 0
+	}
+	db, err := store.OpenReadOnly(resolved.Paths.DatabaseFile)
+	if err != nil {
+		return 0
+	}
+	defer db.Close()
+	var tableCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'groups'`).Scan(&tableCount); err != nil || tableCount == 0 {
+		return 0
+	}
+	var count sql.NullInt64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM groups WHERE metadata LIKE ?`, "%group-e2ee%").Scan(&count); err != nil {
+		return 0
+	}
+	if !count.Valid {
+		return 0
+	}
+	return int(count.Int64)
+}
+
+func anpMLSCompatibilityError(info *message.MLSVersionInfo) error {
+	if info == nil {
+		return fmt.Errorf("missing version info")
+	}
+	if info.APIVersion != "anp-mls/v1" {
+		return fmt.Errorf("api_version %q is not supported; want anp-mls/v1", info.APIVersion)
+	}
+	if info.BinaryName != "anp-mls" {
+		return fmt.Errorf("binary_name %q is not supported; want anp-mls", info.BinaryName)
+	}
+	if !containsString(info.SupportedCommands, "system version") {
+		return fmt.Errorf("supported_commands does not include system version")
+	}
+	return nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func anpMLSRemediation(resolveErr error, probeErr error, compatErr error, state mlsStateInspection) string {
+	switch {
+	case resolveErr != nil:
+		return "Build anp-mls from ../anp/anp/rust, put it next to release artifacts or on PATH, or set AWIKI_ANP_MLS_BINARY to the absolute binary path. Plain messaging does not require anp-mls."
+	case probeErr != nil:
+		return "Install a current anp-mls build that supports `anp-mls system version --json-in -`; rebuild from ../anp/anp/rust if this probe fails."
+	case compatErr != nil:
+		return "Replace anp-mls with a build that reports api_version anp-mls/v1, binary_name anp-mls, and supported command `system version`."
+	case state.DataDirStatus == "warn_not_writable" || state.DataDirStatus == "warn_not_readable":
+		return "Fix permissions on the MLS data directory or move the workspace with AWIKI_CLI_WORKSPACE_HOME_DIR."
+	case state.StateDBStatus == "warn_missing_with_cached_groups":
+		return "The business database has cached group-e2ee groups but MLS state.db is missing; restore the MLS data directory from backup before sending encrypted group messages."
+	case strings.HasPrefix(state.StateLockStatus, "warn"):
+		return "If no anp-mls process is running, remove stale state.lock after backing up the MLS data directory."
+	default:
+		return "No action required."
 	}
 }
 
