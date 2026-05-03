@@ -201,6 +201,19 @@ func BuildGroupE2EEAddRPCParams(record *identity.StoredIdentity, manager *identi
 	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.add", body, "", "", "", GroupE2EESecurityProfile)
 }
 
+func BuildGroupE2EERemoveRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string) (map[string]any, error) {
+	body := e2eeMembershipCommitBody(groupDID, memberDID, "removed", preparedCommit)
+	if reason := strings.TrimSpace(reasonText); reason != "" {
+		body["reason_text"] = reason
+	}
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.remove", body, "", stringFromAny(preparedCommit["operation_id"]), "", GroupE2EESecurityProfile)
+}
+
+func BuildGroupE2EELeaveRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, preparedCommit map[string]any) (map[string]any, error) {
+	body := e2eeMembershipCommitBody(groupDID, record.DID, "left", preparedCommit)
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.leave", body, "", stringFromAny(preparedCommit["operation_id"]), "", GroupE2EESecurityProfile)
+}
+
 func BuildGroupE2EESendRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, cipher map[string]any, operationID string, messageID string) (map[string]any, error) {
 	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.send", map[string]any{"group_cipher_object": sanitizeGroupCipherObjectForService(cipher)}, "application/anp-group-cipher+json", operationID, messageID, GroupE2EESecurityProfile)
 }
@@ -629,6 +642,50 @@ func e2eeHeadBody(groupDID string, memberDID string, mlsHead map[string]any) map
 	if memberDID != "" {
 		body["member_did"] = memberDID
 		body["subject_did"] = memberDID
+	}
+	return body
+}
+
+func e2eeMembershipCommitBody(groupDID string, subjectDID string, defaultSubjectStatus string, preparedCommit map[string]any) map[string]any {
+	body := e2eeHeadBody(groupDID, subjectDID, preparedCommit)
+	for _, key := range []string{
+		"pending_commit_id",
+		"operation_id",
+		"commit_b64u",
+		"ratchet_tree_b64u",
+		"group_info_b64u",
+		"from_epoch",
+		"to_epoch",
+		"actor_did",
+		"subject_status",
+	} {
+		if value, ok := preparedCommit[key]; ok {
+			body[key] = value
+		}
+	}
+	if _, ok := body["epoch"]; !ok {
+		if value, ok := preparedCommit["to_epoch"]; ok {
+			body["epoch"] = value
+		}
+	}
+	if _, ok := body["epoch_authenticator"]; !ok {
+		if value, ok := preparedCommit["epoch_authenticator_b64u"]; ok {
+			body["epoch_authenticator"] = value
+		}
+	}
+	if _, ok := body["subject_status"]; !ok && defaultSubjectStatus != "" {
+		body["subject_status"] = defaultSubjectStatus
+	}
+	groupStateRef, _ := body["group_state_ref"].(map[string]any)
+	if len(groupStateRef) == 0 {
+		groupStateRef = map[string]any{"group_did": groupDID}
+		body["group_state_ref"] = groupStateRef
+	}
+	if cryptoGroupID := stringFromAny(body["crypto_group_id_b64u"]); cryptoGroupID != "" {
+		groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
+	}
+	if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
+		groupStateRef["epoch"] = fromEpoch
 	}
 	return body
 }

@@ -3,6 +3,9 @@ package message
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"strings"
 	"testing"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -46,6 +49,83 @@ func TestLeaveGroupRejectsActiveOwnerFromCachedSnapshot(t *testing.T) {
 	})
 	if !errors.Is(err, ErrGroupOwnerCannotLeave) {
 		t.Fatalf("LeaveGroup() error = %v, want %v", err, ErrGroupOwnerCannotLeave)
+	}
+}
+
+type groupLeaveSafetyMLSRunner struct {
+	calls []string
+}
+
+func (r *groupLeaveSafetyMLSRunner) Run(_ context.Context, _ string, args []string, _ []byte) ([]byte, []byte, error) {
+	call := strings.Join(args, " ")
+	r.calls = append(r.calls, call)
+	switch call {
+	case "group leave --json-in -":
+		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-leave","result":{"pending_commit_id":"pc-local-terminal-leave","operation_id":"op-leave","status":"pending","artifact_type":"local-terminal-leave","subject_status":"left","from_epoch":"4","to_epoch":"4","epoch":"4","commit_b64u":"bG9jYWwtdGVybWluYWw","crypto_group_id_b64u":"Y3J5cHRv","epoch_authenticator":"YXV0aA"}}`), nil, nil
+	case "group commit-abort --json-in -":
+		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-abort","result":{"pending_commit_id":"pc-local-terminal-leave","status":"aborted","subject_status":"left"}}`), nil, nil
+	default:
+		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-other","result":{}}`), nil, nil
+	}
+}
+
+func TestLeaveGroupE2EERejectsLocalTerminalSelfLeaveBeforeServiceSubmit(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	manager := identity.NewManager(resolved.Paths)
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "alice",
+		UserID:       "user-123",
+		DisplayName:  "Alice",
+		Handle:       "alice",
+	})
+	record, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	runner := &groupLeaveSafetyMLSRunner{}
+	provider := MLSExecProvider{BinaryPath: "anp-mls", Runner: runner}
+	service := &Service{resolved: resolved, manager: manager, mlsProvider: &provider}
+
+	result, warnings, err := service.leaveGroupE2EE(context.Background(), record, GroupLeaveRequest{
+		Group: "did:wba:awiki.ai:groups:test-e2ee-leave",
+	})
+	if !errors.Is(err, ErrGroupE2EESelfLeaveUnsupported) {
+		t.Fatalf("leaveGroupE2EE() error = %v, want %v", err, ErrGroupE2EESelfLeaveUnsupported)
+	}
+	if !strings.Contains(err.Error(), "owner/admin") {
+		t.Fatalf("leaveGroupE2EE() error = %v, want actionable owner/admin removal guidance", err)
+	}
+	if got := strings.Join(runner.calls, ","); got != "group leave --json-in -,group commit-abort --json-in -" {
+		t.Fatalf("MLS calls = %q, want leave prepare followed by local abort only", got)
+	}
+	abort, ok := result["mls_abort"].(map[string]any)
+	if !ok {
+		t.Fatalf("mls_abort missing from result: %#v", result)
+	}
+	if got := stringFromAny(abort["status"]); got != "aborted" {
+		t.Fatalf("mls_abort.status = %q, want aborted", got)
+	}
+	if got := strings.Join(warnings, "\n"); !strings.Contains(got, "aborted before service submission") {
+		t.Fatalf("warnings = %#v, want abort-before-submit warning", warnings)
+	}
+}
+
+func TestUnsupportedGroupE2EESelfLeaveReasonDetectsNonAdvancingEpoch(t *testing.T) {
+	t.Parallel()
+
+	if reason := unsupportedGroupE2EESelfLeaveReason(map[string]any{"from_epoch": "7", "to_epoch": "7"}); !strings.Contains(reason, "non-advancing") {
+		t.Fatalf("same epoch reason = %q, want non-advancing", reason)
+	}
+	if reason := unsupportedGroupE2EESelfLeaveReason(map[string]any{"from_epoch": "7", "epoch": "6"}); !strings.Contains(reason, "non-advancing") {
+		t.Fatalf("regressed epoch reason = %q, want non-advancing", reason)
+	}
+	if reason := unsupportedGroupE2EESelfLeaveReason(map[string]any{"artifact_type": "local-terminal-leave", "from_epoch": "7", "to_epoch": "8"}); !strings.Contains(reason, "local-terminal") {
+		t.Fatalf("local terminal reason = %q, want local-terminal", reason)
+	}
+	if reason := unsupportedGroupE2EESelfLeaveReason(map[string]any{"from_epoch": "7", "to_epoch": "8"}); reason != "" {
+		t.Fatalf("advancing epoch reason = %q, want empty", reason)
 	}
 }
 
@@ -146,6 +226,26 @@ func TestGroupMemberMutationUsesPreMutationE2EESnapshot(t *testing.T) {
 	}
 	if groupMemberMutationUsesE2EE(GroupMemberRequest{}, nil, postMutation) {
 		t.Fatal("groupMemberMutationUsesE2EE() = true, want false for non-E2EE snapshots")
+	}
+}
+
+func TestShouldAbortGroupE2EEPendingCommitOnlyForDeterministicServiceRejection(t *testing.T) {
+	t.Parallel()
+
+	if !shouldAbortGroupE2EEPendingCommit(&ServiceError{StatusCode: http.StatusForbidden, Message: "forbidden"}) {
+		t.Fatal("403 service rejection should abort pending commit")
+	}
+	if !shouldAbortGroupE2EEPendingCommit(&ServiceError{RPCCode: 2501, Message: "inactive member"}) {
+		t.Fatal("2xxx RPC rejection should abort pending commit")
+	}
+	if shouldAbortGroupE2EEPendingCommit(&ServiceError{StatusCode: http.StatusServiceUnavailable, Message: "retry later"}) {
+		t.Fatal("5xx service failure should leave pending commit intact")
+	}
+	if shouldAbortGroupE2EEPendingCommit(&ServiceError{RPCCode: 1503, Message: "temporarily unavailable"}) {
+		t.Fatal("1xxx retryable RPC failure should leave pending commit intact")
+	}
+	if shouldAbortGroupE2EEPendingCommit(fmt.Errorf("connection reset")) {
+		t.Fatal("transport/network errors should leave pending commit intact")
 	}
 }
 

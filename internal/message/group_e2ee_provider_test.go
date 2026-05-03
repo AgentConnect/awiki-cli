@@ -119,6 +119,52 @@ func TestMLSExecProviderPassesPlaintextOnStdinNotArgv(t *testing.T) {
 	}
 }
 
+func TestMLSExecProviderMembershipLifecycleUsesStableCommands(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(context.Context, MLSExecProvider, MLSRequest) (map[string]any, error)
+		want string
+	}{
+		{name: "remove", call: func(ctx context.Context, p MLSExecProvider, req MLSRequest) (map[string]any, error) {
+			return p.RemoveMember(ctx, req)
+		}, want: "group remove-member --json-in -"},
+		{name: "leave", call: func(ctx context.Context, p MLSExecProvider, req MLSRequest) (map[string]any, error) {
+			return p.LeaveGroup(ctx, req)
+		}, want: "group leave --json-in -"},
+		{name: "finalize", call: func(ctx context.Context, p MLSExecProvider, req MLSRequest) (map[string]any, error) {
+			return p.CommitFinalize(ctx, req)
+		}, want: "group commit-finalize --json-in -"},
+		{name: "abort", call: func(ctx context.Context, p MLSExecProvider, req MLSRequest) (map[string]any, error) {
+			return p.CommitAbort(ctx, req)
+		}, want: "group commit-abort --json-in -"},
+		{name: "commit process", call: func(ctx context.Context, p MLSExecProvider, req MLSRequest) (map[string]any, error) {
+			return p.ProcessCommit(ctx, req)
+		}, want: "commit process --json-in -"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &recordingMLSRunner{}
+			provider := MLSExecProvider{BinaryPath: "anp-mls", Runner: runner}
+			_, err := tc.call(context.Background(), provider, MLSRequest{
+				APIVersion: "anp-mls/v1",
+				RequestID:  "req-" + tc.name,
+				AgentDID:   "did:wba:example.com:users:alice:e1_alice",
+				Params: map[string]any{
+					"agent_did":    "did:wba:example.com:users:alice:e1_alice",
+					"group_did":    "did:wba:example.com:groups:demo:e1_group",
+					"operation_id": "op-1",
+				},
+			})
+			if err != nil {
+				t.Fatalf("provider call error = %v", err)
+			}
+			if got := strings.Join(runner.args, " "); got != tc.want {
+				t.Fatalf("args = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMLSExecProviderCandidateDeviceIDsScansAgentScopedState(t *testing.T) {
 	root := t.TempDir()
 	agentDID := "did:wba:example.com:users:bob:e1"

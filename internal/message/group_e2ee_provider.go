@@ -373,8 +373,48 @@ func (p MLSExecProvider) AddMember(ctx context.Context, req MLSRequest) (map[str
 	return resp.Result, nil
 }
 
+func (p MLSExecProvider) RemoveMember(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "remove-member", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) LeaveGroup(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "leave", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) CommitFinalize(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "commit-finalize", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) CommitAbort(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "commit-abort", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
 func (p MLSExecProvider) ProcessWelcome(ctx context.Context, req MLSRequest) (map[string]any, error) {
 	resp, err := p.Call(ctx, "welcome", "process", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) ProcessCommit(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "commit", "process", req)
 	if err != nil {
 		return nil, err
 	}

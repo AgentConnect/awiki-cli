@@ -74,6 +74,8 @@ func (a *App) messageExit(err error, hint string) error {
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg commands.")
 	case errors.Is(err, message.ErrSecureNotSupported):
 		return output.NewExitError("unsupported_mode", 1, err.Error(), "Secure messaging is currently supported only for direct text messaging.")
+	case errors.Is(err, message.ErrGroupE2EESelfLeaveUnsupported):
+		return output.NewExitError("unsupported_mode", 1, err.Error(), "For PR-A group E2EE, ask a group owner/admin to remove the member; self-leave requires a future epoch-advancing leave-request flow.")
 	case errors.Is(err, message.ErrTransportUnavailable):
 		return output.NewExitError("transport_unavailable", 1, err.Error(), "Start the websocket listener/daemon or switch runtime.mode back to http.")
 	default:

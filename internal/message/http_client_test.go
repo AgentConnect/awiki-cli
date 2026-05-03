@@ -302,6 +302,46 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 			},
 		},
 		{
+			name:       "e2ee remove member",
+			wantMethod: "group.e2ee.remove",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.RemoveGroupE2EE(context.Background(), "did:group", "did:member", map[string]any{
+					"operation_id":         "op-remove",
+					"pending_commit_id":    "pc-remove",
+					"crypto_group_id_b64u": "Y3J5cHRv",
+					"from_epoch":           "1",
+					"to_epoch":             "2",
+					"commit_b64u":          "Y29tbWl0",
+				}, "cleanup")
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["member_did"] != "did:member" || body["commit_b64u"] != "Y29tbWl0" || body["reason_text"] != "cleanup" {
+					t.Fatalf("body = %#v, want member/commit/reason", body)
+				}
+			},
+		},
+		{
+			name:       "e2ee leave group",
+			wantMethod: "group.e2ee.leave",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.LeaveGroupE2EE(context.Background(), "did:group", map[string]any{
+					"operation_id":         "op-leave",
+					"pending_commit_id":    "pc-leave",
+					"crypto_group_id_b64u": "Y3J5cHRv",
+					"from_epoch":           "2",
+					"to_epoch":             "3",
+					"commit_b64u":          "Y29tbWl0LWxlYXZl",
+				})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["group_did"] != "did:group" || body["subject_status"] != "left" || body["commit_b64u"] != "Y29tbWl0LWxlYXZl" {
+					t.Fatalf("body = %#v, want group/left/commit", body)
+				}
+			},
+		},
+		{
 			name:       "list members",
 			wantMethod: "group.list_members",
 			call: func(transport *HTTPTransport) error {

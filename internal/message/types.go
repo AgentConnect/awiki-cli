@@ -24,13 +24,14 @@ var (
 	ErrDownloadTargetConflict = errors.New(
 		"attachment download accepts either --with or --group, but not both",
 	)
-	ErrAttachmentNotFound       = errors.New("attachment not found in message content")
-	ErrAttachmentIDRequired     = errors.New("attachment_id is required for messages with multiple attachments")
-	ErrAttachmentMessageInvalid = errors.New("message is not an attachment manifest")
-	ErrAttachmentSenderRequired = errors.New("attachment message sender_did is required")
-	ErrTransportUnavailable     = errors.New("message transport is unavailable")
-	ErrSecureNotSupported       = errors.New("secure messaging is not supported for this command yet")
-	ErrMessageNotFound          = errors.New("message not found")
+	ErrAttachmentNotFound            = errors.New("attachment not found in message content")
+	ErrAttachmentIDRequired          = errors.New("attachment_id is required for messages with multiple attachments")
+	ErrAttachmentMessageInvalid      = errors.New("message is not an attachment manifest")
+	ErrAttachmentSenderRequired      = errors.New("attachment message sender_did is required")
+	ErrTransportUnavailable          = errors.New("message transport is unavailable")
+	ErrSecureNotSupported            = errors.New("secure messaging is not supported for this command yet")
+	ErrGroupE2EESelfLeaveUnsupported = errors.New("group E2EE self-leave is not cryptographically supported yet")
+	ErrMessageNotFound               = errors.New("message not found")
 )
 
 type CommandResult struct {

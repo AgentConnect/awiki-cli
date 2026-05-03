@@ -252,6 +252,93 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 	}
 }
 
+func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EERemoveRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", "did:wba:awiki.ai:user:bob:e1_bob", map[string]any{
+		"pending_commit_id":         "pc-remove-1",
+		"operation_id":              "op-remove-1",
+		"crypto_group_id_b64u":      "Y3J5cHRv",
+		"from_epoch":                "4",
+		"to_epoch":                  "5",
+		"commit_b64u":               "Y29tbWl0",
+		"ratchet_tree_b64u":         "cmF0Y2hldA",
+		"group_info_b64u":           "Z3JvdXBpbmZv",
+		"epoch_authenticator_b64u":  "YXV0aDU",
+		"application_plaintext":     "must-not-leak",
+		"provider_private_material": "must-not-leak",
+		"group_state_ref":           map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "epoch": "4"},
+	}, "cleanup")
+	if err != nil {
+		t.Fatalf("BuildGroupE2EERemoveRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != GroupE2EEProfile {
+		t.Fatalf("meta.profile = %q, want %q", got, GroupE2EEProfile)
+	}
+	if got := stringFromAny(meta["security_profile"]); got != GroupE2EESecurityProfile {
+		t.Fatalf("meta.security_profile = %q, want %q", got, GroupE2EESecurityProfile)
+	}
+	if got := stringFromAny(meta["operation_id"]); got != "op-remove-1" {
+		t.Fatalf("meta.operation_id = %q, want prepared operation id", got)
+	}
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["kind"]); got != "group" {
+		t.Fatalf("target.kind = %q, want group", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["subject_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		t.Fatalf("subject_did = %q, want bob", got)
+	}
+	if got := stringFromAny(body["subject_status"]); got != "removed" {
+		t.Fatalf("subject_status = %q, want removed", got)
+	}
+	if got := stringFromAny(body["commit_b64u"]); got != "Y29tbWl0" {
+		t.Fatalf("commit_b64u = %q, want opaque commit", got)
+	}
+	if _, ok := body["application_plaintext"]; ok {
+		t.Fatalf("plaintext leaked into remove body: %#v", body)
+	}
+	if _, ok := body["provider_private_material"]; ok {
+		t.Fatalf("provider private material leaked into remove body: %#v", body)
+	}
+	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
+	if got := stringFromAny(ref["epoch"]); got != "4" {
+		t.Fatalf("group_state_ref.epoch = %q, want from_epoch/pre-remove epoch", got)
+	}
+}
+
+func TestBuildGroupE2EELeaveRPCParamsUsesActorAsSubject(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EELeaveRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", map[string]any{
+		"operation_id":         "op-leave-1",
+		"pending_commit_id":    "pc-leave-1",
+		"crypto_group_id_b64u": "Y3J5cHRv",
+		"from_epoch":           "5",
+		"to_epoch":             "6",
+		"commit_b64u":          "Y29tbWl0LWxlYXZl",
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EELeaveRPCParams() error = %v", err)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["subject_did"]); got != record.DID {
+		t.Fatalf("subject_did = %q, want actor DID", got)
+	}
+	if got := stringFromAny(body["member_did"]); got != record.DID {
+		t.Fatalf("member_did = %q, want actor DID", got)
+	}
+	if got := stringFromAny(body["subject_status"]); got != "left" {
+		t.Fatalf("subject_status = %q, want left", got)
+	}
+	if got := stringFromAny(body["epoch"]); got != "6" {
+		t.Fatalf("epoch = %q, want to_epoch", got)
+	}
+}
+
 func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *testing.T) {
 	t.Parallel()
 

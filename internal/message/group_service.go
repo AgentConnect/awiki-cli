@@ -128,8 +128,29 @@ func (s *Service) mutateGroupMember(ctx context.Context, request GroupMemberRequ
 	}
 	request.Member = memberDID
 	var preMutationSnapshot map[string]any
-	if action == "add" {
+	if action == "add" || action == "remove" {
 		preMutationSnapshot, _ = s.readCachedGroupSnapshot(ctx, record, request.Group)
+	}
+	if action == "remove" && groupMemberMutationUsesE2EE(request, preMutationSnapshot, nil) {
+		e2eeResult, e2eeWarnings, err := s.removeGroupMemberE2EE(ctx, record, request)
+		if err != nil {
+			return nil, err
+		}
+		warnings := append([]string(nil), e2eeWarnings...)
+		warnings = append(warnings, s.syncGroupState(ctx, record, request.Group, true)...)
+		snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
+		members, _ := s.readCachedGroupMembers(ctx, record, request.Group, 100)
+		return &CommandResult{
+			Data: map[string]any{
+				"group":    snapshot,
+				"members":  members,
+				"delivery": e2eeResult["delivery"],
+				"member":   map[string]any{"did": memberDID, "handle": memberHandle},
+				"e2ee":     e2eeResult,
+			},
+			Summary:  "Removed member from group with group E2EE",
+			Warnings: compactWarnings(warnings),
+		}, nil
 	}
 	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {
@@ -170,6 +191,23 @@ func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*C
 	cachedSnapshot, snapshotErr := s.readCachedGroupSnapshot(ctx, record, request.Group)
 	if snapshotErr == nil && isActiveGroupOwner(cachedSnapshot) {
 		return nil, ErrGroupOwnerCannotLeave
+	}
+	if groupSnapshotUsesE2EE(cachedSnapshot) {
+		e2eeResult, e2eeWarnings, err := s.leaveGroupE2EE(ctx, record, request)
+		if err != nil {
+			return nil, err
+		}
+		warnings := append([]string(nil), e2eeWarnings...)
+		warnings = append(warnings, s.markCachedGroupLeft(ctx, record, request.Group)...)
+		return &CommandResult{
+			Data: map[string]any{
+				"delivery": e2eeResult["delivery"],
+				"group":    request.Group,
+				"e2ee":     e2eeResult,
+			},
+			Summary:  fmt.Sprintf("Left group %s with group E2EE", request.Group),
+			Warnings: compactWarnings(warnings),
+		}, nil
 	}
 	transport, warnings, err := s.groupControlTransport(record)
 	if err != nil {

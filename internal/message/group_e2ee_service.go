@@ -3,7 +3,10 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
@@ -215,6 +218,226 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 		result["local_welcome"] = localWelcome
 	}
 	return result, warnings
+}
+
+func (s *Service) removeGroupMemberE2EE(ctx context.Context, record *identity.StoredIdentity, request GroupMemberRequest) (map[string]any, []string, error) {
+	operationID := "op-" + generateOperationID()
+	provider := s.groupMLSProvider()
+	prepared, err := provider.RemoveMember(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-remove-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params: map[string]any{
+			"agent_did":       record.DID,
+			"actor_did":       record.DID,
+			"device_id":       "default",
+			"group_did":       request.Group,
+			"member_did":      request.Member,
+			"subject_did":     request.Member,
+			"operation_id":    operationID,
+			"group_state_ref": s.localGroupStateRef(ctx, record, request.Group),
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.submitPreparedGroupE2EECommit(ctx, record, request.Group, request.Member, request.ReasonText, prepared, func(transport *HTTPTransport) (map[string]any, error) {
+		return transport.RemoveGroupE2EE(ctx, request.Group, request.Member, prepared, request.ReasonText)
+	})
+}
+
+func (s *Service) leaveGroupE2EE(ctx context.Context, record *identity.StoredIdentity, request GroupLeaveRequest) (map[string]any, []string, error) {
+	operationID := "op-" + generateOperationID()
+	provider := s.groupMLSProvider()
+	prepared, err := provider.LeaveGroup(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-leave-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params: map[string]any{
+			"agent_did":       record.DID,
+			"actor_did":       record.DID,
+			"device_id":       "default",
+			"group_did":       request.Group,
+			"subject_did":     record.DID,
+			"operation_id":    operationID,
+			"group_state_ref": s.localGroupStateRef(ctx, record, request.Group),
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if reason := unsupportedGroupE2EESelfLeaveReason(prepared); reason != "" {
+		data := map[string]any{"mls_prepare": prepared, "subject_did": record.DID}
+		warnings := []string{"Group E2EE self-leave is unsupported in PR-A because anp-mls cannot produce an epoch-advancing remove commit for the leaving member."}
+		if abortResult, abortErr := s.abortPreparedGroupE2EECommit(ctx, record, request.Group, prepared); abortErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE local-terminal leave pending commit abort failed: %v", abortErr))
+		} else {
+			data["mls_abort"] = abortResult
+			warnings = append(warnings, "Group E2EE local-terminal leave pending commit aborted before service submission.")
+		}
+		return data, warnings, fmt.Errorf("%w: %s; ask a group owner/admin to remove this member until an epoch-advancing leave-request flow is available", ErrGroupE2EESelfLeaveUnsupported, reason)
+	}
+	return s.submitPreparedGroupE2EECommit(ctx, record, request.Group, record.DID, "", prepared, func(transport *HTTPTransport) (map[string]any, error) {
+		return transport.LeaveGroupE2EE(ctx, request.Group, prepared)
+	})
+}
+
+func (s *Service) submitPreparedGroupE2EECommit(
+	ctx context.Context,
+	record *identity.StoredIdentity,
+	groupDID string,
+	subjectDID string,
+	reasonText string,
+	prepared map[string]any,
+	submit func(*HTTPTransport) (map[string]any, error),
+) (map[string]any, []string, error) {
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return map[string]any{"mls_prepare": prepared}, warnings, err
+	}
+	delivery, err := submit(transport)
+	if err != nil {
+		if shouldAbortGroupE2EEPendingCommit(err) {
+			if abortResult, abortErr := s.abortPreparedGroupE2EECommit(ctx, record, groupDID, prepared); abortErr != nil {
+				warnings = append(warnings, fmt.Sprintf("Group E2EE pending commit abort failed after service rejection: %v", abortErr))
+			} else {
+				warnings = append(warnings, "Group E2EE pending commit aborted after deterministic service rejection.")
+				return map[string]any{"mls_prepare": prepared, "mls_abort": abortResult, "subject_did": subjectDID, "reason_text": reasonText}, warnings, fmt.Errorf("%w; local group E2EE pending commit aborted", err)
+			}
+		} else {
+			warnings = append(warnings, "Group E2EE pending commit left intact after retryable or unknown service failure; retry with the same operation_id or inspect group e2ee status before finalize/abort.")
+		}
+		return map[string]any{"mls_prepare": prepared, "subject_did": subjectDID, "reason_text": reasonText}, warnings, fmt.Errorf("%w; local group E2EE pending commit retained for retry", err)
+	}
+	finalized, finalizeErr := s.finalizePreparedGroupE2EECommit(ctx, record, groupDID, prepared)
+	if finalizeErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE service accepted commit but local finalize failed: %v", finalizeErr))
+	}
+	summarySource := prepared
+	if finalized != nil {
+		summarySource = finalized
+	}
+	warnings = append(warnings, s.persistGroupE2EESummary(ctx, record, groupDID, summarySource, delivery)...)
+	return map[string]any{
+		"mls_prepare":  prepared,
+		"mls_finalize": finalized,
+		"delivery":     delivery,
+		"subject_did":  subjectDID,
+		"reason_text":  reasonText,
+	}, warnings, nil
+}
+
+func (s *Service) finalizePreparedGroupE2EECommit(ctx context.Context, record *identity.StoredIdentity, groupDID string, prepared map[string]any) (map[string]any, error) {
+	provider := s.groupMLSProvider()
+	return provider.CommitFinalize(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-commit-finalize-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params:     pendingCommitParams(record, groupDID, prepared),
+	})
+}
+
+func (s *Service) abortPreparedGroupE2EECommit(ctx context.Context, record *identity.StoredIdentity, groupDID string, prepared map[string]any) (map[string]any, error) {
+	provider := s.groupMLSProvider()
+	return provider.CommitAbort(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-commit-abort-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params:     pendingCommitParams(record, groupDID, prepared),
+	})
+}
+
+func unsupportedGroupE2EESelfLeaveReason(prepared map[string]any) string {
+	if len(prepared) == 0 {
+		return ""
+	}
+	if stringFromAny(prepared["artifact_type"]) == "local-terminal-leave" {
+		return "anp-mls returned a local-terminal leave artifact instead of an MLS epoch-advancing commit"
+	}
+	fromEpoch, hasFromEpoch := int64FromAny(prepared["from_epoch"])
+	toEpoch, hasToEpoch := int64FromAny(prepared["to_epoch"])
+	if !hasToEpoch {
+		toEpoch, hasToEpoch = int64FromAny(prepared["epoch"])
+	}
+	if hasFromEpoch && hasToEpoch && toEpoch <= fromEpoch {
+		return fmt.Sprintf("anp-mls returned non-advancing leave epochs from_epoch=%d to_epoch=%d", fromEpoch, toEpoch)
+	}
+	return ""
+}
+
+func int64FromAny(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int8:
+		return int64(typed), true
+	case int16:
+		return int64(typed), true
+	case int32:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case uint:
+		return int64(typed), true
+	case uint8:
+		return int64(typed), true
+	case uint16:
+		return int64(typed), true
+	case uint32:
+		return int64(typed), true
+	case uint64:
+		if typed > uint64(^uint64(0)>>1) {
+			return 0, false
+		}
+		return int64(typed), true
+	case float64:
+		if typed != float64(int64(typed)) {
+			return 0, false
+		}
+		return int64(typed), true
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
+func pendingCommitParams(record *identity.StoredIdentity, groupDID string, prepared map[string]any) map[string]any {
+	params := map[string]any{
+		"agent_did":   record.DID,
+		"actor_did":   record.DID,
+		"device_id":   "default",
+		"group_did":   groupDID,
+		"commit_b64u": prepared["commit_b64u"],
+	}
+	for _, key := range []string{"pending_commit_id", "operation_id", "subject_did", "subject_status", "from_epoch", "to_epoch"} {
+		if value, ok := prepared[key]; ok {
+			params[key] = value
+		}
+	}
+	return params
+}
+
+func shouldAbortGroupE2EEPendingCommit(err error) bool {
+	var serviceErr *ServiceError
+	if !errors.As(err, &serviceErr) {
+		return false
+	}
+	if serviceErr.StatusCode >= http.StatusInternalServerError {
+		return false
+	}
+	if serviceErr.StatusCode >= http.StatusBadRequest {
+		return true
+	}
+	return serviceErr.RPCCode >= 2000
 }
 
 func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIdentity, request SendRequest) (*CommandResult, error) {
@@ -467,16 +690,33 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	noticeIDs := make([]string, 0)
 	provider := s.groupMLSProvider()
 	for _, notice := range noticesFromResult(pending["notices"]) {
-		if stringFromAny(notice["notice_type"]) != "welcome-delivery" {
+		noticeType := stringFromAny(notice["notice_type"])
+		if noticeType != "welcome-delivery" && noticeType != "commit-delivery" {
 			continue
 		}
 		targetGroupDID := defaultString(stringFromAny(notice["group_did"]), groupDID)
 		if targetGroupDID == "" {
-			warnings = append(warnings, "Group E2EE repair skipped welcome notice without group_did")
+			warnings = append(warnings, fmt.Sprintf("Group E2EE repair skipped %s notice without group_did", noticeType))
 			continue
 		}
-		if recipient := firstNonEmptyString(notice["recipient_did"], notice["member_did"], notice["subject_did"]); recipient != "" && recipient != record.DID {
+		recipient := firstNonEmptyString(notice["recipient_did"], notice["member_did"])
+		if noticeType == "welcome-delivery" && recipient == "" {
+			recipient = stringFromAny(notice["subject_did"])
+		}
+		if recipient != "" && recipient != record.DID {
 			warnings = append(warnings, fmt.Sprintf("Group E2EE repair skipped notice for different recipient %s", recipient))
+			continue
+		}
+		if noticeType == "commit-delivery" {
+			commit, noticeWarnings := s.processGroupCommitNotice(ctx, record, targetGroupDID, notice)
+			if commit != nil {
+				processed = append(processed, commit)
+				if noticeID := stringFromAny(notice["notice_id"]); noticeID != "" {
+					noticeIDs = append(noticeIDs, noticeID)
+				}
+				continue
+			}
+			warnings = append(warnings, noticeWarnings...)
 			continue
 		}
 		welcome, noticeWarnings := s.processGroupWelcomeNotice(ctx, record, targetGroupDID, notice)
@@ -521,6 +761,74 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 		Summary:  "Replayed group E2EE pending notices",
 		Warnings: compactWarnings(warnings),
 	}, nil
+}
+
+func (s *Service) processGroupCommitNotice(ctx context.Context, record *identity.StoredIdentity, groupDID string, notice map[string]any) (map[string]any, []string) {
+	commitB64U := stringFromAny(notice["commit_b64u"])
+	if commitB64U == "" {
+		return nil, []string{"Group E2EE repair skipped commit notice missing commit_b64u"}
+	}
+	deviceID := defaultString(stringFromAny(notice["device_id"]), "default")
+	groupStateRef, _ := notice["group_state_ref"].(map[string]any)
+	if len(groupStateRef) == 0 {
+		groupStateRef = map[string]any{
+			"group_did": groupDID,
+		}
+		if cryptoGroupID := stringFromAny(notice["crypto_group_id_b64u"]); cryptoGroupID != "" {
+			groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
+		}
+		if fromEpoch := stringFromAny(notice["from_epoch"]); fromEpoch != "" {
+			groupStateRef["epoch"] = fromEpoch
+		}
+	}
+	params := map[string]any{
+		"agent_did":            record.DID,
+		"device_id":            deviceID,
+		"group_did":            groupDID,
+		"group_state_ref":      groupStateRef,
+		"commit_b64u":          commitB64U,
+		"ratchet_tree_b64u":    notice["ratchet_tree_b64u"],
+		"group_info_b64u":      notice["group_info_b64u"],
+		"operation_id":         notice["operation_id"],
+		"notice_id":            notice["notice_id"],
+		"actor_did":            notice["actor_did"],
+		"subject_did":          notice["subject_did"],
+		"subject_status":       notice["subject_status"],
+		"from_epoch":           notice["from_epoch"],
+		"to_epoch":             notice["to_epoch"],
+		"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
+		"epoch_authenticator":  firstNonNil(notice["epoch_authenticator"], notice["epoch_authenticator_b64u"]),
+	}
+	provider := s.groupMLSProvider()
+	commitResult, err := provider.ProcessCommit(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-commit-repair-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   deviceID,
+		Params:     params,
+	})
+	if err != nil {
+		return nil, []string{fmt.Sprintf("Group E2EE repair commit processing failed: %v", err)}
+	}
+	warnings := []string(nil)
+	subjectDID := stringFromAny(notice["subject_did"])
+	subjectStatus := stringFromAny(notice["subject_status"])
+	if subjectDID == record.DID && (subjectStatus == "removed" || subjectStatus == "left") {
+		warnings = append(warnings, s.markCachedGroupLeft(ctx, record, groupDID)...)
+	} else {
+		warnings = append(warnings, s.persistGroupE2EESummary(ctx, record, groupDID, commitResult, notice)...)
+	}
+	return map[string]any{
+		"processed":      true,
+		"notice_type":    "commit-delivery",
+		"notice_id":      notice["notice_id"],
+		"group_did":      groupDID,
+		"member_did":     record.DID,
+		"device_id":      deviceID,
+		"epoch":          firstNonNil(commitResult["epoch"], notice["to_epoch"]),
+		"subject_did":    subjectDID,
+		"subject_status": subjectStatus,
+	}, warnings
 }
 
 func (s *Service) groupWelcomeAlreadyAvailable(ctx context.Context, provider MLSExecProvider, record *identity.StoredIdentity, groupDID string, notice map[string]any) bool {

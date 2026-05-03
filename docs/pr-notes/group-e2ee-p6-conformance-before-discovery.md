@@ -35,5 +35,5 @@
 
 ## Caveats
 
-- Still no remove/leave, External Commit, attachment group E2EE, cloud snapshot, or product-wide public beta claim.
+- Owner/admin remove is routed through hidden PR-A `group.e2ee.remove` orchestration with local pending commit finalize/abort semantics. E2EE self-leave is not submitted to `group.e2ee.leave` when `anp-mls` only returns the OpenMLS 0.8 local-terminal/non-advancing artifact; the CLI aborts that local pending artifact and tells users to use owner/admin remove until a safe epoch-advancing leave-request flow exists. Still no External Commit, attachment group E2EE, cloud snapshot, or product-wide public beta claim.
 - No k1 DID compatibility is included.

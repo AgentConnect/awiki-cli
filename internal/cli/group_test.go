@@ -38,7 +38,7 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 		{
 			name:        "group remove uses kick action and member",
 			spec:        "group.remove",
-			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob"},
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob", "e2ee": "true"},
 			wantSummary: "Dry run: group membership change planned",
 			wantAction:  "group.kick",
 			verifyPlan: func(t *testing.T, plan map[string]any) {
@@ -48,6 +48,9 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 				if request["Member"] != "bob" {
 					t.Fatalf("request.Member = %#v, want %q", request["Member"], "bob")
+				}
+				if request["E2EE"] != true {
+					t.Fatalf("request.E2EE = %#v, want true", request["E2EE"])
 				}
 			},
 		},
