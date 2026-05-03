@@ -192,20 +192,19 @@ func (s *Service) LeaveGroup(ctx context.Context, request GroupLeaveRequest) (*C
 	if snapshotErr == nil && isActiveGroupOwner(cachedSnapshot) {
 		return nil, ErrGroupOwnerCannotLeave
 	}
-	if groupSnapshotUsesE2EE(cachedSnapshot) {
+	if request.E2EE || groupSnapshotUsesE2EE(cachedSnapshot) {
 		e2eeResult, e2eeWarnings, err := s.leaveGroupE2EE(ctx, record, request)
 		if err != nil {
 			return nil, err
 		}
 		warnings := append([]string(nil), e2eeWarnings...)
-		warnings = append(warnings, s.markCachedGroupLeft(ctx, record, request.Group)...)
 		return &CommandResult{
 			Data: map[string]any{
 				"delivery": e2eeResult["delivery"],
 				"group":    request.Group,
 				"e2ee":     e2eeResult,
 			},
-			Summary:  fmt.Sprintf("Left group %s with group E2EE", request.Group),
+			Summary:  fmt.Sprintf("Requested group E2EE leave for %s", request.Group),
 			Warnings: compactWarnings(warnings),
 		}, nil
 	}

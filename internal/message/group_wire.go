@@ -201,12 +201,29 @@ func BuildGroupE2EEAddRPCParams(record *identity.StoredIdentity, manager *identi
 	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.add", body, "", "", "", GroupE2EESecurityProfile)
 }
 
-func BuildGroupE2EERemoveRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string) (map[string]any, error) {
+func BuildGroupE2EERemoveRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string, leaveRequestID string) (map[string]any, error) {
 	body := e2eeMembershipCommitBody(groupDID, memberDID, "removed", preparedCommit)
 	if reason := strings.TrimSpace(reasonText); reason != "" {
 		body["reason_text"] = reason
 	}
+	if requestID := strings.TrimSpace(leaveRequestID); requestID != "" {
+		body["leave_request_id"] = requestID
+	}
 	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.remove", body, "", stringFromAny(preparedCommit["operation_id"]), "", GroupE2EESecurityProfile)
+}
+
+func BuildGroupE2EELeaveRequestRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, reasonText string) (map[string]any, error) {
+	body := map[string]any{
+		"group_did":       strings.TrimSpace(groupDID),
+		"subject_did":     record.DID,
+		"member_did":      record.DID,
+		"subject_status":  "leave_requested",
+		"group_state_ref": map[string]any{"group_did": strings.TrimSpace(groupDID)},
+	}
+	if reason := strings.TrimSpace(reasonText); reason != "" {
+		body["reason_text"] = reason
+	}
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.leave_request", body, "", "", "", GroupE2EETransportProfile)
 }
 
 func BuildGroupE2EELeaveRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, preparedCommit map[string]any) (map[string]any, error) {

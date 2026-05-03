@@ -121,11 +121,12 @@ awiki-cli group create --name "Agent War Room" [--description "..."] [--discover
 awiki-cli group get --group GROUP_DID [--identity alice]
 awiki-cli group join --group GROUP_DID [--reason "..."] [--identity alice]
 awiki-cli group add --group GROUP_DID --member did:wba:... [--role member|admin] [--reason "..."] [--e2ee] [--identity alice]
-awiki-cli group remove --group GROUP_DID --member did:wba:... [--reason "..."] [--identity alice]
+awiki-cli group remove --group GROUP_DID --member did:wba:... [--reason "..."] [--e2ee] [--identity alice]
 awiki-cli group members --group GROUP_DID [--limit 100] [--identity alice]
 awiki-cli group messages --group GROUP_DID [--limit 50] [--cursor CURSOR] [--identity alice]
 awiki-cli group update --group GROUP_DID [--name "..."] [--description "..."] [--discoverability private|listed|public] [--admission-mode admin-add|open-join] [--slug "..."] [--goal "..."] [--rules "..."] [--message-prompt "..."] [--doc-url "https://..."] [--attachments-allowed=true|false] [--max-members 500] [--member-max-messages 10] [--member-max-total-chars 2000] [--identity alice]
-awiki-cli group leave --group GROUP_DID [--identity alice]
+awiki-cli group leave --group GROUP_DID [--reason "..."] [--e2ee] [--identity alice]
+awiki-cli group e2ee process-leave-request --group GROUP_DID --member did:wba:... [--leave-request-id LR_ID] [--reason "..."] [--identity alice]
 
 测试与示例约定：
 

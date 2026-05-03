@@ -249,6 +249,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupE2EEPending
 	case "group.e2ee.repair":
 		return a.runGroupE2EERepair
+	case "group.e2ee.process-leave-request":
+		return a.runGroupE2EEProcessLeaveRequest
 	case "page.create":
 		return a.runPageCreate
 	case "page.list":

@@ -312,12 +312,26 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 					"from_epoch":           "1",
 					"to_epoch":             "2",
 					"commit_b64u":          "Y29tbWl0",
-				}, "cleanup")
+				}, "cleanup", "leave-req-1")
 				return err
 			},
 			verifyBody: func(t *testing.T, body map[string]any) {
-				if body["member_did"] != "did:member" || body["commit_b64u"] != "Y29tbWl0" || body["reason_text"] != "cleanup" {
-					t.Fatalf("body = %#v, want member/commit/reason", body)
+				if body["member_did"] != "did:member" || body["commit_b64u"] != "Y29tbWl0" || body["reason_text"] != "cleanup" || body["leave_request_id"] != "leave-req-1" {
+					t.Fatalf("body = %#v, want member/commit/reason/leave request", body)
+				}
+			},
+		},
+
+		{
+			name:       "e2ee leave request",
+			wantMethod: "group.e2ee.leave_request",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.CreateGroupE2EELeaveRequest(context.Background(), "did:group", "done")
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if body["group_did"] != "did:group" || body["subject_status"] != "leave_requested" || body["reason_text"] != "done" {
+					t.Fatalf("body = %#v, want leave request control body", body)
 				}
 			},
 		},

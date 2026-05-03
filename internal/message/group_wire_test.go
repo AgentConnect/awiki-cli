@@ -269,7 +269,7 @@ func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) 
 		"application_plaintext":     "must-not-leak",
 		"provider_private_material": "must-not-leak",
 		"group_state_ref":           map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "epoch": "4"},
-	}, "cleanup")
+	}, "cleanup", "leave-req-1")
 	if err != nil {
 		t.Fatalf("BuildGroupE2EERemoveRPCParams() error = %v", err)
 	}
@@ -297,6 +297,9 @@ func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) 
 	if got := stringFromAny(body["commit_b64u"]); got != "Y29tbWl0" {
 		t.Fatalf("commit_b64u = %q, want opaque commit", got)
 	}
+	if got := stringFromAny(body["leave_request_id"]); got != "leave-req-1" {
+		t.Fatalf("leave_request_id = %q, want leave-req-1", got)
+	}
 	if _, ok := body["application_plaintext"]; ok {
 		t.Fatalf("plaintext leaked into remove body: %#v", body)
 	}
@@ -306,6 +309,36 @@ func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) 
 	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
 	if got := stringFromAny(ref["epoch"]); got != "4" {
 		t.Fatalf("group_state_ref.epoch = %q, want from_epoch/pre-remove epoch", got)
+	}
+}
+
+func TestBuildGroupE2EELeaveRequestRPCParamsUsesHiddenTransportProtectedControlPlane(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EELeaveRequestRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", "done for now")
+	if err != nil {
+		t.Fatalf("BuildGroupE2EELeaveRequestRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != GroupE2EEProfile {
+		t.Fatalf("meta.profile = %q, want %q", got, GroupE2EEProfile)
+	}
+	if got := stringFromAny(meta["security_profile"]); got != GroupE2EETransportProfile {
+		t.Fatalf("meta.security_profile = %q, want transport protected", got)
+	}
+	if _, ok := meta["message_id"]; ok {
+		t.Fatalf("leave_request meta must not look like a public message: %#v", meta)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["subject_did"]); got != record.DID {
+		t.Fatalf("subject_did = %q, want actor DID", got)
+	}
+	if got := stringFromAny(body["subject_status"]); got != "leave_requested" {
+		t.Fatalf("subject_status = %q, want leave_requested", got)
+	}
+	if got := stringFromAny(body["reason_text"]); got != "done for now" {
+		t.Fatalf("reason_text = %q, want reason", got)
 	}
 }
 

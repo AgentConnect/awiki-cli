@@ -40,6 +40,7 @@
 - 需要查看元数据或策略 -> `group get`
 - 需要加入一个开放群组 -> `group join`
 - 需要添加或移除单个成员 -> `group add` / `group remove`
+- E2EE 成员想安全离开 -> `group leave --e2ee` 创建 hidden leave_request，owner/admin 再用 `group e2ee process-leave-request` 处理
 - 需要修改名称、描述或策略 -> `group update`
 - 需要向群中发送文本 -> 使用 `03-messaging.md`
 
@@ -50,7 +51,8 @@
 - `awiki-cli group join --group <group_did> [--reason "..."]`
 - `awiki-cli group add --group <group_did> --member <did|handle> [--role ...]`
 - `awiki-cli group remove --group <group_did> --member <did|handle> [--reason "..."]`
-- `awiki-cli group leave --group <group_did>`
+- `awiki-cli group leave --group <group_did> [--reason "..."] [--e2ee]`
+- `awiki-cli group e2ee process-leave-request --group <group_did> --member <did|handle> [--leave-request-id <id>]`
 - `awiki-cli group update --group <group_did> [--name ...] [--description ...] [...]`
 - `awiki-cli group members --group <group_did> [--limit <n>]`
 - `awiki-cli group messages --group <group_did> [--limit <n>] [--cursor <cursor>]`

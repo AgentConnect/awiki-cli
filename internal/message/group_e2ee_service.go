@@ -243,45 +243,74 @@ func (s *Service) removeGroupMemberE2EE(ctx context.Context, record *identity.St
 		return nil, nil, err
 	}
 	return s.submitPreparedGroupE2EECommit(ctx, record, request.Group, request.Member, request.ReasonText, prepared, func(transport *HTTPTransport) (map[string]any, error) {
-		return transport.RemoveGroupE2EE(ctx, request.Group, request.Member, prepared, request.ReasonText)
+		return transport.RemoveGroupE2EE(ctx, request.Group, request.Member, prepared, request.ReasonText, request.LeaveRequestID)
 	})
 }
 
 func (s *Service) leaveGroupE2EE(ctx context.Context, record *identity.StoredIdentity, request GroupLeaveRequest) (map[string]any, []string, error) {
-	operationID := "op-" + generateOperationID()
-	provider := s.groupMLSProvider()
-	prepared, err := provider.LeaveGroup(ctx, MLSRequest{
-		APIVersion: "anp-mls/v1",
-		RequestID:  "group-e2ee-leave-" + generateOperationID(),
-		AgentDID:   record.DID,
-		DeviceID:   "default",
-		Params: map[string]any{
-			"agent_did":       record.DID,
-			"actor_did":       record.DID,
-			"device_id":       "default",
-			"group_did":       request.Group,
-			"subject_did":     record.DID,
-			"operation_id":    operationID,
-			"group_state_ref": s.localGroupStateRef(ctx, record, request.Group),
-		},
-	})
+	transport, warnings, err := s.httpTransport(record)
 	if err != nil {
-		return nil, nil, err
+		return nil, warnings, err
 	}
-	if reason := unsupportedGroupE2EESelfLeaveReason(prepared); reason != "" {
-		data := map[string]any{"mls_prepare": prepared, "subject_did": record.DID}
-		warnings := []string{"Group E2EE self-leave is unsupported in PR-A because anp-mls cannot produce an epoch-advancing remove commit for the leaving member."}
-		if abortResult, abortErr := s.abortPreparedGroupE2EECommit(ctx, record, request.Group, prepared); abortErr != nil {
-			warnings = append(warnings, fmt.Sprintf("Group E2EE local-terminal leave pending commit abort failed: %v", abortErr))
-		} else {
-			data["mls_abort"] = abortResult
-			warnings = append(warnings, "Group E2EE local-terminal leave pending commit aborted before service submission.")
-		}
-		return data, warnings, fmt.Errorf("%w: %s; ask a group owner/admin to remove this member until an epoch-advancing leave-request flow is available", ErrGroupE2EESelfLeaveUnsupported, reason)
+	delivery, err := transport.CreateGroupE2EELeaveRequest(ctx, request.Group, request.ReasonText)
+	if err != nil {
+		return nil, warnings, err
 	}
-	return s.submitPreparedGroupE2EECommit(ctx, record, request.Group, record.DID, "", prepared, func(transport *HTTPTransport) (map[string]any, error) {
-		return transport.LeaveGroupE2EE(ctx, request.Group, prepared)
-	})
+	requestID := firstNonEmptyString(stringFromAny(delivery["leave_request_id"]), stringFromAny(delivery["request_id"]))
+	data := map[string]any{
+		"delivery":         delivery,
+		"group_did":        request.Group,
+		"subject_did":      record.DID,
+		"subject_status":   "leave_requested",
+		"leave_request_id": requestID,
+	}
+	warnings = append(warnings, "Group E2EE leave request created; an owner/admin must process it with `group e2ee process-leave-request` to advance the MLS epoch.")
+	return data, warnings, nil
+}
+
+func (s *Service) ProcessGroupE2EELeaveRequest(ctx context.Context, request GroupE2EEProcessLeaveRequest) (*CommandResult, error) {
+	if strings.TrimSpace(request.Group) == "" {
+		return nil, ErrGroupRequired
+	}
+	if strings.TrimSpace(request.Member) == "" {
+		return nil, ErrMemberRequired
+	}
+	record, err := s.requireActiveIdentity(request.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	memberDID, memberHandle, err := s.resolveTarget(ctx, request.Member)
+	if err != nil {
+		return nil, err
+	}
+	mutation := GroupMemberRequest{
+		IdentityName:   request.IdentityName,
+		Group:          request.Group,
+		Member:         memberDID,
+		ReasonText:     firstNonEmptyString(strings.TrimSpace(request.ReasonText), "leave request processed by owner/admin"),
+		E2EE:           true,
+		LeaveRequestID: strings.TrimSpace(request.LeaveRequestID),
+	}
+	e2eeResult, e2eeWarnings, err := s.removeGroupMemberE2EE(ctx, record, mutation)
+	if err != nil {
+		return nil, err
+	}
+	warnings := append([]string(nil), e2eeWarnings...)
+	warnings = append(warnings, s.syncGroupState(ctx, record, request.Group, true)...)
+	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
+	members, _ := s.readCachedGroupMembers(ctx, record, request.Group, 100)
+	return &CommandResult{
+		Data: map[string]any{
+			"group":            snapshot,
+			"members":          members,
+			"delivery":         e2eeResult["delivery"],
+			"member":           map[string]any{"did": memberDID, "handle": memberHandle},
+			"leave_request_id": mutation.LeaveRequestID,
+			"e2ee":             e2eeResult,
+		},
+		Summary:  "Processed group E2EE leave request with epoch-advancing remove",
+		Warnings: compactWarnings(warnings),
+	}, nil
 }
 
 func (s *Service) submitPreparedGroupE2EECommit(

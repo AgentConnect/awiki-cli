@@ -291,12 +291,20 @@ func (t *HTTPTransport) AddGroupE2EE(ctx context.Context, groupDID string, membe
 	return t.rpcMapCall(ctx, "group.e2ee.add", params)
 }
 
-func (t *HTTPTransport) RemoveGroupE2EE(ctx context.Context, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string) (map[string]any, error) {
-	params, err := BuildGroupE2EERemoveRPCParams(t.auth.record, nil, groupDID, memberDID, preparedCommit, reasonText)
+func (t *HTTPTransport) RemoveGroupE2EE(ctx context.Context, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string, leaveRequestID string) (map[string]any, error) {
+	params, err := BuildGroupE2EERemoveRPCParams(t.auth.record, nil, groupDID, memberDID, preparedCommit, reasonText, leaveRequestID)
 	if err != nil {
 		return nil, err
 	}
 	return t.rpcMapCall(ctx, "group.e2ee.remove", params)
+}
+
+func (t *HTTPTransport) CreateGroupE2EELeaveRequest(ctx context.Context, groupDID string, reasonText string) (map[string]any, error) {
+	params, err := BuildGroupE2EELeaveRequestRPCParams(t.auth.record, nil, groupDID, reasonText)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.leave_request", params)
 }
 
 func (t *HTTPTransport) LeaveGroupE2EE(ctx context.Context, groupDID string, preparedCommit map[string]any) (map[string]any, error) {

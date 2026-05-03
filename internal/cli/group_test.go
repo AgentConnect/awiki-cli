@@ -54,6 +54,23 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+
+		{
+			name:        "group leave e2ee plans hidden leave request",
+			spec:        "group.leave",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "e2ee": "true", "reason": "done"},
+			wantSummary: "Dry run: group leave planned",
+			wantAction:  "group.leave",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				request, ok := plan["request"].(map[string]any)
+				if !ok {
+					t.Fatalf("plan.request type = %T, want map[string]any", plan["request"])
+				}
+				if request["E2EE"] != true || request["ReasonText"] != "done" {
+					t.Fatalf("request = %#v, want E2EE leave request plan", request)
+				}
+			},
+		},
 		{
 			name:        "group messages includes cursor and limit",
 			spec:        "group.messages",
@@ -124,6 +141,19 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+
+		{
+			name:        "group e2ee process leave request plans owner remove",
+			spec:        "group.e2ee.process-leave-request",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob", "leave-request-id": "lr-bob-1"},
+			wantSummary: "Dry run: group e2ee leave request process planned",
+			wantAction:  "group.e2ee.process_leave_request",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["member"] != "bob" || plan["leave_request_id"] != "lr-bob-1" {
+					t.Fatalf("plan = %#v, want member and leave request id", plan)
+				}
+			},
+		},
 		{
 			name:        "group create e2ee alias maps to group-e2ee request",
 			spec:        "group.create",
@@ -164,12 +194,16 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupKick(cmd, nil)
 				case "group.messages":
 					return app.runGroupMessages(cmd, nil)
+				case "group.leave":
+					return app.runGroupLeave(cmd, nil)
 				case "group.e2ee.status":
 					return app.runGroupE2EEStatus(cmd, nil)
 				case "group.e2ee.pending":
 					return app.runGroupE2EEPending(cmd, nil)
 				case "group.e2ee.repair":
 					return app.runGroupE2EERepair(cmd, nil)
+				case "group.e2ee.process-leave-request":
+					return app.runGroupE2EEProcessLeaveRequest(cmd, nil)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil

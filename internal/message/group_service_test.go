@@ -2,9 +2,11 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -52,64 +54,60 @@ func TestLeaveGroupRejectsActiveOwnerFromCachedSnapshot(t *testing.T) {
 	}
 }
 
+func TestLeaveGroupE2EECreatesLeaveRequestWithoutLocalMLSLeave(t *testing.T) {
+	t.Parallel()
+
+	var captured rpcRequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = decodeRPCRequest(t, r)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      captured.ID,
+			"result": map[string]any{
+				"accepted":         true,
+				"leave_request_id": "lr-bob-1",
+				"delivery_state":   "pending_owner_action",
+			},
+		})
+	}))
+	defer server.Close()
+
+	service, _, record := newMessageServiceForTest(t, server.URL)
+	provider := MLSExecProvider{BinaryPath: "anp-mls", Runner: &groupLeaveSafetyMLSRunner{}}
+	service.mlsProvider = &provider
+
+	result, warnings, err := service.leaveGroupE2EE(context.Background(), record, GroupLeaveRequest{
+		Group:      "did:wba:awiki.ai:groups:test-e2ee-leave",
+		ReasonText: "done",
+	})
+	if err != nil {
+		t.Fatalf("leaveGroupE2EE() error = %v", err)
+	}
+	if captured.Method != "group.e2ee.leave_request" {
+		t.Fatalf("captured.Method = %q, want leave_request", captured.Method)
+	}
+	body := mustMapValue(t, captured.Params["body"], "params.body")
+	if got := stringFromAny(body["subject_status"]); got != "leave_requested" {
+		t.Fatalf("subject_status = %q, want leave_requested", got)
+	}
+	if got := stringFromAny(body["reason_text"]); got != "done" {
+		t.Fatalf("reason_text = %q, want done", got)
+	}
+	if got := stringFromAny(result["leave_request_id"]); got != "lr-bob-1" {
+		t.Fatalf("leave_request_id = %q, want lr-bob-1", got)
+	}
+	if got := strings.Join(warnings, "\n"); !strings.Contains(got, "owner/admin") {
+		t.Fatalf("warnings = %#v, want owner/admin processing guidance", warnings)
+	}
+}
+
 type groupLeaveSafetyMLSRunner struct {
 	calls []string
 }
 
 func (r *groupLeaveSafetyMLSRunner) Run(_ context.Context, _ string, args []string, _ []byte) ([]byte, []byte, error) {
-	call := strings.Join(args, " ")
-	r.calls = append(r.calls, call)
-	switch call {
-	case "group leave --json-in -":
-		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-leave","result":{"pending_commit_id":"pc-local-terminal-leave","operation_id":"op-leave","status":"pending","artifact_type":"local-terminal-leave","subject_status":"left","from_epoch":"4","to_epoch":"4","epoch":"4","commit_b64u":"bG9jYWwtdGVybWluYWw","crypto_group_id_b64u":"Y3J5cHRv","epoch_authenticator":"YXV0aA"}}`), nil, nil
-	case "group commit-abort --json-in -":
-		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-abort","result":{"pending_commit_id":"pc-local-terminal-leave","status":"aborted","subject_status":"left"}}`), nil, nil
-	default:
-		return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-other","result":{}}`), nil, nil
-	}
-}
-
-func TestLeaveGroupE2EERejectsLocalTerminalSelfLeaveBeforeServiceSubmit(t *testing.T) {
-	t.Parallel()
-
-	resolved := testResolvedConfig(t)
-	manager := identity.NewManager(resolved.Paths)
-	createTestIdentity(t, manager, identity.SaveInput{
-		IdentityName: "alice",
-		UserID:       "user-123",
-		DisplayName:  "Alice",
-		Handle:       "alice",
-	})
-	record, err := manager.Load("alice")
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	runner := &groupLeaveSafetyMLSRunner{}
-	provider := MLSExecProvider{BinaryPath: "anp-mls", Runner: runner}
-	service := &Service{resolved: resolved, manager: manager, mlsProvider: &provider}
-
-	result, warnings, err := service.leaveGroupE2EE(context.Background(), record, GroupLeaveRequest{
-		Group: "did:wba:awiki.ai:groups:test-e2ee-leave",
-	})
-	if !errors.Is(err, ErrGroupE2EESelfLeaveUnsupported) {
-		t.Fatalf("leaveGroupE2EE() error = %v, want %v", err, ErrGroupE2EESelfLeaveUnsupported)
-	}
-	if !strings.Contains(err.Error(), "owner/admin") {
-		t.Fatalf("leaveGroupE2EE() error = %v, want actionable owner/admin removal guidance", err)
-	}
-	if got := strings.Join(runner.calls, ","); got != "group leave --json-in -,group commit-abort --json-in -" {
-		t.Fatalf("MLS calls = %q, want leave prepare followed by local abort only", got)
-	}
-	abort, ok := result["mls_abort"].(map[string]any)
-	if !ok {
-		t.Fatalf("mls_abort missing from result: %#v", result)
-	}
-	if got := stringFromAny(abort["status"]); got != "aborted" {
-		t.Fatalf("mls_abort.status = %q, want aborted", got)
-	}
-	if got := strings.Join(warnings, "\n"); !strings.Contains(got, "aborted before service submission") {
-		t.Fatalf("warnings = %#v, want abort-before-submit warning", warnings)
-	}
+	r.calls = append(r.calls, strings.Join(args, " "))
+	return []byte(`{"ok":true,"api_version":"anp-mls/v1","request_id":"req-other","result":{}}`), nil, nil
 }
 
 func TestUnsupportedGroupE2EESelfLeaveReasonDetectsNonAdvancingEpoch(t *testing.T) {

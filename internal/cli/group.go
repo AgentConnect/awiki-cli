@@ -136,11 +136,13 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 
 func (a *App) runGroupLeave(cmd *cobra.Command, args []string) error {
 	group, _ := cmd.Flags().GetString("group")
+	reason, _ := cmd.Flags().GetString("reason")
+	e2ee, _ := cmd.Flags().GetBool("e2ee")
 	service, format, err := a.messageService()
 	if err != nil {
 		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
 	}
-	request := message.GroupLeaveRequest{IdentityName: a.globals.Identity, Group: group}
+	request := message.GroupLeaveRequest{IdentityName: a.globals.Identity, Group: group, ReasonText: reason, E2EE: e2ee}
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.leave", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group leave planned", nil, a.identityMeta())
 	}

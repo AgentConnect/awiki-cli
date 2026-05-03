@@ -134,6 +134,45 @@ func (a *App) runGroupE2EERepair(cmd *cobra.Command, args []string) error {
 	return a.renderMessageResult(cmd, format, result)
 }
 
+func (a *App) runGroupE2EEProcessLeaveRequest(cmd *cobra.Command, args []string) error {
+	group, _ := cmd.Flags().GetString("group")
+	member, _ := cmd.Flags().GetString("member")
+	leaveRequestID, _ := cmd.Flags().GetString("leave-request-id")
+	reason, _ := cmd.Flags().GetString("reason")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	provider := message.NewDefaultMLSExecProvider(service.Config())
+	request := message.GroupE2EEProcessLeaveRequest{
+		IdentityName:   a.globals.Identity,
+		Group:          group,
+		Member:         member,
+		LeaveRequestID: leaveRequestID,
+		ReasonText:     reason,
+	}
+	plan := map[string]any{
+		"action":           "group.e2ee.process_leave_request",
+		"identity":         a.globals.Identity,
+		"runtime_mode":     service.Config().RuntimeMode,
+		"provider":         "exec",
+		"mls_data_dir":     provider.DataDir,
+		"group":            group,
+		"member":           member,
+		"leave_request_id": leaveRequestID,
+		"request":          request,
+	}
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee leave request process planned", nil, a.identityMeta())
+	}
+	result, processErr := service.ProcessGroupE2EELeaveRequest(cmd.Context(), request)
+	if processErr != nil {
+		return a.messageExit(processErr, "Ensure the leave request exists, the active identity can remove members, and anp-mls/message-service group E2EE APIs are enabled.")
+	}
+	result.Data["plan"] = plan
+	return a.renderMessageResult(cmd, format, result)
+}
+
 func activeIdentityDID(service *message.Service, name string) (string, error) {
 	record, err := identity.NewManager(service.Config().Paths).Load(name)
 	if err != nil {

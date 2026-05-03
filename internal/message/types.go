@@ -150,17 +150,28 @@ type GroupJoinRequest struct {
 }
 
 type GroupMemberRequest struct {
-	IdentityName string
-	Group        string
-	Member       string
-	Role         string
-	ReasonText   string
-	E2EE         bool
+	IdentityName   string
+	Group          string
+	Member         string
+	Role           string
+	ReasonText     string
+	E2EE           bool
+	LeaveRequestID string
 }
 
 type GroupLeaveRequest struct {
 	IdentityName string
 	Group        string
+	ReasonText   string
+	E2EE         bool
+}
+
+type GroupE2EEProcessLeaveRequest struct {
+	IdentityName   string
+	Group          string
+	Member         string
+	LeaveRequestID string
+	ReasonText     string
 }
 
 type GroupUpdateRequest struct {
