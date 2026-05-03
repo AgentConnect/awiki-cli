@@ -80,22 +80,27 @@ func anpMLSCheck(resolved *config.Resolved) Check {
 	binary, resolveErr := provider.ResolveBinaryPath()
 	state := inspectMLSState(resolved, provider.DataDir)
 	details := map[string]any{
-		"binary":            binary,
-		"data_dir":          provider.DataDir,
-		"env_override":      message.ANPMLSBinaryEnv,
-		"plain_unaffected":  true,
-		"resolve_error":     errorString(resolveErr),
-		"remediation":       anpMLSRemediation(resolveErr, nil, nil, state),
-		"data_dir_status":   state.DataDirStatus,
-		"data_dir_exists":   state.DataDirExists,
-		"data_dir_error":    state.DataDirError,
-		"state_db":          state.StateDBPath,
-		"state_db_status":   state.StateDBStatus,
-		"state_db_error":    state.StateDBError,
-		"state_lock":        state.StateLockPath,
-		"state_lock_status": state.StateLockStatus,
-		"state_lock_error":  state.StateLockError,
-		"e2ee_group_count":  state.E2EEGroupCount,
+		"binary":                     binary,
+		"data_dir":                   provider.DataDir,
+		"env_override":               message.ANPMLSBinaryEnv,
+		"plain_unaffected":           true,
+		"resolve_error":              errorString(resolveErr),
+		"remediation":                anpMLSRemediation(resolveErr, nil, nil, state),
+		"data_dir_status":            state.DataDirStatus,
+		"data_dir_exists":            state.DataDirExists,
+		"data_dir_error":             state.DataDirError,
+		"state_db":                   state.StateDBPath,
+		"state_db_status":            state.StateDBStatus,
+		"state_db_error":             state.StateDBError,
+		"state_lock":                 state.StateLockPath,
+		"state_lock_status":          state.StateLockStatus,
+		"state_lock_error":           state.StateLockError,
+		"scoped_states":              state.ScopedStates,
+		"scoped_state_count":         state.ScopedStateCount,
+		"scoped_state_db_count":      state.ScopedStateDBCount,
+		"scoped_state_lock_count":    state.ScopedStateLockCount,
+		"scoped_state_warning_count": state.ScopedStateWarningCount,
+		"e2ee_group_count":           state.E2EEGroupCount,
 	}
 	status := "ok"
 	summary := "anp-mls binary and compatibility probe are ready for group E2EE operations"
@@ -128,20 +133,37 @@ func anpMLSCheck(resolved *config.Resolved) Check {
 }
 
 type mlsStateInspection struct {
-	DataDirExists   bool
-	DataDirStatus   string
-	DataDirError    string
-	StateDBPath     string
-	StateDBStatus   string
-	StateDBError    string
-	StateLockPath   string
-	StateLockStatus string
-	StateLockError  string
-	E2EEGroupCount  int
+	DataDirExists           bool
+	DataDirStatus           string
+	DataDirError            string
+	StateDBPath             string
+	StateDBStatus           string
+	StateDBError            string
+	StateLockPath           string
+	StateLockStatus         string
+	StateLockError          string
+	ScopedStates            []mlsScopedStateInspection
+	ScopedStateCount        int
+	ScopedStateDBCount      int
+	ScopedStateLockCount    int
+	ScopedStateWarningCount int
+	E2EEGroupCount          int
+}
+
+type mlsScopedStateInspection struct {
+	AgentKey        string `json:"agent_key"`
+	DeviceID        string `json:"device_id"`
+	Dir             string `json:"dir"`
+	StateDBPath     string `json:"state_db"`
+	StateDBStatus   string `json:"state_db_status"`
+	StateDBError    string `json:"state_db_error,omitempty"`
+	StateLockPath   string `json:"state_lock"`
+	StateLockStatus string `json:"state_lock_status"`
+	StateLockError  string `json:"state_lock_error,omitempty"`
 }
 
 func (s mlsStateInspection) HasWarning() bool {
-	return strings.HasPrefix(s.DataDirStatus, "warn") || strings.HasPrefix(s.StateDBStatus, "warn") || strings.HasPrefix(s.StateLockStatus, "warn")
+	return strings.HasPrefix(s.DataDirStatus, "warn") || strings.HasPrefix(s.StateDBStatus, "warn") || strings.HasPrefix(s.StateLockStatus, "warn") || s.ScopedStateWarningCount > 0
 }
 
 func inspectMLSState(resolved *config.Resolved, dataDir string) mlsStateInspection {
@@ -185,44 +207,107 @@ func inspectMLSState(resolved *config.Resolved, dataDir string) mlsStateInspecti
 		state.DataDirError = err.Error()
 	}
 
-	if info, err := os.Stat(state.StateDBPath); err != nil {
-		if os.IsNotExist(err) {
-			if state.E2EEGroupCount > 0 {
-				state.StateDBStatus = "warn_missing_with_cached_groups"
-			} else {
-				state.StateDBStatus = "missing"
-			}
-		} else {
-			state.StateDBStatus = "warn_stat_failed"
-			state.StateDBError = err.Error()
+	state.ScopedStates = inspectScopedMLSStates(dataDir)
+	state.ScopedStateCount = len(state.ScopedStates)
+	for _, scoped := range state.ScopedStates {
+		if scoped.StateDBStatus == "ok" {
+			state.ScopedStateDBCount++
 		}
-	} else if info.IsDir() {
-		state.StateDBStatus = "warn_not_file"
-	} else if err := canReadFile(state.StateDBPath); err != nil {
-		state.StateDBStatus = "warn_not_readable"
-		state.StateDBError = err.Error()
-	} else {
-		state.StateDBStatus = "ok"
+		if scoped.StateLockStatus != "missing" {
+			state.ScopedStateLockCount++
+		}
+		if strings.HasPrefix(scoped.StateDBStatus, "warn") || strings.HasPrefix(scoped.StateLockStatus, "warn") {
+			state.ScopedStateWarningCount++
+		}
 	}
 
-	if info, err := os.Stat(state.StateLockPath); err != nil {
-		if os.IsNotExist(err) {
-			state.StateLockStatus = "missing"
-		} else {
-			state.StateLockStatus = "warn_stat_failed"
-			state.StateLockError = err.Error()
-		}
-	} else if info.IsDir() {
-		state.StateLockStatus = "warn_not_file"
-	} else if err := canReadFile(state.StateLockPath); err != nil {
-		state.StateLockStatus = "warn_not_readable"
-		state.StateLockError = err.Error()
-	} else if time.Since(info.ModTime()) > 15*time.Minute {
-		state.StateLockStatus = "warn_stale_candidate"
-	} else {
-		state.StateLockStatus = "present_active_or_recent"
+	state.StateDBStatus, state.StateDBError = inspectMLSStateDB(state.StateDBPath)
+	if state.StateDBStatus == "missing" && state.E2EEGroupCount > 0 && state.ScopedStateDBCount == 0 {
+		state.StateDBStatus = "warn_missing_with_cached_groups"
 	}
+
+	state.StateLockStatus, state.StateLockError = inspectMLSLock(state.StateLockPath)
 	return state
+}
+
+func inspectScopedMLSStates(dataDir string) []mlsScopedStateInspection {
+	agentsDir := filepath.Join(dataDir, "agents")
+	agentEntries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return nil
+	}
+	states := []mlsScopedStateInspection{}
+	for _, agentEntry := range agentEntries {
+		if !agentEntry.IsDir() {
+			continue
+		}
+		agentKey := agentEntry.Name()
+		agentDir := filepath.Join(agentsDir, agentKey)
+		deviceEntries, err := os.ReadDir(agentDir)
+		if err != nil {
+			states = append(states, mlsScopedStateInspection{
+				AgentKey:        agentKey,
+				Dir:             agentDir,
+				StateDBStatus:   "warn_read_devices_failed",
+				StateDBError:    err.Error(),
+				StateLockStatus: "missing",
+			})
+			continue
+		}
+		for _, deviceEntry := range deviceEntries {
+			if !deviceEntry.IsDir() {
+				continue
+			}
+			deviceID := deviceEntry.Name()
+			dir := filepath.Join(agentDir, deviceID)
+			dbPath := filepath.Join(dir, "state.db")
+			lockPath := filepath.Join(dir, "state.lock")
+			dbStatus, dbErr := inspectMLSStateDB(dbPath)
+			lockStatus, lockErr := inspectMLSLock(lockPath)
+			states = append(states, mlsScopedStateInspection{
+				AgentKey:        agentKey,
+				DeviceID:        deviceID,
+				Dir:             dir,
+				StateDBPath:     dbPath,
+				StateDBStatus:   dbStatus,
+				StateDBError:    dbErr,
+				StateLockPath:   lockPath,
+				StateLockStatus: lockStatus,
+				StateLockError:  lockErr,
+			})
+		}
+	}
+	return states
+}
+
+func inspectMLSStateDB(path string) (string, string) {
+	if info, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "missing", ""
+		}
+		return "warn_stat_failed", err.Error()
+	} else if info.IsDir() {
+		return "warn_not_file", ""
+	} else if err := canReadFile(path); err != nil {
+		return "warn_not_readable", err.Error()
+	}
+	return "ok", ""
+}
+
+func inspectMLSLock(path string) (string, string) {
+	if info, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return "missing", ""
+		}
+		return "warn_stat_failed", err.Error()
+	} else if info.IsDir() {
+		return "warn_not_file", ""
+	} else if err := canReadFile(path); err != nil {
+		return "warn_not_readable", err.Error()
+	} else if time.Since(info.ModTime()) > 15*time.Minute {
+		return "warn_stale_candidate", ""
+	}
+	return "present_active_or_recent", ""
 }
 
 func canReadDir(path string) error {
@@ -314,9 +399,9 @@ func anpMLSRemediation(resolveErr error, probeErr error, compatErr error, state 
 	case state.DataDirStatus == "warn_not_writable" || state.DataDirStatus == "warn_not_readable":
 		return "Fix permissions on the MLS data directory or move the workspace with AWIKI_CLI_WORKSPACE_HOME_DIR."
 	case state.StateDBStatus == "warn_missing_with_cached_groups":
-		return "The business database has cached group-e2ee groups but MLS state.db is missing; restore the MLS data directory from backup before sending encrypted group messages."
-	case strings.HasPrefix(state.StateLockStatus, "warn"):
-		return "If no anp-mls process is running, remove stale state.lock after backing up the MLS data directory."
+		return "The business database has cached group-e2ee groups but no root or agent/device-scoped MLS state.db was found; restore the MLS data directory from backup before sending encrypted group messages."
+	case strings.HasPrefix(state.StateLockStatus, "warn") || state.ScopedStateWarningCount > 0:
+		return "If no anp-mls process is running, inspect root and agent/device-scoped state.lock files, then remove stale locks only after backing up the MLS data directory."
 	default:
 		return "No action required."
 	}

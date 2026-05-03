@@ -22,7 +22,6 @@ func (a *App) runGroupE2EEStatus(cmd *cobra.Command, args []string) error {
 		"runtime_mode":         service.Config().RuntimeMode,
 		"profile":              message.GroupE2EEProfile,
 		"security_profile":     message.GroupE2EESecurityProfile,
-		"artifact_mode":        message.GroupE2EEContractArtifactMode,
 		"provider":             "exec",
 		"binary":               provider.BinaryPath,
 		"mls_data_dir":         provider.DataDir,
@@ -39,11 +38,10 @@ func (a *App) runGroupE2EEStatus(cmd *cobra.Command, args []string) error {
 	}
 	provider.Timeout = 5 * time.Second
 	resp, callErr := provider.Call(cmd.Context(), "group", "status", message.MLSRequest{
-		APIVersion:          "anp-mls/v1",
-		RequestID:           fmt.Sprintf("group-e2ee-status-%d", time.Now().UnixNano()),
-		AgentDID:            agentDID,
-		ContractTestEnabled: true,
-		Params:              map[string]any{"agent_did": agentDID, "group_did": group},
+		APIVersion: "anp-mls/v1",
+		RequestID:  fmt.Sprintf("group-e2ee-status-%d", time.Now().UnixNano()),
+		AgentDID:   agentDID,
+		Params:     map[string]any{"agent_did": agentDID, "group_did": group},
 	})
 	data := map[string]any{"plan": plan, "available": callErr == nil}
 	if callErr != nil {
@@ -51,7 +49,7 @@ func (a *App) runGroupE2EEStatus(cmd *cobra.Command, args []string) error {
 	} else if resp != nil {
 		data["mls"] = resp.Result
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Group E2EE contract-test status inspected", warnings, a.identityMeta())
+	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Group E2EE local MLS status inspected", warnings, a.identityMeta())
 }
 
 func (a *App) runGroupE2EEPublishKeyPackage(cmd *cobra.Command, args []string) error {
@@ -84,23 +82,29 @@ func (a *App) runGroupE2EEPublishKeyPackage(cmd *cobra.Command, args []string) e
 }
 
 func (a *App) runGroupE2EEPending(cmd *cobra.Command, args []string) error {
+	group, _ := cmd.Flags().GetString("group")
 	service, format, err := a.messageService()
 	if err != nil {
 		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
 	}
 	provider := message.NewDefaultMLSExecProvider(service.Config())
-	data := map[string]any{
-		"plan": map[string]any{
-			"action":       "group.e2ee.pending",
-			"identity":     a.globals.Identity,
-			"runtime_mode": service.Config().RuntimeMode,
-			"provider":     "exec",
-			"mls_data_dir": provider.DataDir,
-		},
-		"pending": []any{},
-		"note":    "contract-test skeleton only; real OpenMLS pending queue will be added with MLS state integration",
+	plan := map[string]any{
+		"action":       "group.e2ee.pending",
+		"identity":     a.globals.Identity,
+		"runtime_mode": service.Config().RuntimeMode,
+		"provider":     "exec",
+		"mls_data_dir": provider.DataDir,
+		"group":        group,
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Group E2EE pending queue inspected", nil, a.identityMeta())
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee pending planned", nil, a.identityMeta())
+	}
+	result, pendingErr := service.PullGroupE2EENotices(cmd.Context(), a.globals.Identity, group, 50)
+	if pendingErr != nil {
+		return a.messageExit(pendingErr, "Ensure message-service group E2EE test flag is enabled for focused validation; discovery remains hidden by default.")
+	}
+	result.Data["plan"] = plan
+	return a.renderMessageResult(cmd, format, result)
 }
 
 func (a *App) runGroupE2EERepair(cmd *cobra.Command, args []string) error {
@@ -117,9 +121,17 @@ func (a *App) runGroupE2EERepair(cmd *cobra.Command, args []string) error {
 		"provider":     "exec",
 		"mls_data_dir": provider.DataDir,
 		"group":        group,
-		"scope":        "replay pending notices and verify local MLS DB summary",
+		"scope":        "pull durable P6 notices, replay welcome-delivery, and mark processed notices delivered",
 	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Group E2EE repair planned", nil, a.identityMeta())
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee repair planned", nil, a.identityMeta())
+	}
+	result, repairErr := service.RepairGroupE2EENotices(cmd.Context(), a.globals.Identity, group, 50)
+	if repairErr != nil {
+		return a.messageExit(repairErr, "Install anp-mls, set AWIKI_ANP_MLS_BINARY, and ensure message-service group E2EE APIs are enabled for focused validation.")
+	}
+	result.Data["plan"] = plan
+	return a.renderMessageResult(cmd, format, result)
 }
 
 func activeIdentityDID(service *message.Service, name string) (string, error) {

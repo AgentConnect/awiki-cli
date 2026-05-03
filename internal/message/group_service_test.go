@@ -149,6 +149,27 @@ func TestGroupMemberMutationUsesPreMutationE2EESnapshot(t *testing.T) {
 	}
 }
 
+func TestGroupStateRefFromSnapshotUsesServerStateVersionNotMLSEpoch(t *testing.T) {
+	t.Parallel()
+
+	ref := groupStateRefFromSnapshot("did:wba:example.com:groups:demo:e1", map[string]any{
+		"metadata": `{"group_state_version":"2","group_e2ee":{"epoch":"1","crypto_group_id_b64u":"Y3J5cHRv"}}`,
+	})
+	if got := stringFromAny(ref["group_state_version"]); got != "2" {
+		t.Fatalf("group_state_version = %q, want server version 2", got)
+	}
+	if got := stringFromAny(ref["crypto_group_id_b64u"]); got != "Y3J5cHRv" {
+		t.Fatalf("crypto_group_id_b64u = %q, want cached crypto id", got)
+	}
+
+	ref = groupStateRefFromSnapshot("did:wba:example.com:groups:demo:e1", map[string]any{
+		"metadata": `{"group_e2ee":{"epoch":"7","crypto_group_id_b64u":"Y3J5cHRv"}}`,
+	})
+	if _, ok := ref["group_state_version"]; ok {
+		t.Fatalf("group_state_version = %#v, want absent when only MLS epoch is cached", ref["group_state_version"])
+	}
+}
+
 func TestLocalIdentityByDIDFindsStoredMemberForWelcomeProcessing(t *testing.T) {
 	t.Parallel()
 

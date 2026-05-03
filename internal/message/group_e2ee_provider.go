@@ -20,6 +20,7 @@ import (
 const (
 	GroupE2EEProfile              = "anp.group.e2ee.v1"
 	GroupE2EESecurityProfile      = "group-e2ee"
+	GroupE2EETransportProfile     = "transport-protected"
 	GroupE2EEContractArtifactMode = "contract-test"
 	DefaultANPMLSBinary           = "anp-mls"
 	ANPMLSBinaryEnv               = "AWIKI_ANP_MLS_BINARY"

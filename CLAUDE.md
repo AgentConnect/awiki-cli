@@ -53,7 +53,7 @@
 **internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。
 **internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为；默认 `ANPMessageService` 从 `service_base_url` 推导而不是从 `did_domain` 推导。
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。
-**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径与 legacy DB；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数。
+**internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径、legacy DB 与 `anp-mls` binary/版本/状态目录；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数，MLS 检查会同时扫描 root 与 agent/device-scoped `state.db`/`state.lock`。
 **internal/docs/topics.go**: CLI 内建 docs 主题索引，`skills` 主题引用当前 single-entry `skills/SKILL.md` 与懒加载 `skills/references/*.md` 拓扑。
 **internal/anpsdk/registry.go**: ANP Go SDK 的远端模块依赖入口，统一暴露 DID WBA、HTTP Signatures、direct_e2ee 等后续 Phase 要用到的基础能力。
 **internal/authsdk/session.go**: 基于 ANP SDK `DIDWbaAuthHeader` 的身份鉴权封装，负责 HTTP/WSS hop auth、401 重试、JWT token 捕获与持久化。
@@ -64,7 +64,7 @@
 **internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。
 **internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器。
-**internal/cli/group_e2ee.go**: P6 group E2EE 诊断/维护命令处理器；支持本地 exec provider/status/KeyPackage 发布路径，`contract-test` 仅在显式 flag 下启用。
+**internal/cli/group_e2ee.go**: P6 group E2EE 诊断/维护命令处理器；支持本地 exec provider/status/KeyPackage 发布路径，以及 hidden/test-only `group.e2ee.notice` pending/repair 拉取与 welcome 重放；`contract-test` 仅在显式 flag 下启用。
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。
@@ -94,9 +94,9 @@
 **internal/message/secure.go**: P5 direct E2EE secure send 的首版编排层，使用 ANP Go SDK direct_e2ee、本地文件会话/预密钥存储和 HTTP JSON-RPC；key-service 请求绑定当前 DID 文档里 `ANPMessageService.serviceDid`，并在有可用 sidecar OPK 时优先用 OPK 建链（本地保存 `p5-one-time-prekeys/`）；HTTP inbox/history 现已接入入站密文解密与会话推进，并会顺带补发本地 prekey bundle；轮询路径解密 direct-init 成功后会自动发送 encrypted ACK 并尝试 flush 该 peer 的 `e2ee_outbox`；当 initiator 仍处于 `pending-confirmation` 时，新的 secure 发送会进入 `e2ee_outbox` 排队。
 **internal/message/secure_control.go**: secure 控制面与恢复辅助，负责 secure ack/init payload、pending 阶段的 `e2ee_outbox` 排队、secure outbox flush，以及 `msg secure status/init/repair/failed/retry/drop` 需要的本地会话/发件箱读取与重试逻辑。
 **internal/message/group_e2ee_provider.go**: `anp-mls` exec provider 抽象；按 `AWIKI_ANP_MLS_BINARY`、测试/运行时注入路径、`PATH` 顺序发现二进制；JSON request 走 stdin、response 走 stdout、日志/错误走 stderr，默认 MLS 根目录为 `<workspace>/mls`，实际 OpenMLS 私有状态按 agent/device 分到子目录，并可扫描同一 agent 下的本地 device state 供收件解密恢复，保持 Go 主工程 pure Go / no CGO。
-**internal/message/group_e2ee_service.go**: group E2EE 业务编排层；负责 KeyPackage 发布、owner create/add、send encrypt、messages decrypt，并在同一工作区存在目标成员身份时本地处理 add 返回的 welcome notice，使 one-shot `anp-mls` agent/device 状态可恢复。
-**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器；group E2EE send 会在签名/发送前裁剪 provider-local MLS 字段，只把 P6 service 允许的 opaque cipher 字段送到 message-service。
-**internal/message/http_client.go**: direct/group message 与 group lifecycle 的 HTTP JSON-RPC adapter。
+**internal/message/group_e2ee_service.go**: group E2EE 业务编排层；负责 KeyPackage 发布、owner create/add、send encrypt、messages decrypt、P6 notice pending/repair、ratchet tree welcome process，以及 MLS AAD 元数据传入 `anp-mls`；在同一工作区存在目标成员身份时也会本地处理 add 返回的 welcome notice，使 one-shot `anp-mls` agent/device 状态可恢复。
+**internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器；P6 publish/get/notice 使用 `transport-protected` service/agent target，create 使用 service target，add/send 使用 group target；group E2EE send 会在签名/发送前裁剪 provider-local MLS 字段，只把 P6 service 允许的 opaque cipher 字段送到 message-service。
+**internal/message/http_client.go**: direct/group message、group lifecycle 与 hidden/test-only P6 notice pull/mark-delivered 的 HTTP JSON-RPC adapter。
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。
 **internal/message/service.go**: direct inbox/send/history/mark-read 的业务编排层，融合 transport、identity、store；支持收件后自动 DID→Handle 补全，以及按 handle 聚合历史 DID 消息。
 **internal/message/contact_sync.go**: direct inbox/history 的联系人补全与 Handle 历史 DID 聚合辅助。

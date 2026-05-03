@@ -83,8 +83,41 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				if plan["discovery_advertised"] != false {
 					t.Fatalf("plan.discovery_advertised = %#v, want false", plan["discovery_advertised"])
 				}
+				if _, ok := plan["artifact_mode"]; ok {
+					t.Fatalf("plan.artifact_mode should not be exposed by real MLS status diagnostics: %#v", plan)
+				}
 				if plan["mls_data_dir"] == "" {
 					t.Fatal("plan.mls_data_dir should be populated")
+				}
+			},
+		},
+		{
+			name:        "group e2ee pending plans P6 notice pull",
+			spec:        "group.e2ee.pending",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group"},
+			wantSummary: "Dry run: group e2ee pending planned",
+			wantAction:  "group.e2ee.pending",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["provider"] != "exec" {
+					t.Fatalf("plan.provider = %#v, want exec", plan["provider"])
+				}
+				if plan["group"] != "did:wba:example.com:groups:demo:e1_group" {
+					t.Fatalf("plan.group = %#v, want group DID", plan["group"])
+				}
+			},
+		},
+		{
+			name:        "group e2ee repair plans P6 notice replay",
+			spec:        "group.e2ee.repair",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group"},
+			wantSummary: "Dry run: group e2ee repair planned",
+			wantAction:  "group.e2ee.repair",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["provider"] != "exec" {
+					t.Fatalf("plan.provider = %#v, want exec", plan["provider"])
+				}
+				if plan["scope"] == "" {
+					t.Fatalf("plan.scope should describe durable notice replay: %#v", plan)
 				}
 			},
 		},
@@ -130,6 +163,10 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupMessages(cmd, nil)
 				case "group.e2ee.status":
 					return app.runGroupE2EEStatus(cmd, nil)
+				case "group.e2ee.pending":
+					return app.runGroupE2EEPending(cmd, nil)
+				case "group.e2ee.repair":
+					return app.runGroupE2EERepair(cmd, nil)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil

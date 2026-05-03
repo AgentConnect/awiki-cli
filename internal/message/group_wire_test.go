@@ -173,7 +173,7 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 		"epoch_authenticator":   "YXV0aA",
 		"group_state_ref":       map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group"},
 		"application_plaintext": map[string]any{"text": "secret"},
-	})
+	}, "op-e2ee-send", "msg-e2ee-send")
 	if err != nil {
 		t.Fatalf("BuildGroupE2EESendRPCParams() error = %v", err)
 	}
@@ -186,6 +186,12 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 	}
 	if got := stringFromAny(meta["content_type"]); got != "application/anp-group-cipher+json" {
 		t.Fatalf("meta.content_type = %q, want group cipher", got)
+	}
+	if got := stringFromAny(meta["operation_id"]); got != "op-e2ee-send" {
+		t.Fatalf("meta.operation_id = %q, want op-e2ee-send", got)
+	}
+	if got := stringFromAny(meta["message_id"]); got != "msg-e2ee-send" {
+		t.Fatalf("meta.message_id = %q, want msg-e2ee-send", got)
 	}
 	body := mustMapValue(t, params["body"], "params.body")
 	if _, ok := body["application_plaintext"]; ok {
@@ -216,7 +222,9 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 		"epoch_authenticator":  "YXV0aDI",
 		"welcome_b64u":         "d2VsY29tZQ",
 		"commit_b64u":          "Y29tbWl0",
+		"ratchet_tree_b64u":    "cmF0Y2hldA",
 		"key_package_id":       "kp-bob-1",
+		"group_key_package":    map[string]any{"owner_did": "did:wba:awiki.ai:user:bob:e1_bob", "key_package_id": "kp-bob-1", "device_id": "phone"},
 	})
 	if err != nil {
 		t.Fatalf("BuildGroupE2EEAddRPCParams() error = %v", err)
@@ -225,11 +233,21 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 	if got := stringFromAny(body["subject_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
 		t.Fatalf("subject_did = %q, want bob", got)
 	}
+	if got := stringFromAny(body["member_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		t.Fatalf("member_did = %q, want bob", got)
+	}
 	if got := stringFromAny(body["key_package_id"]); got != "kp-bob-1" {
 		t.Fatalf("key_package_id = %q, want leased id", got)
 	}
+	groupKeyPackage := mustMapValue(t, body["group_key_package"], "body.group_key_package")
+	if got := stringFromAny(groupKeyPackage["device_id"]); got != "phone" {
+		t.Fatalf("group_key_package.device_id = %q, want phone", got)
+	}
 	if got := stringFromAny(body["subject_key_package_id"]); got != "kp-bob-1" {
 		t.Fatalf("subject_key_package_id = %q, want leased id", got)
+	}
+	if got := stringFromAny(body["ratchet_tree_b64u"]); got != "cmF0Y2hldA" {
+		t.Fatalf("ratchet_tree_b64u = %q, want ratchet tree", got)
 	}
 }
 
@@ -264,6 +282,93 @@ func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *tes
 	}
 	if _, ok := params["auth"]; !ok {
 		t.Fatalf("auth missing from publish params: %#v", params)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["security_profile"]); got != "transport-protected" {
+		t.Fatalf("publish security_profile = %q, want transport-protected", got)
+	}
+}
+
+func TestBuildGroupE2EECreateRPCParamsUsesServiceTarget(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EECreateRPCParams(record, nil, "did:wba:awiki.ai:services:message:e1_service", "did:wba:awiki.ai:groups:demo:e1_group", map[string]any{
+		"crypto_group_id_b64u": "Y3J5cHRv",
+		"epoch":                "0",
+		"epoch_authenticator":  "YXV0aA",
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EECreateRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["kind"]); got != "service" {
+		t.Fatalf("create target.kind = %q, want service", got)
+	}
+	if got := stringFromAny(target["did"]); got != "did:wba:awiki.ai:services:message:e1_service" {
+		t.Fatalf("create target.did = %q, want service DID", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
+		t.Fatalf("body.group_did = %q, want group DID", got)
+	}
+	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
+	if got := stringFromAny(ref["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
+		t.Fatalf("group_state_ref.group_did = %q, want group DID", got)
+	}
+}
+
+func TestBuildGroupE2EENoticeRPCParamsUsesTransportProtectedAgentTarget(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EENoticeRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", 500, true, []string{"notice-1"})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EENoticeRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["security_profile"]); got != GroupE2EETransportProfile {
+		t.Fatalf("notice security_profile = %q, want transport-protected", got)
+	}
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["kind"]); got != "agent" {
+		t.Fatalf("notice target.kind = %q, want agent", got)
+	}
+	if got := stringFromAny(target["did"]); got != record.DID {
+		t.Fatalf("notice target.did = %q, want identity DID", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := intValueFromAny(body["limit"], 0); got != 100 {
+		t.Fatalf("notice limit = %d, want capped 100", got)
+	}
+	if got := stringFromAny(body["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
+		t.Fatalf("notice group_did = %q, want group DID", got)
+	}
+	ids, ok := body["notice_ids"].([]string)
+	if !ok || len(ids) != 1 || ids[0] != "notice-1" {
+		t.Fatalf("notice_ids = %#v, want [notice-1]", body["notice_ids"])
+	}
+	if got := boolFromAny(body["mark_delivered"]); !got {
+		t.Fatalf("mark_delivered = %v, want true", got)
+	}
+}
+
+func TestBuildGroupE2EEGetKeyPackageUsesTransportProtectedServiceTarget(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EEGetKeyPackageRPCParams(record, nil, "did:wba:awiki.ai:services:message:e1_service", "did:wba:awiki.ai:users:bob:e1_bob")
+	if err != nil {
+		t.Fatalf("BuildGroupE2EEGetKeyPackageRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["security_profile"]); got != "transport-protected" {
+		t.Fatalf("get security_profile = %q, want transport-protected", got)
+	}
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["kind"]); got != "service" {
+		t.Fatalf("get target.kind = %q, want service", got)
 	}
 }
 

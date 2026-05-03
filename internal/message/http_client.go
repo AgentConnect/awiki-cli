@@ -151,17 +151,24 @@ func (t *HTTPTransport) SendGroup(ctx context.Context, request SendRequest) (*gr
 	return &result, nil
 }
 
-func (t *HTTPTransport) SendGroupE2EE(ctx context.Context, groupDID string, cipher map[string]any) (*groupSendResult, error) {
-	params, err := BuildGroupE2EESendRPCParams(t.auth.record, nil, groupDID, cipher)
+func (t *HTTPTransport) SendGroupE2EE(ctx context.Context, groupDID string, cipher map[string]any, operationID string, messageID string) (*groupSendResult, error) {
+	params, err := BuildGroupE2EESendRPCParams(t.auth.record, nil, groupDID, cipher, operationID, messageID)
 	if err != nil {
 		return nil, err
 	}
+	meta, _ := params["meta"].(map[string]any)
 	var result groupSendResult
 	if err := t.rpcCall(ctx, "group.e2ee.send", params, &result); err != nil {
 		return nil, err
 	}
 	if result.GroupDID == "" {
 		result.GroupDID = groupDID
+	}
+	if result.MessageID == "" {
+		result.MessageID = stringFromAny(meta["message_id"])
+	}
+	if result.OperationID == "" {
+		result.OperationID = stringFromAny(meta["operation_id"])
 	}
 	return &result, nil
 }
@@ -265,7 +272,11 @@ func (t *HTTPTransport) GetGroupE2EEKeyPackage(ctx context.Context, targetDID st
 }
 
 func (t *HTTPTransport) CreateGroupE2EE(ctx context.Context, groupDID string, mlsHead map[string]any) (map[string]any, error) {
-	params, err := BuildGroupE2EECreateRPCParams(t.auth.record, nil, groupDID, mlsHead)
+	serviceDID, err := t.GetMessageServiceDID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	params, err := BuildGroupE2EECreateRPCParams(t.auth.record, nil, serviceDID, groupDID, mlsHead)
 	if err != nil {
 		return nil, err
 	}
@@ -278,6 +289,22 @@ func (t *HTTPTransport) AddGroupE2EE(ctx context.Context, groupDID string, membe
 		return nil, err
 	}
 	return t.rpcMapCall(ctx, "group.e2ee.add", params)
+}
+
+func (t *HTTPTransport) PullGroupE2EENotices(ctx context.Context, groupDID string, limit int, markDelivered bool) (map[string]any, error) {
+	params, err := BuildGroupE2EENoticeRPCParams(t.auth.record, nil, groupDID, limit, markDelivered, nil)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.notice", params)
+}
+
+func (t *HTTPTransport) MarkGroupE2EENoticesDelivered(ctx context.Context, groupDID string, noticeIDs []string) (map[string]any, error) {
+	params, err := BuildGroupE2EENoticeRPCParams(t.auth.record, nil, groupDID, len(noticeIDs), true, noticeIDs)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.notice", params)
 }
 
 func (t *HTTPTransport) GetGroupInfo(ctx context.Context, request GroupInfoRequest) (map[string]any, error) {

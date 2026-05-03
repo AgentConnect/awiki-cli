@@ -118,6 +118,9 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 	if keyPackageID := stringFromAny(leasedPackage["key_package_id"]); keyPackageID != "" {
 		mlsHead["key_package_id"] = keyPackageID
 	}
+	if groupKeyPackage, ok := leasedPackage["group_key_package"]; ok {
+		mlsHead["group_key_package"] = groupKeyPackage
+	}
 	delivery, err := transport.AddGroupE2EE(ctx, groupDID, memberDID, mlsHead)
 	if err != nil {
 		return map[string]any{"mls": mlsHead, "leased_key_package": redactedKeyPackageSummary(leasedPackage)}, []string{fmt.Sprintf("Group E2EE add delivery failed: %v", err)}
@@ -134,18 +137,27 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 
 func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIdentity, request SendRequest) (*CommandResult, error) {
 	provider := s.groupMLSProvider()
+	warnings := s.syncGroupState(ctx, record, request.Group, false)
 	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
+	operationID := "op-" + generateOperationID()
+	messageID := "msg-" + generateOperationID()
+	contentType := "application/anp-group-cipher+json"
 	encryptResult, err := provider.Encrypt(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-encrypt-" + generateOperationID(),
 		AgentDID:   record.DID,
 		DeviceID:   "default",
 		Params: map[string]any{
-			"agent_did":       record.DID,
-			"device_id":       "default",
-			"group_did":       request.Group,
-			"group_state_ref": groupStateRef,
-			"message_type":    request.MessageType,
+			"agent_did":        record.DID,
+			"device_id":        "default",
+			"group_did":        request.Group,
+			"group_state_ref":  groupStateRef,
+			"sender_did":       record.DID,
+			"content_type":     contentType,
+			"security_profile": GroupE2EESecurityProfile,
+			"message_id":       messageID,
+			"operation_id":     operationID,
+			"message_type":     request.MessageType,
 			"application_plaintext": map[string]any{
 				"application_content_type": contentTypeForMessageType(request.MessageType),
 				"text":                     request.Text,
@@ -159,11 +171,12 @@ func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIden
 	if len(cipher) == 0 {
 		return nil, fmt.Errorf("anp-mls encrypt response missing group_cipher_object")
 	}
-	transport, warnings, err := s.httpTransport(record)
+	transport, transportWarnings, err := s.httpTransport(record)
+	warnings = append(warnings, transportWarnings...)
 	if err != nil {
 		return nil, err
 	}
-	delivery, err := transport.SendGroupE2EE(ctx, request.Group, cipher)
+	delivery, err := transport.SendGroupE2EE(ctx, request.Group, cipher, operationID, messageID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +196,8 @@ func (s *Service) maybeDecryptGroupMessages(ctx context.Context, record *identit
 		if len(cipher) == 0 {
 			continue
 		}
-		plain, err := decryptGroupCipherWithDevices(ctx, provider, record.DID, groupDID, cipher, deviceIDs)
+		aad := groupE2EEAADParamsFromMessage(groupDID, item, cipher)
+		plain, err := decryptGroupCipherWithDevices(ctx, provider, record.DID, groupDID, cipher, aad, deviceIDs)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("Group E2EE decrypt failed for message %s: %v", stringFromAny(item["id"]), err))
 			continue
@@ -198,25 +212,32 @@ func (s *Service) maybeDecryptGroupMessages(ctx context.Context, record *identit
 	return compactWarnings(warnings), raw
 }
 
-func decryptGroupCipherWithDevices(ctx context.Context, provider MLSExecProvider, agentDID string, groupDID string, cipher map[string]any, deviceIDs []string) (map[string]any, error) {
+func decryptGroupCipherWithDevices(ctx context.Context, provider MLSExecProvider, agentDID string, groupDID string, cipher map[string]any, aad map[string]any, deviceIDs []string) (map[string]any, error) {
 	if len(deviceIDs) == 0 {
 		deviceIDs = []string{"default"}
 	}
 	var lastErr error
 	for _, deviceID := range deviceIDs {
 		deviceID = defaultString(strings.TrimSpace(deviceID), "default")
+		params := map[string]any{
+			"agent_did":            agentDID,
+			"recipient_did":        agentDID,
+			"device_id":            deviceID,
+			"group_did":            groupDID,
+			"group_cipher_object":  cipher,
+			"private_message_b64u": cipher["private_message_b64u"],
+		}
+		for key, value := range aad {
+			if value != nil {
+				params[key] = value
+			}
+		}
 		plain, err := provider.Decrypt(ctx, MLSRequest{
 			APIVersion: "anp-mls/v1",
 			RequestID:  "group-e2ee-decrypt-" + generateOperationID(),
 			AgentDID:   agentDID,
 			DeviceID:   deviceID,
-			Params: map[string]any{
-				"agent_did":            agentDID,
-				"device_id":            deviceID,
-				"group_did":            groupDID,
-				"group_cipher_object":  cipher,
-				"private_message_b64u": cipher["private_message_b64u"],
-			},
+			Params:     params,
 		})
 		if err == nil {
 			return plain, nil
@@ -286,6 +307,10 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 	if welcomeB64U == "" {
 		return nil, nil
 	}
+	ratchetTreeB64U := stringFromAny(notice["ratchet_tree_b64u"])
+	if ratchetTreeB64U == "" {
+		return nil, []string{"Group E2EE local welcome processing skipped: notice missing ratchet_tree_b64u"}
+	}
 	memberRecord, err := s.localIdentityByDID(memberDID)
 	if err != nil {
 		return nil, nil
@@ -298,11 +323,12 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 		AgentDID:   memberRecord.DID,
 		DeviceID:   deviceID,
 		Params: map[string]any{
-			"agent_did":       memberRecord.DID,
-			"device_id":       deviceID,
-			"group_did":       groupDID,
-			"welcome_b64u":    welcomeB64U,
-			"group_state_ref": map[string]any{"group_did": groupDID},
+			"agent_did":         memberRecord.DID,
+			"device_id":         deviceID,
+			"group_did":         groupDID,
+			"welcome_b64u":      welcomeB64U,
+			"ratchet_tree_b64u": ratchetTreeB64U,
+			"group_state_ref":   map[string]any{"group_did": groupDID},
 		},
 	})
 	if err != nil {
@@ -313,6 +339,126 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 		"processed":  true,
 		"group_did":  groupDID,
 		"member_did": memberRecord.DID,
+		"device_id":  deviceID,
+		"epoch":      welcomeResult["epoch"],
+	}, warnings
+}
+
+func (s *Service) PullGroupE2EENotices(ctx context.Context, identityName string, groupDID string, limit int) (*CommandResult, error) {
+	record, err := s.requireActiveIdentity(identityName)
+	if err != nil {
+		return nil, err
+	}
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return nil, err
+	}
+	result, err := transport.PullGroupE2EENotices(ctx, groupDID, limit, false)
+	if err != nil {
+		return nil, err
+	}
+	return &CommandResult{
+		Data: map[string]any{
+			"notices":       noticesFromResult(result["notices"]),
+			"pending_count": result["pending_count"],
+			"group":         groupDID,
+		},
+		Summary:  "Pulled group E2EE pending notices",
+		Warnings: warnings,
+	}, nil
+}
+
+func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName string, groupDID string, limit int) (*CommandResult, error) {
+	record, err := s.requireActiveIdentity(identityName)
+	if err != nil {
+		return nil, err
+	}
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := transport.PullGroupE2EENotices(ctx, groupDID, limit, false)
+	if err != nil {
+		return nil, err
+	}
+	processed := make([]map[string]any, 0)
+	noticeIDs := make([]string, 0)
+	for _, notice := range noticesFromResult(pending["notices"]) {
+		if stringFromAny(notice["notice_type"]) != "welcome-delivery" {
+			continue
+		}
+		targetGroupDID := defaultString(stringFromAny(notice["group_did"]), groupDID)
+		if targetGroupDID == "" {
+			warnings = append(warnings, "Group E2EE repair skipped welcome notice without group_did")
+			continue
+		}
+		if recipient := firstNonEmptyString(notice["recipient_did"], notice["member_did"], notice["subject_did"]); recipient != "" && recipient != record.DID {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE repair skipped notice for different recipient %s", recipient))
+			continue
+		}
+		welcome, noticeWarnings := s.processGroupWelcomeNotice(ctx, record, targetGroupDID, notice)
+		warnings = append(warnings, noticeWarnings...)
+		if welcome != nil {
+			processed = append(processed, welcome)
+			if noticeID := stringFromAny(notice["notice_id"]); noticeID != "" {
+				noticeIDs = append(noticeIDs, noticeID)
+			}
+		}
+	}
+	delivered := map[string]any(nil)
+	if len(noticeIDs) > 0 {
+		delivered, err = transport.MarkGroupE2EENoticesDelivered(ctx, groupDID, noticeIDs)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE repair processed notices but failed to mark delivered: %v", err))
+		}
+	}
+	return &CommandResult{
+		Data: map[string]any{
+			"processed":        processed,
+			"processed_count":  len(processed),
+			"pending_count":    pending["pending_count"],
+			"delivered_result": delivered,
+			"group":            groupDID,
+		},
+		Summary:  "Replayed group E2EE pending notices",
+		Warnings: compactWarnings(warnings),
+	}, nil
+}
+
+func (s *Service) processGroupWelcomeNotice(ctx context.Context, record *identity.StoredIdentity, groupDID string, notice map[string]any) (map[string]any, []string) {
+	welcomeB64U := stringFromAny(notice["welcome_b64u"])
+	if welcomeB64U == "" {
+		return nil, []string{"Group E2EE repair skipped welcome notice missing welcome_b64u"}
+	}
+	ratchetTreeB64U := stringFromAny(notice["ratchet_tree_b64u"])
+	if ratchetTreeB64U == "" {
+		return nil, []string{"Group E2EE repair skipped welcome notice missing ratchet_tree_b64u"}
+	}
+	deviceID := defaultString(stringFromAny(notice["device_id"]), "default")
+	provider := s.groupMLSProvider()
+	welcomeResult, err := provider.ProcessWelcome(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-welcome-repair-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   deviceID,
+		Params: map[string]any{
+			"agent_did":         record.DID,
+			"device_id":         deviceID,
+			"group_did":         groupDID,
+			"welcome_b64u":      welcomeB64U,
+			"ratchet_tree_b64u": ratchetTreeB64U,
+			"group_state_ref":   firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+		},
+	})
+	if err != nil {
+		return nil, []string{fmt.Sprintf("Group E2EE repair welcome processing failed: %v", err)}
+	}
+	warnings := s.persistGroupE2EESummary(ctx, record, groupDID, welcomeResult, notice)
+	return map[string]any{
+		"processed":  true,
+		"notice_id":  notice["notice_id"],
+		"group_did":  groupDID,
+		"member_did": record.DID,
 		"device_id":  deviceID,
 		"epoch":      welcomeResult["epoch"],
 	}, warnings
@@ -354,18 +500,25 @@ func groupE2EEWelcomeDeviceID(leasedPackage map[string]any) string {
 }
 
 func (s *Service) localGroupStateRef(ctx context.Context, record *identity.StoredIdentity, groupDID string) map[string]any {
-	ref := map[string]any{"group_did": groupDID}
 	snapshot, err := s.readCachedGroupSnapshot(ctx, record, groupDID)
 	if err != nil {
-		return ref
+		return map[string]any{"group_did": groupDID}
 	}
-	if version := stringFromAny(snapshot["group_state_version"]); version != "" {
+	return groupStateRefFromSnapshot(groupDID, snapshot)
+}
+
+func groupStateRefFromSnapshot(groupDID string, snapshot map[string]any) map[string]any {
+	ref := map[string]any{"group_did": groupDID}
+	metadata := decodeMetadataMap(snapshot["metadata"])
+	if version := firstNonEmptyString(snapshot["group_state_version"], metadata["group_state_version"]); version != "" {
 		ref["group_state_version"] = version
 	}
-	metadata := decodeMetadataMap(snapshot["metadata"])
 	if e2ee, ok := metadata["group_e2ee"].(map[string]any); ok {
-		if epoch := stringFromAny(e2ee["epoch"]); epoch != "" {
-			ref["epoch"] = epoch
+		if version := stringFromAny(e2ee["group_state_version"]); version != "" {
+			ref["group_state_version"] = version
+		}
+		if cryptoGroupID := stringFromAny(e2ee["crypto_group_id_b64u"]); cryptoGroupID != "" {
+			ref["crypto_group_id_b64u"] = cryptoGroupID
 		}
 	}
 	return ref
@@ -431,10 +584,40 @@ func groupCipherObjectFromMessage(item map[string]any) map[string]any {
 	return nil
 }
 
+func groupE2EEAADParamsFromMessage(groupDID string, item map[string]any, cipher map[string]any) map[string]any {
+	receipt, _ := item["receipt"].(map[string]any)
+	groupStateRef, _ := cipher["group_state_ref"].(map[string]any)
+	if len(groupStateRef) == 0 {
+		groupStateRef = map[string]any{"group_did": groupDID}
+	}
+	params := map[string]any{
+		"group_state_ref":  groupStateRef,
+		"sender_did":       stringFromAny(item["sender_did"]),
+		"content_type":     "application/anp-group-cipher+json",
+		"security_profile": GroupE2EESecurityProfile,
+		"message_id":       firstNonEmptyString(item["message_id"], item["id"]),
+		"operation_id":     firstNonEmptyString(item["operation_id"], receipt["operation_id"]),
+	}
+	return params
+}
+
 func groupStateRefFromCipher(encryptResult map[string]any) map[string]any {
 	cipher, _ := encryptResult["group_cipher_object"].(map[string]any)
 	ref, _ := cipher["group_state_ref"].(map[string]any)
 	return ref
+}
+
+func firstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		if text := stringFromAny(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func noticesFromResult(value any) []map[string]any {
+	return messagesFromResult(value)
 }
 
 func redactedKeyPackageSummary(raw map[string]any) map[string]any {

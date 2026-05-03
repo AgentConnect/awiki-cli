@@ -2,6 +2,8 @@ package doctor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -366,6 +368,115 @@ func TestANPMLSDoctorWarnsWhenCachedE2EEGroupsHaveNoMLSState(t *testing.T) {
 	}
 }
 
+func TestANPMLSDoctorAcceptsAgentDeviceScopedState(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	binDir := t.TempDir()
+	writeFakeANPMLS(t, binDir, `{"ok":true,"api_version":"anp-mls/v1","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v1","binary_name":"anp-mls","binary_version":"test","supported_commands":["system version"]}}`)
+	t.Setenv("PATH", binDir)
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertGroup(context.Background(), db, store.GroupRecord{
+		OwnerDID:       "did:wba:alice.example",
+		GroupID:        "group-1",
+		Name:           "Secret group",
+		Metadata:       `{"message_security_profile":"group-e2ee"}`,
+		CredentialName: "alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scopedDir := filepath.Join(
+		resolved.Paths.WorkspaceHomeDir,
+		"mls",
+		"agents",
+		testMLSAgentKey("did:wba:alice.example"),
+		"laptop",
+	)
+	if err := os.MkdirAll(scopedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scopedDir, "state.db"), []byte("sqlite placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scopedDir, "state.lock"), []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Run(resolved)
+	check := checkByName(t, report, "anp_mls")
+	if check.Status != "ok" {
+		t.Fatalf("anp_mls status = %q, want ok; details=%#v", check.Status, check.Details)
+	}
+	if check.Details["state_db_status"] != "missing" {
+		t.Fatalf("root state_db_status = %#v, want missing when scoped state exists", check.Details["state_db_status"])
+	}
+	if check.Details["scoped_state_db_count"] != 1 {
+		t.Fatalf("scoped_state_db_count = %#v, want 1", check.Details["scoped_state_db_count"])
+	}
+	if check.Details["scoped_state_lock_count"] != 1 {
+		t.Fatalf("scoped_state_lock_count = %#v, want 1", check.Details["scoped_state_lock_count"])
+	}
+	scoped, ok := check.Details["scoped_states"].([]mlsScopedStateInspection)
+	if !ok || len(scoped) != 1 {
+		t.Fatalf("scoped_states = %#v, want one scoped state", check.Details["scoped_states"])
+	}
+	if scoped[0].AgentKey != testMLSAgentKey("did:wba:alice.example") || scoped[0].DeviceID != "laptop" {
+		t.Fatalf("scoped state identity = %#v", scoped[0])
+	}
+	if check.Details["remediation"] != "No action required." {
+		t.Fatalf("remediation = %#v", check.Details["remediation"])
+	}
+}
+
+func TestANPMLSDoctorWarnsOnStaleScopedLock(t *testing.T) {
+	resolved := resolveDoctorConfig(t, false)
+	binDir := t.TempDir()
+	writeFakeANPMLS(t, binDir, `{"ok":true,"api_version":"anp-mls/v1","request_id":"doctor-system-version","result":{"api_version":"anp-mls/v1","binary_name":"anp-mls","binary_version":"test","supported_commands":["system version"]}}`)
+	t.Setenv("PATH", binDir)
+	scopedDir := filepath.Join(
+		resolved.Paths.WorkspaceHomeDir,
+		"mls",
+		"agents",
+		testMLSAgentKey("did:wba:alice.example"),
+		"default",
+	)
+	if err := os.MkdirAll(scopedDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scopedDir, "state.db"), []byte("sqlite placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(scopedDir, "state.lock")
+	if err := os.WriteFile(lockPath, []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(lockPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	report := Run(resolved)
+	check := checkByName(t, report, "anp_mls")
+	if check.Status != "warn" {
+		t.Fatalf("anp_mls status = %q, want warn; details=%#v", check.Status, check.Details)
+	}
+	if check.Details["scoped_state_warning_count"] != 1 {
+		t.Fatalf("scoped_state_warning_count = %#v, want 1", check.Details["scoped_state_warning_count"])
+	}
+	scoped := check.Details["scoped_states"].([]mlsScopedStateInspection)
+	if scoped[0].StateLockStatus != "warn_stale_candidate" {
+		t.Fatalf("scoped state lock status = %#v, want stale warning", scoped[0])
+	}
+	if got := check.Details["remediation"].(string); !strings.Contains(got, "agent/device-scoped state.lock") {
+		t.Fatalf("remediation = %q", got)
+	}
+}
+
 func writeFakeANPMLS(t *testing.T, dir string, response string) string {
 	t.Helper()
 	if os.PathSeparator == ';' {
@@ -379,4 +490,9 @@ func writeFakeANPMLS(t *testing.T, dir string, response string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func testMLSAgentKey(agentDID string) string {
+	sum := sha256.Sum256([]byte(agentDID))
+	return base64.RawURLEncoding.EncodeToString(sum[:])[:24]
 }
