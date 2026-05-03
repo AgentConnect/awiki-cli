@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
 )
@@ -30,6 +31,10 @@ func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identi
 	if err != nil {
 		return nil, nil, err
 	}
+	packageResult, err = signGroupKeyPackageDIDWBABinding(record, packageResult)
+	if err != nil {
+		return nil, nil, err
+	}
 	transport, _, err := s.httpTransport(record)
 	if err != nil {
 		return packageResult, nil, err
@@ -39,6 +44,83 @@ func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identi
 		return packageResult, nil, err
 	}
 	return packageResult, published, nil
+}
+
+func signGroupKeyPackageDIDWBABinding(record *identity.StoredIdentity, packageResult map[string]any) (map[string]any, error) {
+	if record == nil {
+		return nil, fmt.Errorf("identity record is required")
+	}
+	if len(packageResult) == 0 {
+		return nil, fmt.Errorf("anp-mls key-package response is empty")
+	}
+	groupKeyPackage, ok := packageResult["group_key_package"].(map[string]any)
+	if !ok || len(groupKeyPackage) == 0 {
+		return nil, fmt.Errorf("anp-mls key-package response missing group_key_package")
+	}
+	binding, ok := groupKeyPackage["did_wba_binding"].(map[string]any)
+	if !ok || len(binding) == 0 {
+		return nil, fmt.Errorf("group_key_package.did_wba_binding is required")
+	}
+	ownerDID := stringFromAny(groupKeyPackage["owner_did"])
+	if ownerDID == "" {
+		ownerDID = record.DID
+	}
+	if ownerDID != record.DID {
+		return nil, fmt.Errorf("group_key_package.owner_did must match active identity")
+	}
+	agentDID := stringFromAny(binding["agent_did"])
+	if agentDID == "" {
+		agentDID = record.DID
+	}
+	if agentDID != record.DID {
+		return nil, fmt.Errorf("did_wba_binding.agent_did must match active identity")
+	}
+	verificationMethod := verificationMethodID(record.DIDDocument)
+	if verificationMethod == "" {
+		return nil, fmt.Errorf("active DID document does not expose a signing verification method")
+	}
+	leafSignatureKey := stringFromAny(binding["leaf_signature_key_b64u"])
+	if leafSignatureKey == "" {
+		return nil, fmt.Errorf("did_wba_binding.leaf_signature_key_b64u is required")
+	}
+	issuedAt := stringFromAny(binding["issued_at"])
+	if issuedAt == "" {
+		return nil, fmt.Errorf("did_wba_binding.issued_at is required")
+	}
+	expiresAt := stringFromAny(binding["expires_at"])
+	if expiresAt == "" {
+		return nil, fmt.Errorf("did_wba_binding.expires_at is required")
+	}
+	privateKey, err := loadPrivateKeyMaterial(record.Key1PrivatePEM)
+	if err != nil {
+		return nil, fmt.Errorf("load active identity signing key: %w", err)
+	}
+	signedBinding, err := anpsdk.GenerateDidWbaBinding(
+		record.DID,
+		verificationMethod,
+		leafSignatureKey,
+		privateKey,
+		issuedAt,
+		expiresAt,
+		issuedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sign did_wba_binding: %w", err)
+	}
+	signedPackageResult := cloneStringAnyMap(packageResult)
+	signedGroupKeyPackage := cloneStringAnyMap(groupKeyPackage)
+	signedGroupKeyPackage["owner_did"] = record.DID
+	signedGroupKeyPackage["did_wba_binding"] = signedBinding
+	signedPackageResult["group_key_package"] = signedGroupKeyPackage
+	return signedPackageResult, nil
+}
+
+func cloneStringAnyMap(source map[string]any) map[string]any {
+	clone := make(map[string]any, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
 }
 
 func (s *Service) PublishGroupE2EEKeyPackage(ctx context.Context, identityName string, deviceID string, contractTest bool) (*CommandResult, error) {
@@ -383,6 +465,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	}
 	processed := make([]map[string]any, 0)
 	noticeIDs := make([]string, 0)
+	provider := s.groupMLSProvider()
 	for _, notice := range noticesFromResult(pending["notices"]) {
 		if stringFromAny(notice["notice_type"]) != "welcome-delivery" {
 			continue
@@ -397,13 +480,28 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 			continue
 		}
 		welcome, noticeWarnings := s.processGroupWelcomeNotice(ctx, record, targetGroupDID, notice)
-		warnings = append(warnings, noticeWarnings...)
 		if welcome != nil {
 			processed = append(processed, welcome)
 			if noticeID := stringFromAny(notice["notice_id"]); noticeID != "" {
 				noticeIDs = append(noticeIDs, noticeID)
 			}
+			continue
 		}
+		if s.groupWelcomeAlreadyAvailable(ctx, provider, record, targetGroupDID, notice) {
+			processed = append(processed, map[string]any{
+				"processed":        true,
+				"already_restored": true,
+				"notice_id":        notice["notice_id"],
+				"group_did":        targetGroupDID,
+				"member_did":       record.DID,
+				"device_id":        defaultString(stringFromAny(notice["device_id"]), "default"),
+			})
+			if noticeID := stringFromAny(notice["notice_id"]); noticeID != "" {
+				noticeIDs = append(noticeIDs, noticeID)
+			}
+			continue
+		}
+		warnings = append(warnings, noticeWarnings...)
 	}
 	delivered := map[string]any(nil)
 	if len(noticeIDs) > 0 {
@@ -423,6 +521,25 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 		Summary:  "Replayed group E2EE pending notices",
 		Warnings: compactWarnings(warnings),
 	}, nil
+}
+
+func (s *Service) groupWelcomeAlreadyAvailable(ctx context.Context, provider MLSExecProvider, record *identity.StoredIdentity, groupDID string, notice map[string]any) bool {
+	deviceID := defaultString(stringFromAny(notice["device_id"]), "default")
+	resp, err := provider.Call(ctx, "group", "status", MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-welcome-status-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   deviceID,
+		Params: map[string]any{
+			"agent_did": record.DID,
+			"device_id": deviceID,
+			"group_did": groupDID,
+		},
+	})
+	if err != nil || resp == nil {
+		return false
+	}
+	return stringFromAny(resp.Result["status"]) == "active"
 }
 
 func (s *Service) processGroupWelcomeNotice(ctx context.Context, record *identity.StoredIdentity, groupDID string, notice map[string]any) (map[string]any, []string) {

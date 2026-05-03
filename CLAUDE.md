@@ -87,14 +87,14 @@
 **internal/store/import_test.go**: legacy SQLite 导入测试。
 **internal/message/types.go**: direct/group message 与 group lifecycle 的命令输入/输出模型和 transport 错误定义。
 **internal/message/auth.go**: direct message 的 hop-level auth 与本地 key / did document 读取。
-**internal/message/proof.go**: 基于 ANP Go SDK 0.8.6 的 RFC 9421 origin proof 薄封装。
+**internal/message/proof.go**: 基于 ANP Go SDK 0.8.7 的 RFC 9421 origin proof 薄封装。
 **internal/message/attachment.go**: 附件文件读取、manifest 组装、控制面/数据面 HTTP 交互与下载解析辅助。
 **internal/message/attachment_wire.go**: 附件 control-plane、download ticket 与 direct/group attachment manifest 的 RPC 参数构造器。
 **internal/message/attachment_service.go**: direct/group attachment send 与 `msg attachment download` 的业务编排层。
 **internal/message/secure.go**: P5 direct E2EE secure send 的首版编排层，使用 ANP Go SDK direct_e2ee、本地文件会话/预密钥存储和 HTTP JSON-RPC；key-service 请求绑定当前 DID 文档里 `ANPMessageService.serviceDid`，并在有可用 sidecar OPK 时优先用 OPK 建链（本地保存 `p5-one-time-prekeys/`）；HTTP inbox/history 现已接入入站密文解密与会话推进，并会顺带补发本地 prekey bundle；轮询路径解密 direct-init 成功后会自动发送 encrypted ACK 并尝试 flush 该 peer 的 `e2ee_outbox`；当 initiator 仍处于 `pending-confirmation` 时，新的 secure 发送会进入 `e2ee_outbox` 排队。
 **internal/message/secure_control.go**: secure 控制面与恢复辅助，负责 secure ack/init payload、pending 阶段的 `e2ee_outbox` 排队、secure outbox flush，以及 `msg secure status/init/repair/failed/retry/drop` 需要的本地会话/发件箱读取与重试逻辑。
 **internal/message/group_e2ee_provider.go**: `anp-mls` exec provider 抽象；按 `AWIKI_ANP_MLS_BINARY`、测试/运行时注入路径、`PATH` 顺序发现二进制；JSON request 走 stdin、response 走 stdout、日志/错误走 stderr，默认 MLS 根目录为 `<workspace>/mls`，实际 OpenMLS 私有状态按 agent/device 分到子目录，并可扫描同一 agent 下的本地 device state 供收件解密恢复，保持 Go 主工程 pure Go / no CGO。
-**internal/message/group_e2ee_service.go**: group E2EE 业务编排层；负责 KeyPackage 发布、owner create/add、send encrypt、messages decrypt、P6 notice pending/repair、ratchet tree welcome process，以及 MLS AAD 元数据传入 `anp-mls`；在同一工作区存在目标成员身份时也会本地处理 add 返回的 welcome notice，使 one-shot `anp-mls` agent/device 状态可恢复。
+**internal/message/group_e2ee_service.go**: group E2EE 业务编排层；负责 KeyPackage 发布前用当前 DID `key-1` 生成 strict Appendix-B `did_wba_binding.proof`、owner create/add、send encrypt、messages decrypt、P6 notice pending/repair、ratchet tree welcome process，以及 MLS AAD 元数据传入 `anp-mls`；在同一工作区存在目标成员身份时也会本地处理 add 返回的 welcome notice，使 one-shot `anp-mls` agent/device 状态可恢复。
 **internal/message/group_wire.go**: group 标准面和 local-only RPC 参数构造器；P6 publish/get/notice 使用 `transport-protected` service/agent target，create 使用 service target，add/send 使用 group target；group E2EE send 会在签名/发送前裁剪 provider-local MLS 字段，只把 P6 service 允许的 opaque cipher 字段送到 message-service。
 **internal/message/http_client.go**: direct/group message、group lifecycle 与 hidden/test-only P6 notice pull/mark-delivered 的 HTTP JSON-RPC adapter。
 **internal/message/ws_proxy_client.go**: websocket 模式下通过本地 bridge 调用 listener/daemon 的 direct/group adapter。

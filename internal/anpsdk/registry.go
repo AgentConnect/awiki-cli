@@ -37,6 +37,7 @@ type (
 	RFC9421OriginProof                    = anpproof.RFC9421OriginProof
 	RFC9421OriginProofGenerationOptions   = anpproof.RFC9421OriginProofGenerationOptions
 	RFC9421OriginProofVerificationOptions = anpproof.RFC9421OriginProofVerificationOptions
+	DidWbaBindingVerificationOptions      = anpproof.DidWbaBindingVerificationOptions
 )
 
 var (
@@ -72,6 +73,8 @@ var (
 	VerifyIMProofWithDocument         = anpproof.VerifyIMProofWithDocument
 	GenerateGroupReceiptProof         = anpproof.GenerateGroupReceiptProof
 	VerifyGroupReceiptProof           = anpproof.VerifyGroupReceiptProof
+	GenerateDidWbaBinding             = anpproof.GenerateDidWbaBinding
+	VerifyDidWbaBinding               = anpproof.VerifyDidWbaBinding
 	BuildSignedRequestObject          = anpproof.BuildSignedRequestObject
 	CanonicalizeSignedRequestObject   = anpproof.CanonicalizeSignedRequestObject
 	BuildLogicalTargetURI             = anpproof.BuildLogicalTargetURI

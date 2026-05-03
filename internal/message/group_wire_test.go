@@ -3,6 +3,7 @@ package message
 import (
 	"testing"
 
+	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
@@ -286,6 +287,57 @@ func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *tes
 	meta := mustMapValue(t, params["meta"], "params.meta")
 	if got := stringFromAny(meta["security_profile"]); got != "transport-protected" {
 		t.Fatalf("publish security_profile = %q, want transport-protected", got)
+	}
+}
+
+func TestSignGroupKeyPackageDIDWBABindingAddsStrictObjectProof(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	providerResult := map[string]any{
+		"group_key_package": map[string]any{
+			"owner_did":            record.DID,
+			"device_id":            "alice-main",
+			"key_package_id":       "kp-alice-main",
+			"suite":                "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
+			"mls_key_package_b64u": "a3A",
+			"did_wba_binding": map[string]any{
+				"agent_did":               record.DID,
+				"verification_method":     record.DID + "#provider-placeholder",
+				"leaf_signature_key_b64u": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+				"issued_at":               "2026-01-01T00:00:00Z",
+				"expires_at":              "2099-01-01T00:00:00Z",
+			},
+		},
+	}
+
+	signedResult, err := signGroupKeyPackageDIDWBABinding(record, providerResult)
+	if err != nil {
+		t.Fatalf("signGroupKeyPackageDIDWBABinding() error = %v", err)
+	}
+	groupKeyPackage := mustMapValue(t, signedResult["group_key_package"], "signed.group_key_package")
+	binding := mustMapValue(t, groupKeyPackage["did_wba_binding"], "signed.did_wba_binding")
+	if got := stringFromAny(binding["verification_method"]); got != verificationMethodID(record.DIDDocument) {
+		t.Fatalf("verification_method = %q, want active identity method", got)
+	}
+	proof := mustMapValue(t, binding["proof"], "did_wba_binding.proof")
+	if got := stringFromAny(proof["verificationMethod"]); got != verificationMethodID(record.DIDDocument) {
+		t.Fatalf("proof.verificationMethod = %q, want active identity method", got)
+	}
+	if got := stringFromAny(proof["proofValue"]); got == "" || got[0] != 'z' {
+		t.Fatalf("proofValue = %q, want multibase z proof", got)
+	}
+	if err := anpsdk.VerifyDidWbaBinding(binding, record.DIDDocument, anpsdk.DidWbaBindingVerificationOptions{
+		Now:                        "2026-01-02T00:00:00Z",
+		ExpectedLeafSignatureKey:   "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY",
+		ExpectedCredentialIdentity: record.DID,
+	}); err != nil {
+		t.Fatalf("signed did_wba_binding did not verify: %v", err)
+	}
+	originalGroupKeyPackage := mustMapValue(t, providerResult["group_key_package"], "provider.group_key_package")
+	originalBinding := mustMapValue(t, originalGroupKeyPackage["did_wba_binding"], "provider.did_wba_binding")
+	if _, ok := originalBinding["proof"]; ok {
+		t.Fatalf("signing should not mutate provider result: %#v", originalBinding)
 	}
 }
 
