@@ -21,6 +21,7 @@ import (
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/message"
+	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
 	"github.com/coder/websocket"
 )
@@ -116,8 +117,11 @@ func TestMessageRecordFromMailNotificationBuildsSystemMessage(t *testing.T) {
 	if record.Direction != 0 {
 		t.Fatalf("record.Direction = %d, want 0 (inbound)", record.Direction)
 	}
-	if record.ContentType != "mail.notification" {
+	if record.ContentType != "text/plain" {
 		t.Fatalf("record.ContentType = %q", record.ContentType)
+	}
+	if !strings.Contains(record.Metadata, `"source_kind":"mail"`) {
+		t.Fatalf("record.Metadata = %q, want source_kind marker", record.Metadata)
 	}
 	if record.Title != "[邮件] Mail Subject" {
 		t.Fatalf("record.Title = %q", record.Title)
@@ -806,6 +810,159 @@ func TestStartSocketPersistsBridgeAvailability(t *testing.T) {
 	}
 	if !status.BridgeAvailable {
 		t.Fatalf("status.BridgeAvailable = false, want true")
+	}
+}
+
+func TestHandleBridgeRequestPreservesSkipForHistoryAndGroupMessages(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		request    runtime.BridgeRequest
+		wantMethod string
+		verifyBody func(t *testing.T, body map[string]any)
+	}{
+		{
+			name: "direct history",
+			request: runtime.BridgeRequest{
+				Method:       "direct.get_history",
+				IdentityName: "alice",
+				Params: map[string]any{
+					"with":   "did:wba:awiki.ai:user:bob:e1_bob",
+					"limit":  5,
+					"cursor": "42",
+					"skip":   3,
+				},
+			},
+			wantMethod: "direct.get_history",
+			verifyBody: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				if body["peer_did"] != "did:wba:awiki.ai:user:bob:e1_bob" {
+					t.Fatalf("body.peer_did = %#v, want did:wba:awiki.ai:user:bob:e1_bob", body["peer_did"])
+				}
+				if body["since_seq"] != "42" {
+					t.Fatalf("body.since_seq = %#v, want 42", body["since_seq"])
+				}
+				if body["skip"] != float64(3) {
+					t.Fatalf("body.skip = %#v, want 3", body["skip"])
+				}
+			},
+		},
+		{
+			name: "group messages",
+			request: runtime.BridgeRequest{
+				Method:       "group.list_messages",
+				IdentityName: "alice",
+				Params: map[string]any{
+					"group":  "did:wba:awiki.ai:groups:demo:e1_group",
+					"limit":  8,
+					"cursor": "7",
+					"skip":   2,
+				},
+			},
+			wantMethod: "group.list_messages",
+			verifyBody: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				if body["group_did"] != "did:wba:awiki.ai:groups:demo:e1_group" {
+					t.Fatalf("body.group_did = %#v, want did:wba:awiki.ai:groups:demo:e1_group", body["group_did"])
+				}
+				if body["since_seq"] != "7" {
+					t.Fatalf("body.since_seq = %#v, want 7", body["since_seq"])
+				}
+				if body["skip"] != float64(2) {
+					t.Fatalf("body.skip = %#v, want 2", body["skip"])
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := websocket.Accept(w, r, nil)
+				if err != nil {
+					t.Errorf("websocket.Accept() error = %v", err)
+					return
+				}
+				defer conn.Close(websocket.StatusNormalClosure, "done")
+
+				readCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+				defer cancel()
+				_, raw, err := conn.Read(readCtx)
+				if err != nil {
+					t.Errorf("conn.Read() error = %v", err)
+					return
+				}
+
+				var request map[string]any
+				if err := json.Unmarshal(raw, &request); err != nil {
+					t.Errorf("json.Unmarshal() error = %v", err)
+					return
+				}
+				requests <- request
+
+				response, err := json.Marshal(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      request["id"],
+					"result":  map[string]any{"ok": true},
+				})
+				if err != nil {
+					t.Errorf("json.Marshal() error = %v", err)
+					return
+				}
+				writeCtx, writeCancel := context.WithTimeout(r.Context(), 5*time.Second)
+				defer writeCancel()
+				if err := conn.Write(writeCtx, websocket.MessageText, response); err != nil {
+					t.Errorf("conn.Write() error = %v", err)
+				}
+			}))
+			defer server.Close()
+
+			wsURL := strings.Replace(server.URL, "http", "ws", 1)
+			dialCtx, dialCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer dialCancel()
+			conn, _, err := websocket.Dial(dialCtx, wsURL, nil)
+			if err != nil {
+				t.Fatalf("websocket.Dial() error = %v", err)
+			}
+
+			client := &WSClient{
+				pending:       map[string]chan map[string]any{},
+				notifications: make(chan map[string]any, 1),
+			}
+			client.attach(conn, nil)
+			defer client.Close()
+
+			supervisor := &Supervisor{
+				sessions: map[string]*session{
+					"alice": {
+						identityName: "alice",
+						record:       &identity.StoredIdentity{IdentityName: "alice", DID: "did:wba:awiki.ai:user:alice:e1_alice"},
+						client:       client,
+						connected:    true,
+					},
+				},
+			}
+
+			if _, err := supervisor.handleBridgeRequest(tc.request); err != nil {
+				t.Fatalf("handleBridgeRequest() error = %v", err)
+			}
+
+			captured := <-requests
+			if captured["method"] != tc.wantMethod {
+				t.Fatalf("request.method = %#v, want %q", captured["method"], tc.wantMethod)
+			}
+			params, ok := captured["params"].(map[string]any)
+			if !ok {
+				t.Fatalf("request.params = %#v, want map[string]any", captured["params"])
+			}
+			body, ok := params["body"].(map[string]any)
+			if !ok {
+				t.Fatalf("request.params.body = %#v, want map[string]any", params["body"])
+			}
+			tc.verifyBody(t, body)
+		})
 	}
 }
 

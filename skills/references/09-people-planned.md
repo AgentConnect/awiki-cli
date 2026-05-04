@@ -1,27 +1,27 @@
-# People 规划参考
+# People Planned Reference
 
-## 目的
+## Purpose
 
-本参考文档只用于说明 `awiki-cli` 中未来 people 与关系能力的当前契约边界。
+This reference exists only to describe the current contract boundary for future people and relationship capabilities in `awiki-cli`.
 
-本文件是 **planned appendix**，不是常规操作 reference。只有当用户询问 people、follower、following 或本地联系人能力是否已经存在时，才加载本文件。
+This file is a **planned appendix**, not a normal operational reference. Load it only when the user asks whether people, follower, following, or local-contact capabilities already exist.
 
-## 当前状态
+## Current Status
 
-- 状态：**计划中**
-- 当前仓库尚未实现对应命令 handler
+- Status: **planned**
+- The corresponding command handlers are not implemented in the current repository
 
-不要把这些命令描述成可工作的现有功能。
+Do not describe these commands as working current features.
 
-## 未来规划范围
+## Future Planned Scope
 
 - people search
 - follow / unfollow
 - relationship status
 - followers / following
-- 本地 contacts 列表与保存
+- local contacts list and save
 
-## 已规划命令契约
+## Planned Command Contracts
 
 - `awiki-cli people search <QUERY>`
 - `awiki-cli people follow <TARGET>`
@@ -32,21 +32,21 @@
 - `awiki-cli people contacts list`
 - `awiki-cli people contacts save --did <did> [--handle <handle>] [--reason <text>]`
 
-## 使用指导
+## Usage Guidance
 
-- 如果用户今天需要关系 discovery，请使用 `07-discovery.md`
-- 如果用户今天需要真实消息历史或群组检查，请使用 `03-messaging.md` 或 `04-groups.md`
-- 如果用户询问 `people` 是否可用，应回答：契约已保留，但当前尚未实现
+- If the user needs relationship discovery today, use `07-discovery.md`
+- If the user needs real message history or group inspection today, use `03-messaging.md` or `04-groups.md`
+- If the user asks whether `people` is available, answer that the contract is reserved but currently unimplemented
 
-## 未来的确认规则
+## Future Confirmation Rules
 
-如果这些命令未来实现，下列命令需要显式确认，因为它们会变更关系状态或本地联系人状态：
+If these commands are implemented in the future, the following commands will require explicit confirmation because they change relationship state or local-contact state:
 
 - `people follow`
 - `people unfollow`
 - `people contacts save`
 
-## 相关参考
+## Related References
 
 - `07-discovery.md`
 - `03-messaging.md`

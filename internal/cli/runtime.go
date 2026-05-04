@@ -66,9 +66,9 @@ func (a *App) runtimeExit(err error, hint string) error {
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before starting realtime runtime.")
 	case strings.Contains(err.Error(), "must be websocket"), strings.Contains(err.Error(), "unsupported mode"), strings.Contains(err.Error(), "runtime mode"):
-		return output.NewExitError("invalid_argument", 2, err.Error(), hint)
+		return output.NewExitError("invalid_argument", 2, err.Error(), refineWorkspaceWriteHint(err, hint))
 	default:
-		return output.NewExitError("internal_error", 1, err.Error(), hint)
+		return output.NewExitError("internal_error", 1, err.Error(), refineWorkspaceWriteHint(err, hint))
 	}
 }
 

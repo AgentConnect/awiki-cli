@@ -135,7 +135,6 @@ platforms:
           secret: "${HERMES_ROUTE_SECRET}"
           events: []
           prompt: "{notify_payload}"
-          skills: ["notify"]
           deliver: "feishu"
 ```
 
@@ -149,6 +148,7 @@ platforms:
 - payload:
   - `event_type = topic`
   - `notify_payload = <统一事件的 minified JSON 字符串>`
+  - 邮件通知已开始复用消息主 topic；默认应优先根据 `data.source_kind=mail` 和邮件字段判断，而不是只依赖 `mail.message.received`
 - headers:
   - `X-Webhook-Signature`
   - `X-Request-ID = id`

@@ -235,6 +235,12 @@ func phaseGroupLabel(group string) string {
 		return "Handle 解析"
 	case "resolve_config":
 		return "解析配置"
+	case "update_check":
+		return "检查更新"
+	case "update_registry_fetch":
+		return "请求更新源"
+	case "npm_upgrade_install":
+		return "npm 升级安装"
 	case "workspace_upgrade":
 		return "工作区升级"
 	case "bridge_health_probe":

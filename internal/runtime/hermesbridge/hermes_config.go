@@ -135,21 +135,25 @@ const defaultNotifyPrompt = `你是 awiki 外部消息通知整理助手。
 5. 不存在的字段不要臆造，缺失时直接省略对应行。
 6. 摘要控制在 1 到 5 行短句内。
 7. 如果有链接，放在最后单独列出。
-8. 若 data 中存在 ` + "`mailbox_address`" + `、` + "`from_addr`" + `、` + "`subject`" + `、` + "`preview`" + ` 等邮件字段，则优先按邮件通知处理，不强依赖 topic 名称。
+8. 若 data 中 ` + "`source_kind=mail`" + `，或存在 ` + "`mailbox_address`" + `、` + "`from_addr`" + `、` + "`subject`" + `、` + "`preview`" + ` 等邮件字段，则必须按邮件通知处理，不强依赖 topic 名称。
 9. IM 通知优先使用可读的人名、handle 或显示名；没有时再使用 DID。
+10. 命中邮件通知时，不要使用“收到外部IM消息通知”作为标题，也不要套用 IM 模板。
+11. 处理邮件时，如果 ` + "`from_addr`" + ` 存在且能识别出发件人姓名，优先把姓名写到“发件人”，并把邮箱单独写到“发件邮箱”。
+12. 如果 ` + "`preview`" + ` 末尾包含类似“姓名 / 邮箱：...”的署名块，应将其从摘要中提取出来，不要原样重复在“邮件摘要”最后。
 
-如果 data 中存在 ` + "`mailbox_address`" + `、` + "`from_addr`" + `、` + "`subject`" + `、` + "`preview`" + ` 这类邮件字段，建议格式：
+如果 data 中 ` + "`source_kind=mail`" + `，或存在 ` + "`mailbox_address`" + `、` + "`from_addr`" + `、` + "`subject`" + `、` + "`preview`" + ` 这类邮件字段，必须使用下面这个模板：
 收到外部邮件通知
-发件人：<邮箱地址或名称>
+发件人：<姓名；如果没有姓名则用邮箱地址>
+发件邮箱：<from_addr，如存在且与发件人不同>
 收件邮箱：<mailbox_address>
 收件人 DID：<recipient_did，如存在>
 时间：<Asia/Shanghai 时间>
 邮件摘要：
 主题：<subject，如存在>
-<preview 1-5 行>
+<preview 1-5 行，去掉重复署名和邮箱签名>
 附件：<有附件时再展示，例如：有>
 
-否则，如果 topic 是 IM 相关事件，例如 ` + "`im.message.received`" + `、` + "`im.group.message.received`" + `、` + "`im.group.state.changed`" + `，建议格式：
+否则，如果 topic 是 IM 相关事件，例如 ` + "`im.message.received`" + `、` + "`im.group.message.received`" + `、` + "`im.group.state.changed`" + `，使用下面这个模板：
 收到外部IM消息通知
 发送者：<名称或 DID>
 发送者 DID：<如存在>
@@ -285,9 +289,7 @@ func inspectOrEnsureRoute(home string, routeName string, options EnsureRouteOpti
 		if shouldReplaceNotifyPrompt(stringValue(route["prompt"])) {
 			route["prompt"] = options.Prompt
 		}
-		if !hasNonEmptySequence(route["skills"]) {
-			route["skills"] = []any{"notify"}
-		}
+		cleanupLegacyNotifySkill(route)
 		route["deliver"] = options.Deliver
 		cleanupDeliverExtra(route)
 	}
@@ -494,6 +496,20 @@ func cleanupDeliverExtra(route map[string]any) {
 	route["deliver_extra"] = cleaned
 }
 
+func cleanupLegacyNotifySkill(route map[string]any) {
+	if route == nil {
+		return
+	}
+	skills := getSequence(route["skills"])
+	if len(skills) != 1 {
+		return
+	}
+	if strings.TrimSpace(stringValue(skills[0])) != "notify" {
+		return
+	}
+	delete(route, "skills")
+}
+
 func shouldReplaceNotifyPrompt(current string) bool {
 	normalized := strings.TrimSpace(current)
 	switch normalized {
@@ -504,14 +520,55 @@ func shouldReplaceNotifyPrompt(current string) bool {
 	case strings.TrimSpace(defaultNotifyPromptV1):
 		return true
 	}
+	if isLegacyIMOnlyNotifyPrompt(normalized) {
+		return true
+	}
 	if strings.Contains(normalized, "你是 awiki 外部消息通知整理助手。") &&
 		strings.Contains(normalized, "{notify_payload}") &&
 		strings.Contains(normalized, "收到外部邮件通知") &&
 		(strings.Contains(normalized, "如果 topic 是 mail.message.received") ||
-			strings.Contains(normalized, "topic=mail.message.received 时")) {
+			strings.Contains(normalized, "topic=mail.message.received 时") ||
+			strings.Contains(normalized, "不强依赖 topic 名称") ||
+			strings.Contains(normalized, "优先按邮件通知处理")) {
+		return true
+	}
+	if strings.Contains(normalized, "你是 awiki 外部消息通知整理助手。") &&
+		strings.Contains(normalized, "{notify_payload}") &&
+		strings.Contains(normalized, "收到外部邮件通知") &&
+		strings.Contains(normalized, "必须按邮件通知处理") &&
+		(!strings.Contains(normalized, "不要使用“收到外部IM消息通知”作为标题") ||
+			!strings.Contains(normalized, "发件邮箱：<from_addr，如存在且与发件人不同>") ||
+			!strings.Contains(normalized, "去掉重复署名和邮箱签名")) {
 		return true
 	}
 	return false
+}
+
+func isLegacyIMOnlyNotifyPrompt(normalized string) bool {
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "你是 awiki 外部 IM 消息通知整理助手。") &&
+		strings.Contains(normalized, "收到外部IM消息通知") &&
+		strings.Contains(normalized, "消息内容摘要：") &&
+		strings.Contains(normalized, "{notify_payload}") &&
+		!strings.Contains(normalized, "收到外部邮件通知") &&
+		!strings.Contains(normalized, "source_kind=mail")
+}
+
+func getSequence(value any) []any {
+	switch typed := value.(type) {
+	case []any:
+		return typed
+	case []string:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func hasNonEmptySequence(value any) bool {

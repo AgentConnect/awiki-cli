@@ -52,6 +52,9 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				if request["E2EE"] != true {
 					t.Fatalf("request.E2EE = %#v, want true", request["E2EE"])
 				}
+				if plan["member_handle"] != "bob.awiki.ai" {
+					t.Fatalf("plan.member_handle = %#v, want bob.awiki.ai", plan["member_handle"])
+				}
 			},
 		},
 

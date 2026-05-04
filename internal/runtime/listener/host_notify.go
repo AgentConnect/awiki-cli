@@ -30,10 +30,13 @@ type HostNotificationEvent struct {
 	Data       any    `json:"data,omitempty"`
 }
 
-// DirectMessageNotificationData is the minimal direct-message payload exposed
-// to host integrations.
+// DirectMessageNotificationData is the minimal message-style payload exposed to
+// host integrations for private notifications. It is also used as the phase-1
+// mail-unification envelope: mail notifications reuse the same event topic and
+// add source_kind=mail plus mail-specific fields.
 type DirectMessageNotificationData struct {
 	Channel         string `json:"channel"`
+	SourceKind      string `json:"source_kind,omitempty"`
 	MessageID       string `json:"message_id"`
 	OperationID     string `json:"operation_id,omitempty"`
 	ConversationID  string `json:"conversation_id,omitempty"`
@@ -46,6 +49,12 @@ type DirectMessageNotificationData struct {
 	ContentType     string `json:"content_type"`
 	Text            string `json:"text,omitempty"`
 	CreatedAt       string `json:"created_at,omitempty"`
+	MailboxAddress  string `json:"mailbox_address,omitempty"`
+	MailboxDID      string `json:"mailbox_did,omitempty"`
+	FromAddr        string `json:"from_addr,omitempty"`
+	Subject         string `json:"subject,omitempty"`
+	Preview         string `json:"preview,omitempty"`
+	HasAttachments  bool   `json:"has_attachments,omitempty"`
 }
 
 // GroupMessageNotificationData is the minimal group-message payload exposed to
@@ -83,20 +92,6 @@ type GroupStateChangedNotificationData struct {
 	GroupStateVersion string `json:"group_state_version,omitempty"`
 	GroupEventSeq     string `json:"group_event_seq,omitempty"`
 	ChangedAt         string `json:"changed_at,omitempty"`
-}
-
-// MailNotificationData is the normalized payload exposed to host integrations
-// for inbound mail notifications delivered through message-service.
-type MailNotificationData struct {
-	Channel        string `json:"channel"`
-	MessageID      string `json:"message_id"`
-	MailboxAddress string `json:"mailbox_address,omitempty"`
-	MailboxDID     string `json:"mailbox_did"`
-	FromAddr       string `json:"from_addr,omitempty"`
-	Subject        string `json:"subject,omitempty"`
-	Preview        string `json:"preview,omitempty"`
-	HasAttachments bool   `json:"has_attachments"`
-	RecipientDID   string `json:"recipient_did"`
 }
 
 // HostNotifySink receives normalized host notification events.
@@ -267,6 +262,7 @@ func normalizeDirectIncoming(notification map[string]any, receivedAt time.Time) 
 	messageID := resolveDirectMessageID(meta, notification)
 	data := DirectMessageNotificationData{
 		Channel:         "direct",
+		SourceKind:      "im",
 		MessageID:       messageID,
 		OperationID:     stringValue(meta["operation_id"]),
 		ConversationID:  stringValue(body["conversation_id"]),
@@ -444,24 +440,44 @@ func normalizeMailNotification(notification map[string]any, receivedAt time.Time
 		return nil, false
 	}
 	messageID := fallbackString(stringValue(params["message_id"]), generatedHostNotificationID(notification))
-	data := MailNotificationData{
+	subject := stringValue(params["subject"])
+	preview := stringValue(params["preview"])
+	data := DirectMessageNotificationData{
 		Channel:        "mail",
+		SourceKind:     "mail",
 		MessageID:      messageID,
+		RecipientDID:   mailboxDID,
+		ContentType:    "mail.notification",
+		Text:           buildMailNotificationEventText(subject, preview, boolValue(params["has_attachments"])),
 		MailboxAddress: stringValue(params["mailbox_address"]),
 		MailboxDID:     mailboxDID,
 		FromAddr:       stringValue(params["from_addr"]),
-		Subject:        stringValue(params["subject"]),
-		Preview:        stringValue(params["preview"]),
+		Subject:        subject,
+		Preview:        preview,
 		HasAttachments: boolValue(params["has_attachments"]),
-		RecipientDID:   mailboxDID,
 	}
 	return &HostNotificationEvent{
 		Version:    hostNotificationVersion,
 		ID:         messageID,
-		Topic:      "mail.message.received",
+		Topic:      "im.message.received",
 		ReceivedAt: receivedAt.Format(time.RFC3339),
 		Data:       data,
 	}, true
+}
+
+func buildMailNotificationEventText(subject string, preview string, hasAttachments bool) string {
+	trimmedPreview := strings.TrimSpace(preview)
+	if trimmedPreview != "" {
+		return trimmedPreview
+	}
+	trimmedSubject := strings.TrimSpace(subject)
+	if trimmedSubject != "" {
+		return "[邮件] " + trimmedSubject
+	}
+	if hasAttachments {
+		return "[邮件] 收到一封包含附件的邮件"
+	}
+	return "[邮件] 收到一封新邮件"
 }
 
 func generatedHostNotificationID(notification map[string]any) string {

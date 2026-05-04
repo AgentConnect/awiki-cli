@@ -66,6 +66,9 @@ func BuildHistoryRPCParams(record *identity.StoredIdentity, request HistoryReque
 	if request.Cursor != "" {
 		body["since_seq"] = request.Cursor
 	}
+	if request.Skip > 0 {
+		body["skip"] = request.Skip
+	}
 	return map[string]any{
 		"meta": map[string]any{
 			"anp_version":      "1.0",

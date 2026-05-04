@@ -2,10 +2,12 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
@@ -58,6 +60,74 @@ func TestRequireActiveIdentityAcceptsRegisteredUser(t *testing.T) {
 	}
 	if record.Handle != "alice" || record.UserID != "user-123" {
 		t.Fatalf("unexpected record = %#v", record)
+	}
+}
+
+func TestResolveTargetBypassesLookupForDID(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{resolved: testResolvedConfig(t)}
+	did := "did:wba:tenant.example:user:bob:e1_bob"
+
+	resolvedDID, resolvedHandle, err := service.resolveTarget(context.Background(), did)
+	if err != nil {
+		t.Fatalf("resolveTarget(did) error = %v", err)
+	}
+	if resolvedDID != did {
+		t.Fatalf("resolvedDID = %q, want %q", resolvedDID, did)
+	}
+	if resolvedHandle != "" {
+		t.Fatalf("resolvedHandle = %q, want empty", resolvedHandle)
+	}
+}
+
+func TestResolveTargetCompletesBareHandleUsingDIDDomain(t *testing.T) {
+	t.Parallel()
+
+	var captured rpcRequestEnvelope
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user-service/handle/rpc" {
+			http.NotFound(w, r)
+			return
+		}
+		captured = decodeRPCRequest(t, r)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      captured.ID,
+			"result": map[string]any{
+				"handle":      "bob",
+				"full_handle": "bob.tenant.example",
+				"did":         "did:wba:tenant.example:user:bob:e1_bob",
+				"domain":      "tenant.example",
+				"status":      "active",
+			},
+		})
+	}))
+	defer server.Close()
+
+	resolved := testResolvedConfig(t)
+	resolved.ServiceBaseURL = server.URL
+	resolved.DIDDomain = "tenant.example"
+	service, err := NewService(resolved)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	targetDID, targetHandle, err := service.resolveTarget(context.Background(), "Bob")
+	if err != nil {
+		t.Fatalf("resolveTarget() error = %v", err)
+	}
+	if captured.Method != "lookup" {
+		t.Fatalf("captured.Method = %q, want lookup", captured.Method)
+	}
+	if got := stringFromAny(captured.Params["handle"]); got != "bob.tenant.example" {
+		t.Fatalf("lookup handle = %q, want bob.tenant.example", got)
+	}
+	if targetDID != "did:wba:tenant.example:user:bob:e1_bob" {
+		t.Fatalf("targetDID = %q, want resolved DID", targetDID)
+	}
+	if targetHandle != "bob.tenant.example" {
+		t.Fatalf("targetHandle = %q, want full handle", targetHandle)
 	}
 }
 
@@ -500,8 +570,186 @@ func TestAllInboxMergesLocalMailNotifications(t *testing.T) {
 	if messages[0]["msg_id"] != "mail-1" {
 		t.Fatalf("messages[0].msg_id = %#v, want mail-1", messages[0]["msg_id"])
 	}
-	if result.Data["source"] != "remote_http+local_group_cache+local_mail_cache" {
+	if messages[0]["source_kind"] != "mail" {
+		t.Fatalf("messages[0].source_kind = %#v, want mail", messages[0]["source_kind"])
+	}
+	if result.Data["source"] != "local_direct_cache+local_group_cache" {
 		t.Fatalf("source = %#v", result.Data["source"])
+	}
+}
+
+func TestReadInboxFromCacheExcludesMailNotificationsForDirectInbox(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	manager := identity.NewManager(resolved.Paths)
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "alice",
+		UserID:       "user-123",
+		DisplayName:  "Alice",
+		Handle:       "alice",
+	})
+	resolved.ActiveIdentity = "alice"
+
+	service, err := NewService(resolved)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	record, err := service.requireActiveIdentity("")
+	if err != nil {
+		t.Fatalf("requireActiveIdentity() error = %v", err)
+	}
+
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "direct-1",
+		OwnerDID:       record.DID,
+		ThreadID:       store.MakeThreadID(record.DID, "did:peer:bob", ""),
+		Direction:      0,
+		SenderDID:      "did:peer:bob",
+		ReceiverDID:    record.DID,
+		ContentType:    "text/plain",
+		Content:        "hello direct",
+		SentAt:         "2026-04-20T15:00:00Z",
+		IsRead:         false,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(direct) error = %v", err)
+	}
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "mail-1",
+		OwnerDID:       record.DID,
+		ThreadID:       "mail:alice@awiki.ai",
+		Direction:      0,
+		ReceiverDID:    record.DID,
+		ContentType:    "mail.notification",
+		Content:        "[Mail] alice@awiki.ai",
+		Title:          "Mail subject",
+		SentAt:         "2026-04-20T15:02:00Z",
+		IsRead:         false,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(mail) error = %v", err)
+	}
+
+	rows, err := service.readInboxFromCache(context.Background(), record, "", 10, false)
+	if err != nil {
+		t.Fatalf("readInboxFromCache() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0]["msg_id"] != "direct-1" {
+		t.Fatalf("rows[0].msg_id = %#v, want direct-1", rows[0]["msg_id"])
+	}
+
+	unifiedRows, err := service.readUnifiedDirectInboxFromCache(context.Background(), record, 10, false)
+	if err != nil {
+		t.Fatalf("readUnifiedDirectInboxFromCache() error = %v", err)
+	}
+	if len(unifiedRows) != 2 {
+		t.Fatalf("len(unifiedRows) = %d, want 2", len(unifiedRows))
+	}
+	if unifiedRows[0]["msg_id"] != "mail-1" {
+		t.Fatalf("unifiedRows[0].msg_id = %#v, want mail-1", unifiedRows[0]["msg_id"])
+	}
+}
+
+func TestNormalizeMailNotificationMessageRecognizesMetadataSourceKind(t *testing.T) {
+	t.Parallel()
+
+	normalized := normalizeMailNotificationMessage(map[string]any{
+		"msg_id":       "mail-meta-1",
+		"content_type": "text/plain",
+		"thread_id":    "mail:alice@awiki.ai",
+		"title":        "Mail subject",
+		"content":      "raw content",
+		"metadata":     `{"source_kind":"mail","mailbox_address":"alice@awiki.ai","from_addr":"sender@example.com","subject":"Mail subject","preview":"Preview text","has_attachments":true}`,
+	})
+	if normalized["source_kind"] != "mail" {
+		t.Fatalf("normalized.source_kind = %#v, want mail", normalized["source_kind"])
+	}
+	if normalized["title"] != "[邮件] Mail subject" {
+		t.Fatalf("normalized.title = %#v", normalized["title"])
+	}
+	if !strings.Contains(stringFromAny(normalized["content"]), "发件人: sender@example.com") {
+		t.Fatalf("normalized.content = %#v, want sender line", normalized["content"])
+	}
+}
+
+func TestReadUnifiedDirectInboxFromCacheIncludesNewStyleMailMetadataRows(t *testing.T) {
+	t.Parallel()
+
+	resolved := testResolvedConfig(t)
+	manager := identity.NewManager(resolved.Paths)
+	createTestIdentity(t, manager, identity.SaveInput{
+		IdentityName: "alice",
+		UserID:       "user-123",
+		DisplayName:  "Alice",
+		Handle:       "alice",
+	})
+	resolved.ActiveIdentity = "alice"
+
+	service, err := NewService(resolved)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	record, err := service.requireActiveIdentity("")
+	if err != nil {
+		t.Fatalf("requireActiveIdentity() error = %v", err)
+	}
+
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "mail-meta-2",
+		OwnerDID:       record.DID,
+		ThreadID:       "mail:alice@awiki.ai",
+		Direction:      0,
+		ReceiverDID:    record.DID,
+		ContentType:    "text/plain",
+		Content:        "Preview text",
+		Title:          "[邮件] Mail subject",
+		SentAt:         "2026-04-20T15:02:00Z",
+		IsRead:         false,
+		Metadata:       `{"source_kind":"mail","mailbox_address":"alice@awiki.ai","from_addr":"sender@example.com","subject":"Mail subject","preview":"Preview text","has_attachments":false}`,
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(mail metadata) error = %v", err)
+	}
+
+	rows, err := service.readInboxFromCache(context.Background(), record, "", 10, false)
+	if err != nil {
+		t.Fatalf("readInboxFromCache() error = %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("len(rows) = %d, want 0 because mail should be excluded from direct inbox", len(rows))
+	}
+
+	unifiedRows, err := service.readUnifiedDirectInboxFromCache(context.Background(), record, 10, false)
+	if err != nil {
+		t.Fatalf("readUnifiedDirectInboxFromCache() error = %v", err)
+	}
+	if len(unifiedRows) != 1 {
+		t.Fatalf("len(unifiedRows) = %d, want 1", len(unifiedRows))
+	}
+	if unifiedRows[0]["msg_id"] != "mail-meta-2" {
+		t.Fatalf("unifiedRows[0].msg_id = %#v, want mail-meta-2", unifiedRows[0]["msg_id"])
 	}
 }
 

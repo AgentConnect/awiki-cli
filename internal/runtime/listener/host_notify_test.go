@@ -160,24 +160,30 @@ func TestNormalizeHostNotificationMailNotificationBuildsMailEvent(t *testing.T) 
 	if !ok {
 		t.Fatal("NormalizeHostNotification() ok = false, want true")
 	}
-	if event.Topic != "mail.message.received" {
-		t.Fatalf("event.Topic = %q, want mail.message.received", event.Topic)
+	if event.Topic != "im.message.received" {
+		t.Fatalf("event.Topic = %q, want im.message.received", event.Topic)
 	}
-	data, ok := event.Data.(MailNotificationData)
+	data, ok := event.Data.(DirectMessageNotificationData)
 	if !ok {
-		t.Fatalf("event.Data type = %T, want MailNotificationData", event.Data)
+		t.Fatalf("event.Data type = %T, want DirectMessageNotificationData", event.Data)
 	}
-	if data.MailboxDID != "did:wba:example.com:user:alice:e1_alice" {
-		t.Fatalf("data.MailboxDID = %q", data.MailboxDID)
+	if data.SourceKind != "mail" {
+		t.Fatalf("data.SourceKind = %q, want mail", data.SourceKind)
 	}
 	if data.RecipientDID != "did:wba:example.com:user:alice:e1_alice" {
 		t.Fatalf("data.RecipientDID = %q", data.RecipientDID)
+	}
+	if data.ContentType != "mail.notification" {
+		t.Fatalf("data.ContentType = %q, want mail.notification", data.ContentType)
 	}
 	if data.MailboxAddress != "alice@example.com" {
 		t.Fatalf("data.MailboxAddress = %q", data.MailboxAddress)
 	}
 	if data.Subject != "Mail Subject" {
 		t.Fatalf("data.Subject = %q", data.Subject)
+	}
+	if data.Text != "First 200 chars of the body..." {
+		t.Fatalf("data.Text = %q, want preview text", data.Text)
 	}
 	if !data.HasAttachments {
 		t.Fatal("data.HasAttachments = false, want true")
@@ -378,12 +384,15 @@ func TestHandleNotificationDispatchesMailNotificationToSink(t *testing.T) {
 	if len(capturing.events) != 1 {
 		t.Fatalf("len(capturing.events) = %d, want 1", len(capturing.events))
 	}
-	if capturing.events[0].Topic != "mail.message.received" {
-		t.Fatalf("capturing.events[0].Topic = %q, want mail.message.received", capturing.events[0].Topic)
+	if capturing.events[0].Topic != "im.message.received" {
+		t.Fatalf("capturing.events[0].Topic = %q, want im.message.received", capturing.events[0].Topic)
 	}
-	data, ok := capturing.events[0].Data.(MailNotificationData)
+	data, ok := capturing.events[0].Data.(DirectMessageNotificationData)
 	if !ok {
-		t.Fatalf("capturing.events[0].Data type = %T, want MailNotificationData", capturing.events[0].Data)
+		t.Fatalf("capturing.events[0].Data type = %T, want DirectMessageNotificationData", capturing.events[0].Data)
+	}
+	if data.SourceKind != "mail" {
+		t.Fatalf("data.SourceKind = %q, want mail", data.SourceKind)
 	}
 	if data.MailboxAddress != "alice@example.com" {
 		t.Fatalf("data.MailboxAddress = %q", data.MailboxAddress)

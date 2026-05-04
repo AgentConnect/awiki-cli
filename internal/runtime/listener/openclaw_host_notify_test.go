@@ -87,18 +87,21 @@ func TestBuildOpenClawEventTextUsesMailFormat(t *testing.T) {
 	text := buildOpenClawEventText(HostNotificationEvent{
 		Version:    "1.0",
 		ID:         "mail-msg-001",
-		Topic:      "mail.message.received",
+		Topic:      "im.message.received",
 		ReceivedAt: "2026-04-12T10:30:00Z",
-		Data: MailNotificationData{
+		Data: DirectMessageNotificationData{
 			Channel:        "mail",
+			SourceKind:     "mail",
 			MessageID:      "mail-msg-001",
+			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
+			ContentType:    "mail.notification",
+			Text:           "Preview text",
 			MailboxAddress: "alice@example.com",
 			MailboxDID:     "did:wba:example.com:user:alice:e1_alice",
 			FromAddr:       "sender@example.com",
 			Subject:        "Mail Subject",
 			Preview:        "Preview text",
 			HasAttachments: true,
-			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
 		},
 	})
 	if !strings.Contains(text, "[Awiki New Mail]") {
@@ -119,18 +122,21 @@ func TestBuildOpenClawHookRequestIncludesMailPrompt(t *testing.T) {
 	request, err := buildOpenClawHookRequest(HostNotificationEvent{
 		Version:    "1.0",
 		ID:         "mail-msg-001",
-		Topic:      "mail.message.received",
+		Topic:      "im.message.received",
 		ReceivedAt: "2026-04-12T10:30:00Z",
-		Data: MailNotificationData{
+		Data: DirectMessageNotificationData{
 			Channel:        "mail",
+			SourceKind:     "mail",
 			MessageID:      "mail-msg-001",
+			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
+			ContentType:    "mail.notification",
+			Text:           "Preview text",
 			MailboxAddress: "alice@example.com",
 			MailboxDID:     "did:wba:example.com:user:alice:e1_alice",
 			FromAddr:       "sender@example.com",
 			Subject:        "Mail Subject",
 			Preview:        "Preview text",
 			HasAttachments: false,
-			RecipientDID:   "did:wba:example.com:user:alice:e1_alice",
 		},
 	}, openclawnotify.FixedHookName, "telegram", "123456")
 	if err != nil {

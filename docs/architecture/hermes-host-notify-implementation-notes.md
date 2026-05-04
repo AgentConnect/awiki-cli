@@ -4,6 +4,11 @@
 
 本文记录 `awiki-cli -> Hermes -> IM` 这条通知链路的两轮改动，说明它们分别解决了什么问题，以及现在整条链路是如何工作的。
 
+关于“邮件通知如何低风险收口到普通消息通知链路”的后续方案，见：
+
+- `docs/architecture/mail-notification-unification-plan.md`
+- `docs/architecture/mail-notification-validation-runbook.md`
+
 目标场景：
 
 - `awiki-cli` 在 WebSocket 运行模式下收到 awiki 侧的新消息 / 群组事件
@@ -157,6 +162,14 @@ adapter 的职责：
 - 做去重
 - 把 `HostNotificationEvent` 转成 Hermes route 的 webhook payload
 - 使用 Hermes route secret 调用 `webhooks/notify`
+
+当前邮件通知已经开始按“统一消息通知”语义收口：
+
+- 邮件进入 host-notify 后，主 topic 复用 `im.message.received`
+- `data.source_kind=mail`
+- 同时仍保留 `mailbox_address`、`from_addr`、`subject`、`preview` 等邮件字段
+
+因此 Hermes route 的默认 prompt 不应再强依赖 `mail.message.received`，而应优先根据 `source_kind=mail` 和邮件字段判断邮件通知。
 
 ### 第三段：Hermes webhook route -> 最终 IM 平台
 

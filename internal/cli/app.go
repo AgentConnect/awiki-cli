@@ -177,7 +177,7 @@ func (a *App) configCommandExit(err error) error {
 	if errors.As(err, &exitErr) {
 		return err
 	}
-	return output.NewExitError("internal_error", 1, err.Error(), "Check your local configuration and environment variables.")
+	return output.NewExitError("internal_error", 1, err.Error(), refineWorkspaceWriteHint(err, "Check your local configuration and environment variables."))
 }
 
 func (a *App) resolveConfigForWorkspace() (*appconfig.Resolved, error) {

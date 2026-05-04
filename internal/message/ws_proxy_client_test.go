@@ -3,6 +3,7 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -120,22 +121,33 @@ func TestWSProxyTransportWrapsBridgeFailures(t *testing.T) {
 
 func serveBridgeProbeAndRequest(t *testing.T, listener net.Listener, requests chan<- runtime.BridgeRequest, response runtime.BridgeResponse) {
 	t.Helper()
-	for i := 0; i < 2; i++ {
+	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			t.Errorf("listener.Accept() error = %v", err)
 			return
 		}
-		func() {
+
+		handled, retry := func() (bool, bool) {
 			defer conn.Close()
+
 			var request runtime.BridgeRequest
 			if err := json.NewDecoder(conn).Decode(&request); err != nil {
-				return
+				if err == io.EOF {
+					// Health probes connect and close without sending a request.
+					return false, true
+				}
+				t.Errorf("Decode() error = %v", err)
+				return false, false
 			}
 			requests <- request
 			if err := json.NewEncoder(conn).Encode(response); err != nil {
 				t.Errorf("Encode() error = %v", err)
 			}
+			return true, false
 		}()
+		if handled || !retry {
+			return
+		}
 	}
 }

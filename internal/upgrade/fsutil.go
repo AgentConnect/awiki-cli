@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/agentconnect/awiki-cli/internal/durablefs"
 )
 
 func pathExists(path string) bool {
@@ -68,15 +70,7 @@ func writeAtomicFile(path string, content []byte, mode os.FileMode) error {
 }
 
 func syncDirectory(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open dir: %w", err)
-	}
-	defer dir.Close()
-	if err := dir.Sync(); err != nil {
-		return fmt.Errorf("sync dir: %w", err)
-	}
-	return nil
+	return durablefs.SyncDirectory(path)
 }
 
 func copyFile(src, dst string, mode os.FileMode) error {
