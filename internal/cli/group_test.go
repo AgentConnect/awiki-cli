@@ -146,6 +146,52 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 		},
 
 		{
+			name:        "group e2ee publish update key package plans purpose update",
+			spec:        "group.e2ee.publish-key-package",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "purpose": "update", "device": "bob-main"},
+			wantSummary: "Dry run: group e2ee key package publish planned",
+			wantAction:  "group.e2ee.publish_key_package",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["purpose"] != "update" {
+					t.Fatalf("plan.purpose = %#v, want update", plan["purpose"])
+				}
+				if plan["recovery"] != false {
+					t.Fatalf("plan.recovery = %#v, want false", plan["recovery"])
+				}
+			},
+		},
+		{
+			name:        "group e2ee update key plans hidden owner controlled update",
+			spec:        "group.e2ee.update-key",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob", "device": "bob-main"},
+			wantSummary: "Dry run: group e2ee update-key planned",
+			wantAction:  "group.e2ee.update_key",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["key_package_purpose"] != "update" || plan["p4_membership_mutate"] != false {
+					t.Fatalf("plan = %#v, want purpose=update without P4 mutation", plan)
+				}
+				if plan["hidden_awiki_extension"] != true {
+					t.Fatalf("plan.hidden_awiki_extension = %#v, want true", plan["hidden_awiki_extension"])
+				}
+			},
+		},
+		{
+			name:        "group e2ee rejoin plans canonical group add e2ee path",
+			spec:        "group.e2ee.rejoin",
+			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob"},
+			wantSummary: "Dry run: group e2ee rejoin planned",
+			wantAction:  "group.e2ee.rejoin",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				if plan["canonical_command"] != "group add --e2ee" {
+					t.Fatalf("plan.canonical_command = %#v, want group add --e2ee", plan["canonical_command"])
+				}
+				if plan["key_package_purpose"] != "normal" || plan["external_commit"] != false {
+					t.Fatalf("plan = %#v, want normal package and no External Commit", plan)
+				}
+			},
+		},
+
+		{
 			name:        "group e2ee process leave request plans owner remove",
 			spec:        "group.e2ee.process-leave-request",
 			setFlags:    map[string]string{"group": "did:wba:example.com:groups:demo:e1_group", "member": "bob", "leave-request-id": "lr-bob-1"},
@@ -205,6 +251,12 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupE2EEPending(cmd, nil)
 				case "group.e2ee.repair":
 					return app.runGroupE2EERepair(cmd, nil)
+				case "group.e2ee.publish-key-package":
+					return app.runGroupE2EEPublishKeyPackage(cmd, nil)
+				case "group.e2ee.update-key":
+					return app.runGroupE2EEUpdateKey(cmd, nil)
+				case "group.e2ee.rejoin":
+					return app.runGroupE2EERejoin(cmd, nil)
 				case "group.e2ee.process-leave-request":
 					return app.runGroupE2EEProcessLeaveRequest(cmd, nil)
 				default:

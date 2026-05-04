@@ -283,6 +283,18 @@ func (t *HTTPTransport) GetGroupE2EERecoveryKeyPackage(ctx context.Context, grou
 	return t.rpcMapCall(ctx, "group.e2ee.get_key_package", params)
 }
 
+func (t *HTTPTransport) GetGroupE2EEUpdateKeyPackage(ctx context.Context, groupDID string, targetDID string, deviceID string) (map[string]any, error) {
+	serviceDID, err := t.GetMessageServiceDID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	params, err := BuildGroupE2EEGetUpdateKeyPackageRPCParams(t.auth.record, nil, serviceDID, groupDID, targetDID, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.get_key_package", params)
+}
+
 func (t *HTTPTransport) CreateGroupE2EE(ctx context.Context, groupDID string, mlsHead map[string]any) (map[string]any, error) {
 	serviceDID, err := t.GetMessageServiceDID(ctx)
 	if err != nil {
@@ -309,6 +321,14 @@ func (t *HTTPTransport) RecoverGroupE2EEMember(ctx context.Context, groupDID str
 		return nil, err
 	}
 	return t.rpcMapCall(ctx, "group.e2ee.recover_member", params)
+}
+
+func (t *HTTPTransport) UpdateGroupE2EEKey(ctx context.Context, groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) (map[string]any, error) {
+	params, err := BuildGroupE2EEUpdateMemberRPCParams(t.auth.record, nil, groupDID, memberDID, deviceID, prepared, leasedPackage)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.update", params)
 }
 
 func (t *HTTPTransport) RemoveGroupE2EE(ctx context.Context, groupDID string, memberDID string, preparedCommit map[string]any, reasonText string, leaveRequestID string) (map[string]any, error) {

@@ -14,22 +14,26 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/store"
 )
 
-func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identity.StoredIdentity, deviceID string, groupDID string, recovery bool, contractTest bool) (map[string]any, map[string]any, error) {
+func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identity.StoredIdentity, deviceID string, groupDID string, purpose string, contractTest bool) (map[string]any, map[string]any, error) {
 	provider := s.groupMLSProvider()
 	if strings.TrimSpace(deviceID) == "" {
 		deviceID = "default"
 	}
 	groupDID = strings.TrimSpace(groupDID)
-	if recovery && groupDID == "" {
-		return nil, nil, fmt.Errorf("group DID is required when publishing a recovery KeyPackage")
+	purpose = normalizeGroupKeyPackagePurpose(purpose)
+	if purpose == "" {
+		return nil, nil, fmt.Errorf("group E2EE KeyPackage purpose must be normal, recovery, or update")
+	}
+	if (purpose == "recovery" || purpose == "update") && groupDID == "" {
+		return nil, nil, fmt.Errorf("group DID is required when publishing a %s KeyPackage", purpose)
 	}
 	params := map[string]any{
 		"agent_did": record.DID,
 		"device_id": deviceID,
 		"owner_did": record.DID,
 	}
-	if recovery {
-		params["purpose"] = "recovery"
+	if purpose != "normal" {
+		params["purpose"] = purpose
 		params["group_did"] = groupDID
 	}
 	packageResult, err := provider.GenerateKeyPackage(ctx, MLSRequest{
@@ -43,7 +47,7 @@ func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identi
 	if err != nil {
 		return nil, nil, err
 	}
-	packageResult = tagGroupKeyPackagePurpose(packageResult, groupDID, deviceID, recovery)
+	packageResult = tagGroupKeyPackagePurpose(packageResult, groupDID, deviceID, purpose)
 	packageResult, err = signGroupKeyPackageDIDWBABinding(record, packageResult)
 	if err != nil {
 		return nil, nil, err
@@ -59,8 +63,9 @@ func (s *Service) publishGroupE2EEKeyPackage(ctx context.Context, record *identi
 	return packageResult, published, nil
 }
 
-func tagGroupKeyPackagePurpose(packageResult map[string]any, groupDID string, deviceID string, recovery bool) map[string]any {
-	if !recovery {
+func tagGroupKeyPackagePurpose(packageResult map[string]any, groupDID string, deviceID string, purpose string) map[string]any {
+	purpose = normalizeGroupKeyPackagePurpose(purpose)
+	if purpose == "normal" {
 		return packageResult
 	}
 	tagged := cloneStringAnyMap(packageResult)
@@ -69,11 +74,22 @@ func tagGroupKeyPackagePurpose(packageResult map[string]any, groupDID string, de
 		return tagged
 	}
 	taggedPackage := cloneStringAnyMap(groupKeyPackage)
-	taggedPackage["purpose"] = "recovery"
+	taggedPackage["purpose"] = purpose
 	taggedPackage["group_did"] = groupDID
 	taggedPackage["device_id"] = defaultString(strings.TrimSpace(deviceID), "default")
 	tagged["group_key_package"] = taggedPackage
 	return tagged
+}
+
+func normalizeGroupKeyPackagePurpose(purpose string) string {
+	switch strings.ToLower(strings.TrimSpace(purpose)) {
+	case "", "normal":
+		return "normal"
+	case "recovery", "update":
+		return strings.ToLower(strings.TrimSpace(purpose))
+	default:
+		return ""
+	}
 }
 
 func signGroupKeyPackageDIDWBABinding(record *identity.StoredIdentity, packageResult map[string]any) (map[string]any, error) {
@@ -154,11 +170,23 @@ func cloneStringAnyMap(source map[string]any) map[string]any {
 }
 
 func (s *Service) PublishGroupE2EEKeyPackage(ctx context.Context, identityName string, deviceID string, groupDID string, recovery bool, contractTest bool) (*CommandResult, error) {
+	purpose := "normal"
+	if recovery {
+		purpose = "recovery"
+	}
+	return s.PublishGroupE2EEKeyPackageWithPurpose(ctx, identityName, deviceID, groupDID, purpose, contractTest)
+}
+
+func (s *Service) PublishGroupE2EEKeyPackageWithPurpose(ctx context.Context, identityName string, deviceID string, groupDID string, purpose string, contractTest bool) (*CommandResult, error) {
 	record, err := s.requireActiveIdentity(identityName)
 	if err != nil {
 		return nil, err
 	}
-	packageResult, published, err := s.publishGroupE2EEKeyPackage(ctx, record, deviceID, groupDID, recovery, contractTest)
+	purpose = normalizeGroupKeyPackagePurpose(purpose)
+	if purpose == "" {
+		return nil, fmt.Errorf("group E2EE KeyPackage purpose must be normal, recovery, or update")
+	}
+	packageResult, published, err := s.publishGroupE2EEKeyPackage(ctx, record, deviceID, groupDID, purpose, contractTest)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +194,8 @@ func (s *Service) PublishGroupE2EEKeyPackage(ctx context.Context, identityName s
 		Data: map[string]any{
 			"mls":        packageResult,
 			"published":  published,
-			"recovery":   recovery,
+			"recovery":   purpose == "recovery",
+			"purpose":    purpose,
 			"group":      strings.TrimSpace(groupDID),
 			"device_id":  defaultString(strings.TrimSpace(deviceID), "default"),
 			"argv_safe":  true,
@@ -345,6 +374,111 @@ func (s *Service) ProcessGroupE2EELeaveRequest(ctx context.Context, request Grou
 	}, nil
 }
 
+func (s *Service) UpdateGroupE2EEKey(ctx context.Context, request GroupE2EEUpdateKeyRequest) (*CommandResult, error) {
+	if strings.TrimSpace(request.Group) == "" {
+		return nil, ErrGroupRequired
+	}
+	if strings.TrimSpace(request.Member) == "" {
+		return nil, ErrMemberRequired
+	}
+	record, err := s.requireActiveIdentity(request.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	memberDID, memberHandle, err := s.resolveTarget(ctx, request.Member)
+	if err != nil {
+		return nil, err
+	}
+	deviceID := defaultString(strings.TrimSpace(request.DeviceID), "default")
+	transport, warnings, err := s.httpTransport(record)
+	if err != nil {
+		return nil, err
+	}
+	serviceHead, headErr := transport.GetGroupE2EEHead(ctx, request.Group)
+	if headErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE service head unavailable before update-key: %v", headErr))
+	} else {
+		actorStatus := strings.ToLower(strings.TrimSpace(stringFromAny(serviceHead["actor_membership_status"])))
+		if actorStatus != "" && actorStatus != "active" {
+			return nil, fmt.Errorf("group E2EE update-key requires the actor to be an active owner/admin; actor status=%s", actorStatus)
+		}
+	}
+	leasedPackage, err := transport.GetGroupE2EEUpdateKeyPackage(ctx, request.Group, memberDID, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	provider := s.groupMLSProvider()
+	operationID := "op-" + generateOperationID()
+	prepared, err := provider.UpdateMemberPrepare(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-update-key-prepare-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params: map[string]any{
+			"agent_did":                record.DID,
+			"actor_did":                record.DID,
+			"device_id":                "default",
+			"group_did":                request.Group,
+			"target":                   map[string]any{"agent_did": memberDID, "device_id": deviceID},
+			"target_did":               memberDID,
+			"target_device_id":         deviceID,
+			"update_key_package_id":    leasedPackage["key_package_id"],
+			"group_key_package":        leasedPackage["group_key_package"],
+			"target_key_package":       leasedPackage,
+			"operation_id":             operationID,
+			"group_state_ref":          s.localGroupStateRef(ctx, record, request.Group),
+			"update_operation_purpose": "same-did-device-key-rotation",
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	delivery, submitErr := transport.UpdateGroupE2EEKey(ctx, request.Group, memberDID, deviceID, prepared, leasedPackage)
+	if submitErr != nil {
+		if shouldAbortGroupE2EEPendingCommit(submitErr) {
+			abortResult, abortErr := s.abortPreparedGroupE2EEUpdate(ctx, record, request.Group, prepared)
+			if abortErr != nil {
+				warnings = append(warnings, fmt.Sprintf("Group E2EE update-key pending commit abort failed after service rejection: %v", abortErr))
+			} else {
+				warnings = append(warnings, "Group E2EE update-key pending commit aborted after deterministic service rejection.")
+				return nil, fmt.Errorf("%w; local group E2EE update-key pending commit aborted: %v", submitErr, abortResult)
+			}
+		}
+		return nil, submitErr
+	}
+	finalized, finalizeErr := s.finalizePreparedGroupE2EEUpdate(ctx, record, request.Group, prepared)
+	if finalizeErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE update-key accepted by service but local finalize failed: %v", finalizeErr))
+	}
+	summarySource := prepared
+	if finalized != nil {
+		summarySource = finalized
+	}
+	warnings = append(warnings, s.persistGroupE2EESummary(ctx, record, request.Group, summarySource, delivery)...)
+	localWelcome, localWelcomeWarnings := s.processLocalGroupWelcome(ctx, memberDID, request.Group, delivery, leasedPackage)
+	warnings = append(warnings, localWelcomeWarnings...)
+	data := map[string]any{
+		"group":                  request.Group,
+		"member":                 map[string]any{"did": memberDID, "handle": memberHandle},
+		"target":                 map[string]any{"agent_did": memberDID, "device_id": deviceID},
+		"update_key_package":     redactedKeyPackageSummary(leasedPackage),
+		"mls_prepare":            prepared,
+		"mls_finalize":           finalized,
+		"delivery":               delivery,
+		"p4_membership_mutate":   false,
+		"argv_sensitive_fields":  "stdin-json-only",
+		"hidden_awiki_extension": true,
+	}
+	if localWelcome != nil {
+		data["local_welcome"] = localWelcome
+	}
+	return &CommandResult{
+		Data:     data,
+		Summary:  "Updated group E2EE member key without P4 membership mutation",
+		Warnings: compactWarnings(warnings),
+	}, nil
+}
+
 func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EERecoverMemberRequest) (*CommandResult, error) {
 	if strings.TrimSpace(request.Group) == "" {
 		return nil, ErrGroupRequired
@@ -508,6 +642,28 @@ func (s *Service) abortPreparedGroupE2EECommit(ctx context.Context, record *iden
 	return provider.CommitAbort(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-commit-abort-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params:     pendingCommitParams(record, groupDID, prepared),
+	})
+}
+
+func (s *Service) finalizePreparedGroupE2EEUpdate(ctx context.Context, record *identity.StoredIdentity, groupDID string, prepared map[string]any) (map[string]any, error) {
+	provider := s.groupMLSProvider()
+	return provider.UpdateMemberFinalize(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-update-key-finalize-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params:     pendingCommitParams(record, groupDID, prepared),
+	})
+}
+
+func (s *Service) abortPreparedGroupE2EEUpdate(ctx context.Context, record *identity.StoredIdentity, groupDID string, prepared map[string]any) (map[string]any, error) {
+	provider := s.groupMLSProvider()
+	return provider.UpdateMemberAbort(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-update-key-abort-" + generateOperationID(),
 		AgentDID:   record.DID,
 		DeviceID:   "default",
 		Params:     pendingCommitParams(record, groupDID, prepared),
@@ -1024,7 +1180,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	provider := s.groupMLSProvider()
 	for _, notice := range noticesFromResult(pending["notices"]) {
 		noticeType := stringFromAny(notice["notice_type"])
-		if noticeType != "welcome-delivery" && noticeType != "commit-delivery" {
+		if noticeType != "welcome-delivery" && noticeType != "update-welcome-delivery" && noticeType != "commit-delivery" {
 			continue
 		}
 		targetGroupDID := defaultString(stringFromAny(notice["group_did"]), groupDID)
@@ -1033,7 +1189,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 			continue
 		}
 		recipient := firstNonEmptyString(notice["recipient_did"], notice["member_did"])
-		if noticeType == "welcome-delivery" && recipient == "" {
+		if (noticeType == "welcome-delivery" || noticeType == "update-welcome-delivery") && recipient == "" {
 			recipient = stringFromAny(notice["subject_did"])
 		}
 		if recipient != "" && recipient != record.DID {
@@ -1338,7 +1494,9 @@ func groupE2EERecoveryDiagnosis(localStatus map[string]any, serviceHead map[stri
 	actorStatus := strings.ToLower(strings.TrimSpace(stringFromAny(serviceHead["actor_membership_status"])))
 	if actorStatus == "removed" || actorStatus == "left" || actorStatus == "non_member" || actorStatus == "inactive" {
 		diagnosis["state"] = "inactive"
-		diagnosis["next_action"] = "fail_closed"
+		diagnosis["next_action"] = "fresh_normal_keypackage_then_group_add_e2ee"
+		diagnosis["rejoin_command"] = "group add --e2ee"
+		diagnosis["recover_member_allowed"] = false
 		diagnosis["fail_closed"] = true
 		return diagnosis
 	}
@@ -1360,6 +1518,8 @@ func groupE2EERecoveryDiagnosis(localStatus map[string]any, serviceHead map[stri
 	if localErr != nil || localState == "" || localState == "empty" || !hasLocalEpoch {
 		diagnosis["state"] = "missing_state"
 		diagnosis["next_action"] = "needs_snapshot_or_readd"
+		diagnosis["active_recovery_command"] = "group e2ee recover-member"
+		diagnosis["removed_left_rejoin_command"] = "group add --e2ee"
 		diagnosis["fail_closed"] = true
 		return diagnosis
 	}

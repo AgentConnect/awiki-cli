@@ -389,6 +389,30 @@ func (p MLSExecProvider) RecoverMemberPrepare(ctx context.Context, req MLSReques
 	return resp.Result, nil
 }
 
+func (p MLSExecProvider) UpdateMemberPrepare(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "update-member-prepare", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) UpdateMemberFinalize(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "update-member-finalize", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
+func (p MLSExecProvider) UpdateMemberAbort(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "update-member-abort", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
 func (p MLSExecProvider) LeaveGroup(ctx context.Context, req MLSRequest) (map[string]any, error) {
 	resp, err := p.Call(ctx, "group", "leave", req)
 	if err != nil {

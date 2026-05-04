@@ -249,6 +249,10 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupE2EEPending
 	case "group.e2ee.repair":
 		return a.runGroupE2EERepair
+	case "group.e2ee.update-key":
+		return a.runGroupE2EEUpdateKey
+	case "group.e2ee.rejoin":
+		return a.runGroupE2EERejoin
 	case "group.e2ee.recover-member":
 		return a.runGroupE2EERecoverMember
 	case "group.e2ee.process-leave-request":

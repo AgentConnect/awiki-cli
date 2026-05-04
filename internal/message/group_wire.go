@@ -304,6 +304,16 @@ func BuildGroupE2EEGetRecoveryKeyPackageRPCParams(record *identity.StoredIdentit
 	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, body)
 }
 
+func BuildGroupE2EEGetUpdateKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, groupDID string, targetDID string, deviceID string) (map[string]any, error) {
+	body := map[string]any{
+		"target_did": targetDID,
+		"purpose":    "update",
+		"group_did":  strings.TrimSpace(groupDID),
+		"device_id":  defaultString(strings.TrimSpace(deviceID), "default"),
+	}
+	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, body)
+}
+
 func buildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, body map[string]any) (map[string]any, error) {
 	serviceDID = strings.TrimSpace(serviceDID)
 	targetDID := strings.TrimSpace(stringFromAny(body["target_did"]))
@@ -342,6 +352,11 @@ func buildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 func BuildGroupE2EERecoverMemberRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) (map[string]any, error) {
 	body := e2eeRecoveryCommitBody(groupDID, memberDID, deviceID, prepared, leasedPackage)
 	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.recover_member", body, "", stringFromAny(prepared["operation_id"]), "", GroupE2EESecurityProfile)
+}
+
+func BuildGroupE2EEUpdateMemberRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) (map[string]any, error) {
+	body := e2eeUpdateCommitBody(groupDID, memberDID, deviceID, prepared, leasedPackage)
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.update", body, "", stringFromAny(prepared["operation_id"]), "", GroupE2EESecurityProfile)
 }
 
 func BuildGroupE2EENoticeRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, limit int, markDelivered bool, noticeIDs []string) (map[string]any, error) {
@@ -761,6 +776,25 @@ func e2eeMembershipCommitBody(groupDID string, subjectDID string, defaultSubject
 	}
 	if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
 		groupStateRef["epoch"] = fromEpoch
+	}
+	return body
+}
+
+func e2eeUpdateCommitBody(groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) map[string]any {
+	body := e2eeRecoveryCommitBody(groupDID, memberDID, deviceID, prepared, leasedPackage)
+	keyPackageID := firstNonEmptyString(
+		stringFromAny(prepared["update_key_package_id"]),
+		stringFromAny(prepared["key_package_id"]),
+		stringFromAny(leasedPackage["key_package_id"]),
+	)
+	if keyPackageID != "" {
+		body["update_key_package_id"] = keyPackageID
+		delete(body, "recovery_key_package_id")
+	}
+	if groupKeyPackage, ok := body["group_key_package"].(map[string]any); ok {
+		if stringFromAny(groupKeyPackage["purpose"]) == "" {
+			groupKeyPackage["purpose"] = "update"
+		}
 	}
 	return body
 }

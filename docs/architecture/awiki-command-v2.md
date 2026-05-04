@@ -126,6 +126,9 @@ awiki-cli group members --group GROUP_DID [--limit 100] [--identity alice]
 awiki-cli group messages --group GROUP_DID [--limit 50] [--cursor CURSOR] [--identity alice]
 awiki-cli group update --group GROUP_DID [--name "..."] [--description "..."] [--discoverability private|listed|public] [--admission-mode admin-add|open-join] [--slug "..."] [--goal "..."] [--rules "..."] [--message-prompt "..."] [--doc-url "https://..."] [--attachments-allowed=true|false] [--max-members 500] [--member-max-messages 10] [--member-max-total-chars 2000] [--identity alice]
 awiki-cli group leave --group GROUP_DID [--reason "..."] [--e2ee] [--identity alice]
+awiki-cli group e2ee publish-key-package [--purpose normal|recovery|update] [--group GROUP_DID] [--device default] [--identity alice]
+awiki-cli group e2ee update-key --group GROUP_DID --member did:wba:... [--device default] [--identity alice]
+awiki-cli group e2ee rejoin --group GROUP_DID --member did:wba:... [--role member] [--identity alice]
 awiki-cli group e2ee process-leave-request --group GROUP_DID --member did:wba:... [--leave-request-id LR_ID] [--reason "..."] [--identity alice]
 
 测试与示例约定：
