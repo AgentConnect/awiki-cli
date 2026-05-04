@@ -354,7 +354,7 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 		return nil, err
 	}
 	snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
-	if groupSnapshotUsesE2EE(snapshot) {
+	if groupSnapshotUsesE2EE(snapshot) || s.groupHasLocalE2EEState(ctx, record, request.Group) {
 		return s.sendGroupE2EE(ctx, record, request)
 	}
 	sourceMode := s.runtimeConfig().Mode

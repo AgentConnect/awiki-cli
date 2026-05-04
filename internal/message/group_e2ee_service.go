@@ -511,10 +511,95 @@ func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIden
 		return nil, err
 	}
 	delivery, err := transport.SendGroupE2EE(ctx, request.Group, cipher, operationID, messageID)
+	if err != nil && isGroupE2EEEpochMismatch(err) {
+		if finalized, finalizeErr := s.finalizePendingGroupE2EECommitFromStatus(ctx, record, request.Group); finalizeErr == nil && finalized {
+			warnings = append(warnings, "Group E2EE local pending commit finalized after service epoch mismatch.")
+		}
+		repairResult, repairErr := s.RepairGroupE2EENotices(ctx, record.IdentityName, request.Group, 50)
+		if repairErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE send saw stale epoch and notice repair failed: %v", repairErr))
+			return nil, err
+		}
+		warnings = append(warnings, "Group E2EE local epoch was stale; repaired pending notices and retried send.")
+		if repairResult != nil {
+			warnings = append(warnings, repairResult.Warnings...)
+		}
+		operationID = "op-" + generateOperationID()
+		messageID = "msg-" + generateOperationID()
+		groupStateRef = s.localGroupStateRef(ctx, record, request.Group)
+		encryptResult, err = provider.Encrypt(ctx, MLSRequest{
+			APIVersion: "anp-mls/v1",
+			RequestID:  "group-e2ee-encrypt-retry-" + generateOperationID(),
+			AgentDID:   record.DID,
+			DeviceID:   "default",
+			Params: map[string]any{
+				"agent_did":        record.DID,
+				"device_id":        "default",
+				"group_did":        request.Group,
+				"group_state_ref":  groupStateRef,
+				"sender_did":       record.DID,
+				"content_type":     contentType,
+				"security_profile": GroupE2EESecurityProfile,
+				"message_id":       messageID,
+				"operation_id":     operationID,
+				"message_type":     request.MessageType,
+				"application_plaintext": map[string]any{
+					"application_content_type": contentTypeForMessageType(request.MessageType),
+					"text":                     request.Text,
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		cipher, _ = encryptResult["group_cipher_object"].(map[string]any)
+		if len(cipher) == 0 {
+			return nil, fmt.Errorf("anp-mls retry encrypt response missing group_cipher_object")
+		}
+		delivery, err = transport.SendGroupE2EE(ctx, request.Group, cipher, operationID, messageID)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return s.persistGroupE2EESendResult(ctx, record, request, delivery, encryptResult, warnings)
+}
+
+func (s *Service) finalizePendingGroupE2EECommitFromStatus(ctx context.Context, record *identity.StoredIdentity, groupDID string) (bool, error) {
+	provider := s.groupMLSProvider()
+	status, err := provider.Status(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-pending-status-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   "default",
+		Params: map[string]any{
+			"agent_did": record.DID,
+			"device_id": "default",
+			"group_did": groupDID,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, pending := range messagesFromResult(status["pending_commits"]) {
+		pendingID := stringFromAny(pending["pending_commit_id"])
+		if pendingID == "" {
+			continue
+		}
+		_, finalizeErr := s.finalizePreparedGroupE2EECommit(ctx, record, groupDID, map[string]any{"pending_commit_id": pendingID})
+		if finalizeErr != nil {
+			return false, finalizeErr
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func isGroupE2EEEpochMismatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "group.e2ee.send") && strings.Contains(text, "epoch mismatch")
 }
 
 func (s *Service) maybeDecryptGroupMessages(ctx context.Context, record *identity.StoredIdentity, groupDID string, raw map[string]any) ([]string, map[string]any) {
@@ -976,6 +1061,33 @@ func groupStateRefFromSnapshot(groupDID string, snapshot map[string]any) map[str
 		}
 	}
 	return ref
+}
+
+func (s *Service) groupHasLocalE2EEState(ctx context.Context, record *identity.StoredIdentity, groupDID string) bool {
+	if strings.TrimSpace(groupDID) == "" || record == nil {
+		return false
+	}
+	provider := s.groupMLSProvider()
+	resp, err := provider.Status(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-send-detect-" + generateOperationID(),
+		AgentDID:   record.DID,
+		Params: map[string]any{
+			"agent_did": record.DID,
+			"group_did": groupDID,
+		},
+	})
+	if err != nil || len(resp) == 0 {
+		return false
+	}
+	status := strings.ToLower(strings.TrimSpace(stringFromAny(resp["status"])))
+	if status == "active" || status == "pending_commit" {
+		return true
+	}
+	if stringFromAny(resp["crypto_group_id_b64u"]) != "" {
+		return true
+	}
+	return false
 }
 
 func groupRequestUsesE2EE(request GroupCreateRequest) bool {
