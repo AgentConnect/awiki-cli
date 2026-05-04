@@ -50,7 +50,7 @@
 **go.mod / go.sum**: Go 模块定义与依赖锁定；当前 Go 版本基线固定为 `1.22`，直接依赖 `cobra`、`gojq`、`modernc.org/sqlite` 与 ANP Go SDK `github.com/agent-network-protocol/anp/golang@v0.8.7`，要求 pure Go。P5 secure direct 通过远端发布版 SDK 消费 `OneTimePrekey`、`NewFileOneTimePrekeyStore` 与 top-level OPK publish/get API；主线不得提交 `replace => ../anp/anp/golang` 这类工作区本地依赖。上游 / 间接依赖树中可能仍出现 secp256k1 相关库，但 `awiki-cli` 当前本地 DID 主路径已统一为 `e1` / Ed25519。
 **cmd/awiki-cli/main.go**: `awiki-cli` 主程序入口。
 **internal/buildinfo/buildinfo.go**: 版本、构建时间、CGO 状态等构建信息。
-**internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源。
+**internal/cmdmeta/catalog.go**: 静态命令元数据目录，作为 schema/命令骨架的事实来源；测试守护 group E2EE 不发布 External Commit、cloud snapshot、multi-device、k1 recovery 等当前隐藏 P6 非目标命令面。
 **internal/config/config.go**: 单根目录工作区路径解析（默认 `~/.awiki-cli/`）、仅支持 `AWIKI_CLI_WORKSPACE_HOME_DIR` 作为工作区环境变量，并统一解析 `config.yaml`；旧 `config.json` 由 workspace upgrade 在首次访问时自动迁移到 `config.yaml`，其余历史业务环境变量不再驱动 awiki-cli 行为；默认 `ANPMessageService` 从 `service_base_url` 推导而不是从 `did_domain` 推导。
 **internal/output/output.go**: 统一 success/error JSON envelope、`--jq`、table/ndjson 渲染。
 **internal/doctor/doctor.go**: 诊断实现，检查构建、配置、env、identity store、SQLite、legacy 路径、legacy DB 与 `anp-mls` binary/版本/状态目录；SQLite 检查会额外暴露 `contact_handle_bindings` 历史映射表状态与行数，MLS 检查会同时扫描 root 与 agent/device-scoped `state.db`/`state.lock`。

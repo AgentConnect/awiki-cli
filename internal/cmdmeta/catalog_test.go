@@ -23,6 +23,57 @@ func TestCatalogPublishesCanonicalGroupCommands(t *testing.T) {
 	}
 }
 
+func TestGroupE2EECatalogDoesNotPublishOutOfScopeJoinOrRecoverySurfaces(t *testing.T) {
+	t.Parallel()
+
+	catalog := NewCatalog()
+
+	for _, name := range []string{
+		"group e2ee external-commit",
+		"group e2ee external_commit",
+		"group e2ee cloud-snapshot",
+		"group e2ee snapshot",
+		"group e2ee multi-device-sync",
+		"group e2ee k1-recover",
+		"group e2ee k1_recover",
+		"group e2ee get-join-info",
+		"group e2ee accept-welcome",
+	} {
+		if _, ok := catalog.Lookup(name); ok {
+			t.Fatalf("Lookup(%q) = true, want false for hidden P6 non-goal", name)
+		}
+	}
+
+	for _, spec := range catalog.Specs() {
+		if !strings.HasPrefix(spec.Name, "group.e2ee") {
+			continue
+		}
+		haystack := strings.ToLower(strings.Join([]string{
+			spec.Name,
+			spec.Use,
+			spec.Short,
+			spec.Long,
+		}, " "))
+		for _, flag := range spec.Flags {
+			haystack += " " + strings.ToLower(flag.Name+" "+flag.Usage)
+		}
+		for _, forbidden := range []string{
+			"external commit",
+			"external-commit",
+			"external_commit",
+			"cloud snapshot",
+			"cloud-snapshot",
+			"multi-device",
+			"k1-recover",
+			"k1_recover",
+		} {
+			if strings.Contains(haystack, forbidden) {
+				t.Fatalf("group E2EE catalog spec %q contains forbidden non-goal %q", spec.Name, forbidden)
+			}
+		}
+	}
+}
+
 func TestCatalogPublishesPublicDangerousReplaceDIDCommand(t *testing.T) {
 	t.Parallel()
 
