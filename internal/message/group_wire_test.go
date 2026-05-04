@@ -384,6 +384,8 @@ func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *tes
 			"mls_key_package_b64u":     "a3A",
 			"did_wba_binding":          map[string]any{"agent_did": record.DID},
 			"device_id":                "bob-main",
+			"purpose":                  "recovery",
+			"group_did":                "did:wba:awiki.ai:groups:demo:e1_group",
 			"private_key_package_b64u": "must-not-leak",
 		},
 	})
@@ -401,12 +403,39 @@ func TestBuildGroupE2EEPublishKeyPackageRPCParamsStripsProviderOnlyFields(t *tes
 	if got := stringFromAny(groupKeyPackage["key_package_id"]); got != "kp-bob-main" {
 		t.Fatalf("key_package_id = %q, want kp-bob-main", got)
 	}
+	if got := stringFromAny(groupKeyPackage["purpose"]); got != "recovery" {
+		t.Fatalf("purpose = %q, want recovery", got)
+	}
+	if got := stringFromAny(groupKeyPackage["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
+		t.Fatalf("group_did = %q, want recovery group DID", got)
+	}
 	if _, ok := params["auth"]; !ok {
 		t.Fatalf("auth missing from publish params: %#v", params)
 	}
 	meta := mustMapValue(t, params["meta"], "params.meta")
 	if got := stringFromAny(meta["security_profile"]); got != "transport-protected" {
 		t.Fatalf("publish security_profile = %q, want transport-protected", got)
+	}
+}
+
+func TestSanitizeGroupKeyPackageForServiceOmitsEmptyOptionalRecoveryFields(t *testing.T) {
+	t.Parallel()
+
+	got := sanitizeGroupKeyPackageForService(map[string]any{
+		"owner_did":            "did:wba:awiki.ai:user:bob:e1_bob",
+		"device_id":            "bob-main",
+		"key_package_id":       "kp-bob-main",
+		"suite":                "MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519",
+		"mls_key_package_b64u": "a3A",
+		"did_wba_binding":      map[string]any{"agent_did": "did:wba:awiki.ai:user:bob:e1_bob"},
+		"purpose":              "",
+		"group_did":            "",
+	})
+	if _, ok := got["purpose"]; ok {
+		t.Fatalf("empty purpose must not be sent to service: %#v", got)
+	}
+	if _, ok := got["group_did"]; ok {
+		t.Fatalf("empty group_did must not be sent to service: %#v", got)
 	}
 }
 
@@ -697,5 +726,11 @@ func TestBuildGroupE2EERecoverMemberRPCParamsAvoidsP4MembershipFields(t *testing
 	recoveryPackage := mustMapValue(t, body["group_key_package"], "body.group_key_package")
 	if _, ok := recoveryPackage["private_key_package_b64u"]; ok {
 		t.Fatalf("private KeyPackage material leaked: %#v", recoveryPackage)
+	}
+	if got := stringFromAny(recoveryPackage["purpose"]); got != "recovery" {
+		t.Fatalf("recovery group_key_package.purpose = %q, want recovery", got)
+	}
+	if got := stringFromAny(recoveryPackage["device_id"]); got != "bob-main" {
+		t.Fatalf("recovery group_key_package.device_id = %q, want bob-main", got)
 	}
 }

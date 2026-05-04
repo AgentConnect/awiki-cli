@@ -439,12 +439,17 @@ func sanitizeGroupKeyPackageForService(input map[string]any) map[string]any {
 		"mls_key_package_b64u": {},
 		"did_wba_binding":      {},
 		"expires_at":           {},
+		"purpose":              {},
+		"group_did":            {},
 		"non_cryptographic":    {},
 		"artifact_mode":        {},
 	}
 	output := make(map[string]any, len(input))
 	for key, value := range input {
 		if _, ok := allowed[key]; ok {
+			if (key == "group_did" || key == "purpose") && strings.TrimSpace(stringFromAny(value)) == "" {
+				continue
+			}
 			output[key] = value
 		}
 	}

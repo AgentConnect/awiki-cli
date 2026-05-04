@@ -219,7 +219,7 @@
 
 - `msg` 域中 direct plain 已实现，P5 secure direct 出站首版已接入；HTTP inbox/history 的 P5 入站自动解密、轮询 direct-init 自动 ACK 与 outbox flush 已接入；websocket listener 已能解密 secure incoming、自动 first-reply/ack，并在 secure ack 后尝试 flush `e2ee_outbox`；`msg secure status/init/repair/failed/retry/drop` 有首版，但完整 runtime 联调与更强系统测试仍未完成
 - `group` 域的 plain lifecycle / local view / group messaging 已接入，`people` 仍大多为 stub；`page` 已完成 content pages 首版
-- secure E2EE 业务流目前只完成 P5 出站首版；group E2EE 已接入 CLI 侧 `anp-mls` exec 编排、KeyPackage 发布（含 PR-B3 recovery KeyPackage）、group-e2ee create/add/remove/send、安全 self-leave request、owner/admin process-leave-request、owner/admin recover-member same-device crypto recovery、pending commit finalize/abort、commit-delivery repair 与轮询消息本地解密分支，并已有隐藏 focused target 覆盖真实 OpenMLS Alice/Bob 最小闭环；对外 discovery 仍保持隐藏，External Commit/recovery 与完整 MLS 群管理能力仍未实现；安全 leave-request 已处于 hidden/test-only PR-B1 路径。
+- secure E2EE 业务流目前只完成 P5 出站首版；group E2EE 已接入 CLI 侧 `anp-mls` exec 编排、KeyPackage 发布（含 PR-B3 recovery KeyPackage）、group-e2ee create/add/remove/send、安全 self-leave request、owner/admin process-leave-request、owner/admin recover-member same-DID/device crypto recovery、pending commit finalize/abort、commit-delivery repair 与轮询消息本地解密分支，并已有隐藏 focused target 覆盖真实 OpenMLS Alice/Bob 最小闭环与 PR-B3 recovery；对外 discovery 仍保持隐藏，External Commit、多设备、cloud snapshot 与完整 MLS 群管理能力仍未实现；安全 leave-request 已处于 hidden/test-only PR-B1 路径。
 
 ## 开发与验证约定
 

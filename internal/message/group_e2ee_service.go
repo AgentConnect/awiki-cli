@@ -396,7 +396,6 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 			"operation_id":               operationID,
 			"group_state_ref":            s.localGroupStateRef(ctx, record, request.Group),
 			"p4_membership_mutate":       false,
-			"forbidden_p4_method":        "group.add",
 			"recovery_operation_purpose": "same-device-crypto-recovery",
 		},
 	})
@@ -436,7 +435,6 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 		"mls_finalize":          finalized,
 		"delivery":              delivery,
 		"p4_membership_mutate":  false,
-		"forbidden_p4_method":   "group.add",
 		"argv_sensitive_fields": "stdin-json-only",
 	}
 	if localWelcome != nil {
