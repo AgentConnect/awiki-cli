@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -245,6 +247,233 @@ func TestShouldAbortGroupE2EEPendingCommitOnlyForDeterministicServiceRejection(t
 	if shouldAbortGroupE2EEPendingCommit(fmt.Errorf("connection reset")) {
 		t.Fatal("transport/network errors should leave pending commit intact")
 	}
+}
+
+func TestInspectGroupE2EEStatusComparesLocalEpochToServiceHead(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:repair:e1_group"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envelope := decodeRPCRequest(t, r)
+		var result map[string]any
+		switch envelope.Method {
+		case "group.e2ee.head":
+			result = map[string]any{
+				"group_did":                groupDID,
+				"crypto_group_id_b64u":     "crypto-1",
+				"epoch":                    "2",
+				"actor_membership_status":  "active",
+				"actor_recovery_eligible":  true,
+				"epoch_authenticator_b64u": "auth-2",
+				"latest_notice_cursor":     "notice-commit-2",
+			}
+		case "group.e2ee.notice":
+			result = map[string]any{
+				"pending_count": 1,
+				"notices": []map[string]any{{
+					"notice_id":            "notice-commit-2",
+					"notice_type":          "commit-delivery",
+					"group_did":            groupDID,
+					"crypto_group_id_b64u": "crypto-1",
+					"from_epoch":           "1",
+					"to_epoch":             "2",
+				}},
+			}
+		default:
+			t.Fatalf("unexpected RPC method %q", envelope.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": result})
+	}))
+	defer server.Close()
+
+	service, _, record := newMessageServiceForTest(t, server.URL)
+	service.mlsProvider = &MLSExecProvider{
+		BinaryPath: "anp-mls",
+		Runner: &groupE2EEStatusMLSRunner{status: map[string]any{
+			"status":               "active",
+			"epoch":                "1",
+			"crypto_group_id_b64u": "crypto-1",
+			"pending_commits":      []map[string]any{},
+		}},
+	}
+	result, err := service.InspectGroupE2EEStatus(context.Background(), record.IdentityName, groupDID, 50)
+	if err != nil {
+		t.Fatalf("InspectGroupE2EEStatus() error = %v", err)
+	}
+	diagnosis := mustMapValue(t, result.Data["diagnosis"], "diagnosis")
+	if got := stringFromAny(diagnosis["state"]); got != "pending_notices" {
+		t.Fatalf("diagnosis.state = %q, want pending_notices: %#v", got, diagnosis)
+	}
+	if got := stringFromAny(diagnosis["next_action"]); got != "run_group_e2ee_repair" {
+		t.Fatalf("diagnosis.next_action = %q, want repair: %#v", got, diagnosis)
+	}
+	if got := intValueFromAny(result.Data["pending_notice_count"], 0); got != 1 {
+		t.Fatalf("pending_notice_count = %d, want 1", got)
+	}
+}
+
+func TestProcessGroupCommitNoticeTreatsDuplicateAsAlreadyApplied(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:already-applied:e1_group"
+	service := &Service{
+		mlsProvider: &MLSExecProvider{
+			BinaryPath: "anp-mls",
+			Runner: &groupE2EEStatusMLSRunner{
+				status: map[string]any{
+					"status":               "active",
+					"epoch":                "2",
+					"crypto_group_id_b64u": "crypto-1",
+					"pending_commits":      []map[string]any{},
+				},
+				failCommitProcess: true,
+			},
+		},
+	}
+	record := &identity.StoredIdentity{IdentityName: "bob", DID: "did:wba:awiki.ai:users:bob:e1_bob"}
+	processed, warnings := service.processGroupCommitNotice(context.Background(), record, groupDID, map[string]any{
+		"notice_id":            "notice-2",
+		"notice_type":          "commit-delivery",
+		"group_did":            groupDID,
+		"crypto_group_id_b64u": "crypto-1",
+		"from_epoch":           "1",
+		"to_epoch":             "2",
+		"commit_b64u":          "opaque-commit",
+	})
+	if processed == nil {
+		t.Fatalf("processed = nil, warnings = %#v", warnings)
+	}
+	if got := boolFromAny(processed["already_applied"]); !got {
+		t.Fatalf("already_applied = %#v, want true: %#v", processed["already_applied"], processed)
+	}
+	if !warningContains(warnings, "already-applied") {
+		t.Fatalf("warnings = %#v, want already-applied guidance", warnings)
+	}
+}
+
+func TestGroupE2EEStatusForRecoveryScansNonDefaultDevice(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:scan-device:e1_group"
+	agentDID := "did:wba:awiki.ai:users:bob:e1_bob"
+	dataDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dataDir, "agents", mlsAgentKey(agentDID), "bob-main"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	provider := MLSExecProvider{
+		BinaryPath: "anp-mls",
+		DataDir:    dataDir,
+		Runner: &groupE2EEStatusMLSRunner{statusByDevice: map[string]map[string]any{
+			"default":  {"status": "empty"},
+			"bob-main": {"status": "active", "epoch": "2", "crypto_group_id_b64u": "crypto-1"},
+		}},
+	}
+
+	status, deviceID, err := groupE2EEStatusForRecovery(context.Background(), provider, agentDID, groupDID, "")
+	if err != nil {
+		t.Fatalf("groupE2EEStatusForRecovery() error = %v", err)
+	}
+	if deviceID != "bob-main" {
+		t.Fatalf("deviceID = %q, want bob-main; status=%#v", deviceID, status)
+	}
+	if got := stringFromAny(status["epoch"]); got != "2" {
+		t.Fatalf("epoch = %q, want 2: %#v", got, status)
+	}
+}
+
+func TestProcessGroupCommitNoticeScansNonDefaultDeviceWhenNoticeOmitsDevice(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:commit-scan:e1_group"
+	record := &identity.StoredIdentity{IdentityName: "bob", DID: "did:wba:awiki.ai:users:bob:e1_bob"}
+	dataDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dataDir, "agents", mlsAgentKey(record.DID), "bob-main"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	service := &Service{
+		resolved: testResolvedConfig(t),
+		mlsProvider: &MLSExecProvider{
+			BinaryPath: "anp-mls",
+			DataDir:    dataDir,
+			Runner: &groupE2EEStatusMLSRunner{
+				statusByDevice: map[string]map[string]any{
+					"default":  {"status": "empty"},
+					"bob-main": {"status": "active", "epoch": "1", "crypto_group_id_b64u": "crypto-1"},
+				},
+				failCommitProcessDevices: map[string]bool{"default": true},
+				commitResultByDevice: map[string]map[string]any{
+					"bob-main": {"status": "active", "epoch": "2", "crypto_group_id_b64u": "crypto-1"},
+				},
+			},
+		},
+	}
+
+	processed, warnings := service.processGroupCommitNotice(context.Background(), record, groupDID, map[string]any{
+		"notice_id":            "notice-2",
+		"notice_type":          "commit-delivery",
+		"group_did":            groupDID,
+		"crypto_group_id_b64u": "crypto-1",
+		"from_epoch":           "1",
+		"to_epoch":             "2",
+		"commit_b64u":          "opaque-commit",
+	})
+	if processed == nil {
+		t.Fatalf("processed = nil, warnings = %#v", warnings)
+	}
+	if got := stringFromAny(processed["device_id"]); got != "bob-main" {
+		t.Fatalf("device_id = %q, want bob-main: %#v", got, processed)
+	}
+}
+
+type groupE2EEStatusMLSRunner struct {
+	status                   map[string]any
+	statusByDevice           map[string]map[string]any
+	commitResultByDevice     map[string]map[string]any
+	failCommitProcess        bool
+	failCommitProcessDevices map[string]bool
+}
+
+func (r *groupE2EEStatusMLSRunner) Run(_ context.Context, _ string, args []string, stdin []byte) ([]byte, []byte, error) {
+	var req MLSRequest
+	_ = json.Unmarshal(stdin, &req)
+	command := strings.Join(args, " ")
+	deviceID := defaultString(req.DeviceID, stringFromAny(req.Params["device_id"]))
+	if strings.Contains(command, "commit process") {
+		if r.failCommitProcess || r.failCommitProcessDevices[deviceID] {
+			return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"group_epoch_mismatch","message":"commit from_epoch does not match local epoch"}}`, req.RequestID)), nil, nil
+		}
+		result := r.commitResultByDevice[deviceID]
+		if result == nil {
+			result = map[string]any{"status": "active", "epoch": "2"}
+		}
+		return []byte(mustJSONForTest(map[string]any{
+			"ok":          true,
+			"api_version": "anp-mls/v1",
+			"request_id":  req.RequestID,
+			"result":      result,
+		})), nil, nil
+	}
+	result := r.statusByDevice[deviceID]
+	if result == nil {
+		result = r.status
+	}
+	if result == nil {
+		result = map[string]any{"status": "empty"}
+	}
+	return []byte(mustJSONForTest(map[string]any{
+		"ok":          true,
+		"api_version": "anp-mls/v1",
+		"request_id":  req.RequestID,
+		"result":      result,
+	})), nil, nil
+}
+
+func mustJSONForTest(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
 }
 
 func TestGroupStateRefFromSnapshotUsesServerStateVersionNotMLSEpoch(t *testing.T) {

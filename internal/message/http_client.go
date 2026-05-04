@@ -331,6 +331,14 @@ func (t *HTTPTransport) MarkGroupE2EENoticesDelivered(ctx context.Context, group
 	return t.rpcMapCall(ctx, "group.e2ee.notice", params)
 }
 
+func (t *HTTPTransport) GetGroupE2EEHead(ctx context.Context, groupDID string) (map[string]any, error) {
+	params, err := BuildGroupE2EEHeadRPCParams(t.auth.record, nil, groupDID)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.e2ee.head", params)
+}
+
 func (t *HTTPTransport) GetGroupInfo(ctx context.Context, request GroupInfoRequest) (map[string]any, error) {
 	params, err := BuildGroupGetInfoRPCParams(t.auth.record, request)
 	if err != nil {

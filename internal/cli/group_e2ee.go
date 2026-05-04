@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/spf13/cobra"
@@ -31,25 +28,12 @@ func (a *App) runGroupE2EEStatus(cmd *cobra.Command, args []string) error {
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee status planned", nil, a.identityMeta())
 	}
-	agentDID, identityErr := activeIdentityDID(service, a.globals.Identity)
-	warnings := []string(nil)
-	if identityErr != nil {
-		warnings = append(warnings, fmt.Sprintf("Active identity DID unavailable: %v", identityErr))
+	result, statusErr := service.InspectGroupE2EEStatus(cmd.Context(), a.globals.Identity, group, 50)
+	if statusErr != nil {
+		return a.messageExit(statusErr, "Install anp-mls, set AWIKI_ANP_MLS_BINARY, and ensure message-service group E2EE APIs are enabled for focused validation.")
 	}
-	provider.Timeout = 5 * time.Second
-	resp, callErr := provider.Call(cmd.Context(), "group", "status", message.MLSRequest{
-		APIVersion: "anp-mls/v1",
-		RequestID:  fmt.Sprintf("group-e2ee-status-%d", time.Now().UnixNano()),
-		AgentDID:   agentDID,
-		Params:     map[string]any{"agent_did": agentDID, "group_did": group},
-	})
-	data := map[string]any{"plan": plan, "available": callErr == nil}
-	if callErr != nil {
-		warnings = append(warnings, fmt.Sprintf("anp-mls exec provider unavailable: %v", callErr))
-	} else if resp != nil {
-		data["mls"] = resp.Result
-	}
-	return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Group E2EE local MLS status inspected", warnings, a.identityMeta())
+	result.Data["plan"] = plan
+	return a.renderMessageResult(cmd, format, result)
 }
 
 func (a *App) runGroupE2EEPublishKeyPackage(cmd *cobra.Command, args []string) error {
@@ -121,7 +105,7 @@ func (a *App) runGroupE2EERepair(cmd *cobra.Command, args []string) error {
 		"provider":     "exec",
 		"mls_data_dir": provider.DataDir,
 		"group":        group,
-		"scope":        "pull durable P6 notices, replay welcome-delivery, and mark processed notices delivered",
+		"scope":        "compare local MLS status to service head, safely finalize accepted pending commits, replay welcome/commit notices, and fail closed on unrecoverable gaps",
 	}
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee repair planned", nil, a.identityMeta())

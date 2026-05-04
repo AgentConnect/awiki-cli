@@ -472,6 +472,12 @@ func shouldAbortGroupE2EEPendingCommit(err error) bool {
 func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIdentity, request SendRequest) (*CommandResult, error) {
 	provider := s.groupMLSProvider()
 	warnings := s.syncGroupState(ctx, record, request.Group, false)
+	deviceID := "default"
+	if status, candidateDeviceID, statusErr := groupE2EEStatusForRecovery(ctx, provider, record.DID, request.Group, ""); statusErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE send could not inspect device-scoped MLS status before encrypt: %v", statusErr))
+	} else if strings.EqualFold(stringFromAny(status["status"]), "active") {
+		deviceID = candidateDeviceID
+	}
 	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	operationID := "op-" + generateOperationID()
 	messageID := "msg-" + generateOperationID()
@@ -480,10 +486,10 @@ func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIden
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-encrypt-" + generateOperationID(),
 		AgentDID:   record.DID,
-		DeviceID:   "default",
+		DeviceID:   deviceID,
 		Params: map[string]any{
 			"agent_did":        record.DID,
-			"device_id":        "default",
+			"device_id":        deviceID,
 			"group_did":        request.Group,
 			"group_state_ref":  groupStateRef,
 			"sender_did":       record.DID,
@@ -526,15 +532,20 @@ func (s *Service) sendGroupE2EE(ctx context.Context, record *identity.StoredIden
 		}
 		operationID = "op-" + generateOperationID()
 		messageID = "msg-" + generateOperationID()
+		if status, candidateDeviceID, statusErr := groupE2EEStatusForRecovery(ctx, provider, record.DID, request.Group, deviceID); statusErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE send could not inspect device-scoped MLS status after repair: %v", statusErr))
+		} else if strings.EqualFold(stringFromAny(status["status"]), "active") {
+			deviceID = candidateDeviceID
+		}
 		groupStateRef = s.localGroupStateRef(ctx, record, request.Group)
 		encryptResult, err = provider.Encrypt(ctx, MLSRequest{
 			APIVersion: "anp-mls/v1",
 			RequestID:  "group-e2ee-encrypt-retry-" + generateOperationID(),
 			AgentDID:   record.DID,
-			DeviceID:   "default",
+			DeviceID:   deviceID,
 			Params: map[string]any{
 				"agent_did":        record.DID,
-				"device_id":        "default",
+				"device_id":        deviceID,
 				"group_did":        request.Group,
 				"group_state_ref":  groupStateRef,
 				"sender_did":       record.DID,
@@ -763,6 +774,68 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 	}, warnings
 }
 
+func (s *Service) InspectGroupE2EEStatus(ctx context.Context, identityName string, groupDID string, limit int) (*CommandResult, error) {
+	record, err := s.requireActiveIdentity(identityName)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	provider := s.groupMLSProvider()
+	localStatus, localDeviceID, localErr := groupE2EEStatusForRecovery(ctx, provider, record.DID, groupDID, "")
+	warnings := []string(nil)
+	if localErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE local MLS status unavailable: %v", localErr))
+	}
+
+	transport, transportWarnings, transportErr := s.httpTransport(record)
+	warnings = append(warnings, transportWarnings...)
+	var serviceHead map[string]any
+	var pending map[string]any
+	if transportErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE service status unavailable: %v", transportErr))
+	} else {
+		var headErr error
+		serviceHead, headErr = transport.GetGroupE2EEHead(ctx, groupDID)
+		if headErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE service head unavailable: %v", headErr))
+		}
+		var pendingErr error
+		pending, pendingErr = transport.PullGroupE2EENotices(ctx, groupDID, limit, false)
+		if pendingErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE pending notice status unavailable: %v", pendingErr))
+		}
+	}
+
+	pendingNotices := noticesFromResult(nil)
+	pendingNoticeCount := 0
+	if pending != nil {
+		pendingNotices = noticesFromResult(pending["notices"])
+		if count, ok := int64FromAny(pending["pending_count"]); ok {
+			pendingNoticeCount = int(count)
+		} else {
+			pendingNoticeCount = len(pendingNotices)
+		}
+	}
+	diagnosis := groupE2EERecoveryDiagnosis(localStatus, serviceHead, pendingNoticeCount, localErr)
+	return &CommandResult{
+		Data: map[string]any{
+			"group":                groupDID,
+			"available":            localErr == nil,
+			"mls":                  localStatus,
+			"local":                localStatus,
+			"local_device_id":      localDeviceID,
+			"service_head":         serviceHead,
+			"pending_notices":      pendingNotices,
+			"pending_notice_count": pendingNoticeCount,
+			"diagnosis":            diagnosis,
+		},
+		Summary:  "Group E2EE recovery status inspected",
+		Warnings: compactWarnings(warnings),
+	}, nil
+}
+
 func (s *Service) PullGroupE2EENotices(ctx context.Context, identityName string, groupDID string, limit int) (*CommandResult, error) {
 	record, err := s.requireActiveIdentity(identityName)
 	if err != nil {
@@ -795,6 +868,16 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	transport, warnings, err := s.httpTransport(record)
 	if err != nil {
 		return nil, err
+	}
+	serviceHead, headErr := transport.GetGroupE2EEHead(ctx, groupDID)
+	if headErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE service head unavailable during repair: %v", headErr))
+	}
+	finalizedPending := []map[string]any(nil)
+	if len(serviceHead) > 0 {
+		var finalizeWarnings []string
+		finalizedPending, finalizeWarnings = s.finalizeAcceptedPendingGroupE2EECommits(ctx, record, groupDID, serviceHead)
+		warnings = append(warnings, finalizeWarnings...)
 	}
 	pending, err := transport.PullGroupE2EENotices(ctx, groupDID, limit, false)
 	if err != nil {
@@ -864,13 +947,31 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 			warnings = append(warnings, fmt.Sprintf("Group E2EE repair processed notices but failed to mark delivered: %v", err))
 		}
 	}
+	localStatus, localDeviceID, localErr := groupE2EEStatusForRecovery(ctx, provider, record.DID, groupDID, "")
+	if localErr != nil {
+		warnings = append(warnings, fmt.Sprintf("Group E2EE local MLS status unavailable after repair: %v", localErr))
+	}
+	remainingPending := len(noticesFromResult(pending["notices"])) - len(noticeIDs)
+	if remainingPending < 0 {
+		remainingPending = 0
+	}
+	diagnosis := groupE2EERecoveryDiagnosis(localStatus, serviceHead, remainingPending, localErr)
+	if action := stringFromAny(diagnosis["next_action"]); action == "needs_snapshot_or_readd" {
+		warnings = append(warnings, "Group E2EE repair could not prove epoch continuity; fail closed and ask an owner/admin to re-add this single-device member with a fresh KeyPackage.")
+	}
 	return &CommandResult{
 		Data: map[string]any{
-			"processed":        processed,
-			"processed_count":  len(processed),
-			"pending_count":    pending["pending_count"],
-			"delivered_result": delivered,
-			"group":            groupDID,
+			"processed":                 processed,
+			"processed_count":           len(processed),
+			"finalized_pending_commits": finalizedPending,
+			"finalized_pending_count":   len(finalizedPending),
+			"pending_count":             pending["pending_count"],
+			"delivered_result":          delivered,
+			"group":                     groupDID,
+			"local":                     localStatus,
+			"local_device_id":           localDeviceID,
+			"service_head":              serviceHead,
+			"diagnosis":                 diagnosis,
 		},
 		Summary:  "Replayed group E2EE pending notices",
 		Warnings: compactWarnings(warnings),
@@ -882,7 +983,6 @@ func (s *Service) processGroupCommitNotice(ctx context.Context, record *identity
 	if commitB64U == "" {
 		return nil, []string{"Group E2EE repair skipped commit notice missing commit_b64u"}
 	}
-	deviceID := defaultString(stringFromAny(notice["device_id"]), "default")
 	groupStateRef, _ := notice["group_state_ref"].(map[string]any)
 	if len(groupStateRef) == 0 {
 		groupStateRef = map[string]any{
@@ -895,54 +995,336 @@ func (s *Service) processGroupCommitNotice(ctx context.Context, record *identity
 			groupStateRef["epoch"] = fromEpoch
 		}
 	}
-	params := map[string]any{
-		"agent_did":            record.DID,
-		"device_id":            deviceID,
-		"group_did":            groupDID,
-		"group_state_ref":      groupStateRef,
-		"commit_b64u":          commitB64U,
-		"ratchet_tree_b64u":    notice["ratchet_tree_b64u"],
-		"group_info_b64u":      notice["group_info_b64u"],
-		"operation_id":         notice["operation_id"],
-		"notice_id":            notice["notice_id"],
-		"actor_did":            notice["actor_did"],
-		"subject_did":          notice["subject_did"],
-		"subject_status":       notice["subject_status"],
-		"from_epoch":           notice["from_epoch"],
-		"to_epoch":             notice["to_epoch"],
-		"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
-		"epoch_authenticator":  firstNonNil(notice["epoch_authenticator"], notice["epoch_authenticator_b64u"]),
-	}
 	provider := s.groupMLSProvider()
-	commitResult, err := provider.ProcessCommit(ctx, MLSRequest{
+	deviceIDs := groupE2EERecoveryDeviceIDs(provider, record.DID, stringFromAny(notice["device_id"]))
+	warnings := []string(nil)
+	for _, deviceID := range deviceIDs {
+		params := map[string]any{
+			"agent_did":            record.DID,
+			"device_id":            deviceID,
+			"group_did":            groupDID,
+			"group_state_ref":      groupStateRef,
+			"commit_b64u":          commitB64U,
+			"ratchet_tree_b64u":    notice["ratchet_tree_b64u"],
+			"group_info_b64u":      notice["group_info_b64u"],
+			"operation_id":         notice["operation_id"],
+			"notice_id":            notice["notice_id"],
+			"actor_did":            notice["actor_did"],
+			"subject_did":          notice["subject_did"],
+			"subject_status":       notice["subject_status"],
+			"from_epoch":           notice["from_epoch"],
+			"to_epoch":             notice["to_epoch"],
+			"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
+			"epoch_authenticator":  firstNonNil(notice["epoch_authenticator"], notice["epoch_authenticator_b64u"]),
+		}
+		commitResult, err := provider.ProcessCommit(ctx, MLSRequest{
+			APIVersion: "anp-mls/v1",
+			RequestID:  "group-e2ee-commit-repair-" + generateOperationID(),
+			AgentDID:   record.DID,
+			DeviceID:   deviceID,
+			Params:     params,
+		})
+		if err != nil {
+			if alreadyApplied, statusWarnings := s.groupCommitNoticeAlreadyApplied(ctx, provider, record, groupDID, deviceID, notice); alreadyApplied {
+				return map[string]any{
+					"processed":       true,
+					"already_applied": true,
+					"notice_type":     "commit-delivery",
+					"notice_id":       notice["notice_id"],
+					"group_did":       groupDID,
+					"member_did":      record.DID,
+					"device_id":       deviceID,
+					"epoch":           notice["to_epoch"],
+					"subject_did":     notice["subject_did"],
+					"subject_status":  notice["subject_status"],
+				}, statusWarnings
+			}
+			warnings = append(warnings, fmt.Sprintf("Group E2EE repair commit processing failed on device %s: %v", deviceID, err))
+			continue
+		}
+		resultWarnings := []string(nil)
+		if persistWarnings := s.persistGroupE2EESummary(ctx, record, groupDID, commitResult, notice); len(persistWarnings) > 0 {
+			resultWarnings = append(resultWarnings, persistWarnings...)
+		}
+		return map[string]any{
+			"processed":      true,
+			"notice_type":    "commit-delivery",
+			"notice_id":      notice["notice_id"],
+			"group_did":      groupDID,
+			"member_did":     record.DID,
+			"device_id":      deviceID,
+			"epoch":          commitResult["epoch"],
+			"subject_did":    notice["subject_did"],
+			"subject_status": notice["subject_status"],
+		}, resultWarnings
+	}
+	return nil, compactWarnings(warnings)
+}
+
+func (s *Service) finalizeAcceptedPendingGroupE2EECommits(ctx context.Context, record *identity.StoredIdentity, groupDID string, serviceHead map[string]any) ([]map[string]any, []string) {
+	provider := s.groupMLSProvider()
+	status, err := provider.Status(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
-		RequestID:  "group-e2ee-commit-repair-" + generateOperationID(),
+		RequestID:  "group-e2ee-pending-repair-status-" + generateOperationID(),
 		AgentDID:   record.DID,
-		DeviceID:   deviceID,
-		Params:     params,
+		DeviceID:   "default",
+		Params: map[string]any{
+			"agent_did": record.DID,
+			"device_id": "default",
+			"group_did": groupDID,
+		},
 	})
 	if err != nil {
-		return nil, []string{fmt.Sprintf("Group E2EE repair commit processing failed: %v", err)}
+		return nil, []string{fmt.Sprintf("Group E2EE pending commit status unavailable during repair: %v", err)}
 	}
+	finalized := make([]map[string]any, 0)
 	warnings := []string(nil)
-	subjectDID := stringFromAny(notice["subject_did"])
-	subjectStatus := stringFromAny(notice["subject_status"])
-	if subjectDID == record.DID && (subjectStatus == "removed" || subjectStatus == "left") {
-		warnings = append(warnings, s.markCachedGroupLeft(ctx, record, groupDID)...)
-	} else {
-		warnings = append(warnings, s.persistGroupE2EESummary(ctx, record, groupDID, commitResult, notice)...)
+	for _, pending := range messagesFromResult(status["pending_commits"]) {
+		pendingID := stringFromAny(pending["pending_commit_id"])
+		if pendingID == "" {
+			continue
+		}
+		if !groupE2EEPendingCommitAcceptedByService(pending, serviceHead) {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE pending commit %s retained: service head has not accepted its target epoch.", pendingID))
+			continue
+		}
+		result, finalizeErr := s.finalizePreparedGroupE2EECommit(ctx, record, groupDID, map[string]any{"pending_commit_id": pendingID})
+		if finalizeErr != nil {
+			warnings = append(warnings, fmt.Sprintf("Group E2EE pending commit %s matched service head but local finalize failed: %v", pendingID, finalizeErr))
+			continue
+		}
+		finalized = append(finalized, result)
 	}
-	return map[string]any{
-		"processed":      true,
-		"notice_type":    "commit-delivery",
-		"notice_id":      notice["notice_id"],
-		"group_did":      groupDID,
-		"member_did":     record.DID,
-		"device_id":      deviceID,
-		"epoch":          firstNonNil(commitResult["epoch"], notice["to_epoch"]),
-		"subject_did":    subjectDID,
-		"subject_status": subjectStatus,
-	}, warnings
+	return finalized, warnings
+}
+
+func groupE2EEPendingCommitAcceptedByService(pending map[string]any, serviceHead map[string]any) bool {
+	if len(pending) == 0 || len(serviceHead) == 0 {
+		return false
+	}
+	if groupDID := stringFromAny(pending["group_did"]); groupDID != "" {
+		if serviceGroupDID := stringFromAny(serviceHead["group_did"]); serviceGroupDID != "" && serviceGroupDID != groupDID {
+			return false
+		}
+	}
+	if cryptoGroupID := stringFromAny(pending["crypto_group_id_b64u"]); cryptoGroupID != "" {
+		if serviceCryptoGroupID := stringFromAny(serviceHead["crypto_group_id_b64u"]); serviceCryptoGroupID != "" && serviceCryptoGroupID != cryptoGroupID {
+			return false
+		}
+	}
+	toEpoch, hasToEpoch := int64FromAny(pending["to_epoch"])
+	serviceEpoch, hasServiceEpoch := int64FromAny(serviceHead["epoch"])
+	return hasToEpoch && hasServiceEpoch && serviceEpoch >= toEpoch
+}
+
+func (s *Service) groupCommitNoticeAlreadyApplied(ctx context.Context, provider MLSExecProvider, record *identity.StoredIdentity, groupDID string, deviceID string, notice map[string]any) (bool, []string) {
+	toEpoch, hasToEpoch := int64FromAny(notice["to_epoch"])
+	if !hasToEpoch {
+		return false, nil
+	}
+	status, err := provider.Status(ctx, MLSRequest{
+		APIVersion: "anp-mls/v1",
+		RequestID:  "group-e2ee-commit-duplicate-status-" + generateOperationID(),
+		AgentDID:   record.DID,
+		DeviceID:   deviceID,
+		Params: map[string]any{
+			"agent_did": record.DID,
+			"device_id": deviceID,
+			"group_did": groupDID,
+		},
+	})
+	if err != nil {
+		return false, []string{fmt.Sprintf("Group E2EE repair could not inspect local status after commit failure: %v", err)}
+	}
+	localEpoch, hasLocalEpoch := groupE2EELocalEpochFromStatus(status)
+	if !hasLocalEpoch || localEpoch < toEpoch {
+		return false, nil
+	}
+	if noticeCryptoGroupID := stringFromAny(notice["crypto_group_id_b64u"]); noticeCryptoGroupID != "" {
+		if localCryptoGroupID := stringFromAny(status["crypto_group_id_b64u"]); localCryptoGroupID != "" && localCryptoGroupID != noticeCryptoGroupID {
+			return false, nil
+		}
+	}
+	return true, []string{"Group E2EE repair treated duplicate/already-applied commit notice as delivered."}
+}
+
+func groupE2EERecoveryDiagnosis(localStatus map[string]any, serviceHead map[string]any, pendingNoticeCount int, localErr error) map[string]any {
+	diagnosis := map[string]any{
+		"state":                "unknown",
+		"next_action":          "inspect",
+		"fail_closed":          true,
+		"pending_notice_count": pendingNoticeCount,
+	}
+	if localErr != nil {
+		diagnosis["local_error"] = localErr.Error()
+	}
+	if localText := stringFromAny(localStatus["status"]); localText != "" {
+		diagnosis["local_status"] = localText
+	}
+	if serviceHead != nil {
+		diagnosis["actor_membership_status"] = serviceHead["actor_membership_status"]
+		diagnosis["actor_recovery_eligible"] = serviceHead["actor_recovery_eligible"]
+		diagnosis["service_epoch"] = serviceHead["epoch"]
+	}
+	if localEpoch, ok := groupE2EELocalEpochFromStatus(localStatus); ok {
+		diagnosis["local_epoch"] = strconv.FormatInt(localEpoch, 10)
+	}
+	pendingCommitCount := len(messagesFromResult(localStatus["pending_commits"]))
+	diagnosis["pending_commit_count"] = pendingCommitCount
+
+	actorStatus := strings.ToLower(strings.TrimSpace(stringFromAny(serviceHead["actor_membership_status"])))
+	if actorStatus == "removed" || actorStatus == "left" || actorStatus == "non_member" || actorStatus == "inactive" {
+		diagnosis["state"] = "inactive"
+		diagnosis["next_action"] = "fail_closed"
+		diagnosis["fail_closed"] = true
+		return diagnosis
+	}
+	if pendingCommitCount > 0 {
+		diagnosis["state"] = "pending_commit"
+		diagnosis["next_action"] = "run_group_e2ee_repair"
+		diagnosis["fail_closed"] = false
+		return diagnosis
+	}
+	if pendingNoticeCount > 0 {
+		diagnosis["state"] = "pending_notices"
+		diagnosis["next_action"] = "run_group_e2ee_repair"
+		diagnosis["fail_closed"] = false
+		return diagnosis
+	}
+	localEpoch, hasLocalEpoch := groupE2EELocalEpochFromStatus(localStatus)
+	serviceEpoch, hasServiceEpoch := int64FromAny(serviceHead["epoch"])
+	localState := strings.ToLower(strings.TrimSpace(stringFromAny(localStatus["status"])))
+	if localErr != nil || localState == "" || localState == "empty" || !hasLocalEpoch {
+		diagnosis["state"] = "missing_state"
+		diagnosis["next_action"] = "needs_snapshot_or_readd"
+		diagnosis["fail_closed"] = true
+		return diagnosis
+	}
+	if hasLocalEpoch && hasServiceEpoch {
+		switch {
+		case localEpoch == serviceEpoch:
+			diagnosis["state"] = "in_sync"
+			diagnosis["next_action"] = "none"
+			diagnosis["fail_closed"] = false
+		case localEpoch < serviceEpoch:
+			diagnosis["state"] = "epoch_lag"
+			diagnosis["epoch_gap"] = serviceEpoch - localEpoch
+			diagnosis["next_action"] = "needs_snapshot_or_readd"
+			diagnosis["fail_closed"] = true
+		default:
+			diagnosis["state"] = "local_ahead"
+			diagnosis["epoch_gap"] = localEpoch - serviceEpoch
+			diagnosis["next_action"] = "stop_and_inspect"
+			diagnosis["fail_closed"] = true
+		}
+		return diagnosis
+	}
+	diagnosis["state"] = "local_only"
+	diagnosis["next_action"] = "inspect_service_head"
+	diagnosis["fail_closed"] = true
+	return diagnosis
+}
+
+func groupE2EELocalEpochFromStatus(status map[string]any) (int64, bool) {
+	for _, value := range []any{status["epoch"], status["local_epoch"]} {
+		if epoch, ok := int64FromAny(value); ok {
+			return epoch, true
+		}
+	}
+	for _, binding := range messagesFromResult(status["bindings"]) {
+		if epoch, ok := int64FromAny(binding["epoch"]); ok {
+			return epoch, true
+		}
+	}
+	return 0, false
+}
+
+func groupE2EEStatusForRecovery(ctx context.Context, provider MLSExecProvider, agentDID string, groupDID string, preferredDeviceID string) (map[string]any, string, error) {
+	deviceIDs := groupE2EERecoveryDeviceIDs(provider, agentDID, preferredDeviceID)
+	var best map[string]any
+	bestDeviceID := "default"
+	bestRank := -1
+	var bestEpoch int64
+	var lastErr error
+	for _, deviceID := range deviceIDs {
+		status, err := provider.Status(ctx, MLSRequest{
+			APIVersion: "anp-mls/v1",
+			RequestID:  "group-e2ee-status-" + generateOperationID(),
+			AgentDID:   agentDID,
+			DeviceID:   deviceID,
+			Params: map[string]any{
+				"agent_did": agentDID,
+				"device_id": deviceID,
+				"group_did": groupDID,
+			},
+		})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		rank := groupE2EEStatusRank(status)
+		epoch, hasEpoch := groupE2EELocalEpochFromStatus(status)
+		if !hasEpoch {
+			epoch = -1
+		}
+		if best == nil || rank > bestRank || (rank == bestRank && epoch > bestEpoch) {
+			best = status
+			bestDeviceID = deviceID
+			bestRank = rank
+			bestEpoch = epoch
+		}
+	}
+	if best != nil {
+		best["device_id"] = bestDeviceID
+		return best, bestDeviceID, nil
+	}
+	if lastErr != nil {
+		return nil, "", lastErr
+	}
+	return map[string]any{"status": "empty", "device_id": bestDeviceID}, bestDeviceID, nil
+}
+
+func groupE2EERecoveryDeviceIDs(provider MLSExecProvider, agentDID string, preferredDeviceID string) []string {
+	ordered := make([]string, 0)
+	seen := make(map[string]struct{})
+	add := func(deviceID string) {
+		deviceID = defaultString(strings.TrimSpace(deviceID), "default")
+		if _, ok := seen[deviceID]; ok {
+			return
+		}
+		seen[deviceID] = struct{}{}
+		ordered = append(ordered, deviceID)
+	}
+	if preferredDeviceID != "" {
+		add(preferredDeviceID)
+	}
+	for _, deviceID := range provider.candidateDeviceIDs(agentDID) {
+		add(deviceID)
+	}
+	if len(ordered) == 0 {
+		add("default")
+	}
+	return ordered
+}
+
+func groupE2EEStatusRank(status map[string]any) int {
+	state := strings.ToLower(strings.TrimSpace(stringFromAny(status["status"])))
+	switch state {
+	case "active":
+		return 3
+	case "left", "removed", "inactive":
+		return 2
+	case "empty", "":
+		if _, ok := groupE2EELocalEpochFromStatus(status); ok {
+			return 1
+		}
+		return 0
+	default:
+		if _, ok := groupE2EELocalEpochFromStatus(status); ok {
+			return 1
+		}
+		return 0
+	}
 }
 
 func (s *Service) groupWelcomeAlreadyAvailable(ctx context.Context, provider MLSExecProvider, record *identity.StoredIdentity, groupDID string, notice map[string]any) bool {

@@ -377,6 +377,41 @@ func BuildGroupE2EENoticeRPCParams(record *identity.StoredIdentity, manager *ide
 	}, nil
 }
 
+func BuildGroupE2EEHeadRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string) (map[string]any, error) {
+	groupDID = strings.TrimSpace(groupDID)
+	if groupDID == "" {
+		return nil, ErrGroupRequired
+	}
+	auth, err := newAuthContext(record, manager)
+	if err != nil {
+		return nil, err
+	}
+	meta := map[string]any{
+		"anp_version":      "1.0",
+		"profile":          GroupE2EEProfile,
+		"security_profile": GroupE2EETransportProfile,
+		"sender_did":       record.DID,
+		"target":           map[string]any{"kind": "group", "did": groupDID},
+		"operation_id":     "op-" + generateOperationID(),
+		"created_at":       nowRFC3339(),
+		"content_type":     "application/json",
+	}
+	body := map[string]any{
+		"group_did":       groupDID,
+		"group_state_ref": map[string]any{"group_did": groupDID},
+	}
+	payload := signedPayload{Method: "group.e2ee.head", Meta: meta, Body: body}
+	originProof, err := buildOriginProof(auth, payload)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"meta": meta,
+		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
+		"body": body,
+	}, nil
+}
+
 func sanitizeGroupKeyPackageForService(input map[string]any) map[string]any {
 	allowed := map[string]struct{}{
 		"owner_did":            {},

@@ -526,6 +526,39 @@ func TestBuildGroupE2EENoticeRPCParamsUsesTransportProtectedAgentTarget(t *testi
 	}
 }
 
+func TestBuildGroupE2EEHeadRPCParamsUsesTransportProtectedGroupTarget(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	groupDID := "did:wba:awiki.ai:groups:demo:e1_group"
+	params, err := BuildGroupE2EEHeadRPCParams(record, nil, groupDID)
+	if err != nil {
+		t.Fatalf("BuildGroupE2EEHeadRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != GroupE2EEProfile {
+		t.Fatalf("head profile = %q, want group E2EE profile", got)
+	}
+	if got := stringFromAny(meta["security_profile"]); got != GroupE2EETransportProfile {
+		t.Fatalf("head security_profile = %q, want transport-protected", got)
+	}
+	target := mustMapValue(t, meta["target"], "meta.target")
+	if got := stringFromAny(target["kind"]); got != "group" {
+		t.Fatalf("head target.kind = %q, want group", got)
+	}
+	if got := stringFromAny(target["did"]); got != groupDID {
+		t.Fatalf("head target.did = %q, want group DID", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["group_did"]); got != groupDID {
+		t.Fatalf("body.group_did = %q, want group DID", got)
+	}
+	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
+	if got := stringFromAny(ref["group_did"]); got != groupDID {
+		t.Fatalf("group_state_ref.group_did = %q, want group DID", got)
+	}
+}
+
 func TestBuildGroupE2EEGetKeyPackageUsesTransportProtectedServiceTarget(t *testing.T) {
 	t.Parallel()
 
