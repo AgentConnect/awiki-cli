@@ -381,6 +381,14 @@ func (p MLSExecProvider) RemoveMember(ctx context.Context, req MLSRequest) (map[
 	return resp.Result, nil
 }
 
+func (p MLSExecProvider) RecoverMemberPrepare(ctx context.Context, req MLSRequest) (map[string]any, error) {
+	resp, err := p.Call(ctx, "group", "recover-member-prepare", req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Result, nil
+}
+
 func (p MLSExecProvider) LeaveGroup(ctx context.Context, req MLSRequest) (map[string]any, error) {
 	resp, err := p.Call(ctx, "group", "leave", req)
 	if err != nil {

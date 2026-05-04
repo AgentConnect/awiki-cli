@@ -578,3 +578,120 @@ func writeCachedGroupState(t *testing.T, resolved *appconfig.Resolved, record *i
 		t.Fatalf("ReplaceGroupMembers() error = %v", err)
 	}
 }
+
+func TestRecoverGroupE2EEMemberUsesRecoverMemberWithoutGroupAdd(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:recover:e1_group"
+	bobDID := "did:wba:awiki.ai:user:bob:e1_bob"
+	methods := []string(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envelope := decodeRPCRequest(t, r)
+		methods = append(methods, envelope.Method)
+		var result map[string]any
+		switch envelope.Method {
+		case "anp.get_capabilities":
+			result = map[string]any{"service_did": "did:wba:awiki.ai:services:message:e1_service"}
+		case "group.e2ee.head":
+			result = map[string]any{
+				"group_did":               groupDID,
+				"epoch":                   "5",
+				"actor_membership_status": "active",
+				"actor_recovery_eligible": true,
+			}
+		case "group.e2ee.get_key_package":
+			body := mustMapValue(t, envelope.Params["body"], "get_key_package.body")
+			if got := stringFromAny(body["purpose"]); got != "recovery" {
+				t.Fatalf("get_key_package purpose = %q, want recovery", got)
+			}
+			result = map[string]any{
+				"key_package_id": "kp-recovery-1",
+				"group_key_package": map[string]any{
+					"owner_did": bobDID,
+					"purpose":   "recovery",
+					"group_did": groupDID,
+					"device_id": "bob-main",
+				},
+			}
+		case "group.e2ee.recover_member":
+			body := mustMapValue(t, envelope.Params["body"], "recover_member.body")
+			if _, ok := body["member_did"]; ok {
+				t.Fatalf("recover_member body must not include P4 member_did: %#v", body)
+			}
+			target := mustMapValue(t, body["target"], "recover_member.target")
+			if got := stringFromAny(target["agent_did"]); got != bobDID {
+				t.Fatalf("target.agent_did = %q, want bob", got)
+			}
+			result = map[string]any{"accepted": true, "epoch": "6", "operation_id": stringFromAny(mustMapValue(t, envelope.Params["meta"], "recover_member.meta")["operation_id"])}
+		default:
+			t.Fatalf("unexpected RPC method %q", envelope.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": result})
+	}))
+	defer server.Close()
+
+	service, _, record := newMessageServiceForTest(t, server.URL)
+	runner := &groupE2EERecoverMLSRunner{}
+	service.mlsProvider = &MLSExecProvider{BinaryPath: "anp-mls", Runner: runner}
+
+	result, err := service.RecoverGroupE2EEMember(context.Background(), GroupE2EERecoverMemberRequest{
+		IdentityName: record.IdentityName,
+		Group:        groupDID,
+		Member:       bobDID,
+		DeviceID:     "bob-main",
+	})
+	if err != nil {
+		t.Fatalf("RecoverGroupE2EEMember() error = %v", err)
+	}
+	if got := boolFromAny(result.Data["p4_membership_mutate"]); got {
+		t.Fatalf("p4_membership_mutate = true, want false")
+	}
+	for _, method := range methods {
+		if method == "group.add" {
+			t.Fatalf("recovery must not call group.add; methods=%#v", methods)
+		}
+	}
+	if !runner.sawRecoverPrepare || !runner.sawFinalize {
+		t.Fatalf("runner prepare/finalize = %v/%v, calls=%#v", runner.sawRecoverPrepare, runner.sawFinalize, runner.calls)
+	}
+}
+
+type groupE2EERecoverMLSRunner struct {
+	calls             []string
+	sawRecoverPrepare bool
+	sawFinalize       bool
+}
+
+func (r *groupE2EERecoverMLSRunner) Run(_ context.Context, _ string, args []string, stdin []byte) ([]byte, []byte, error) {
+	var req MLSRequest
+	_ = json.Unmarshal(stdin, &req)
+	command := strings.Join(args, " ")
+	r.calls = append(r.calls, command)
+	result := map[string]any{"status": "active", "epoch": "6", "crypto_group_id_b64u": "crypto-1"}
+	if strings.Contains(command, "recover-member-prepare") {
+		r.sawRecoverPrepare = true
+		if _, ok := req.Params["p4_membership_mutate"]; !ok {
+			return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"missing_guard","message":"missing no-P4 guard"}}`, req.RequestID)), nil, nil
+		}
+		result = map[string]any{
+			"operation_id":             stringFromAny(req.Params["operation_id"]),
+			"pending_commit_id":        "pc-recover-1",
+			"crypto_group_id_b64u":     "crypto-1",
+			"from_epoch":               "5",
+			"to_epoch":                 "6",
+			"epoch":                    "6",
+			"epoch_authenticator_b64u": "auth-6",
+			"commit_b64u":              "opaque-commit",
+			"welcome_b64u":             "opaque-welcome",
+		}
+	}
+	if strings.Contains(command, "commit-finalize") {
+		r.sawFinalize = true
+	}
+	return []byte(mustJSONForTest(map[string]any{
+		"ok":          true,
+		"api_version": "anp-mls/v1",
+		"request_id":  req.RequestID,
+		"result":      result,
+	})), nil, nil
+}

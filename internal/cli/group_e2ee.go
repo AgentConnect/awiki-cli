@@ -38,6 +38,8 @@ func (a *App) runGroupE2EEStatus(cmd *cobra.Command, args []string) error {
 
 func (a *App) runGroupE2EEPublishKeyPackage(cmd *cobra.Command, args []string) error {
 	device, _ := cmd.Flags().GetString("device")
+	group, _ := cmd.Flags().GetString("group")
+	recovery, _ := cmd.Flags().GetBool("recovery")
 	contractTest, _ := cmd.Flags().GetBool("contract-test")
 	service, format, err := a.messageService()
 	if err != nil {
@@ -52,14 +54,16 @@ func (a *App) runGroupE2EEPublishKeyPackage(cmd *cobra.Command, args []string) e
 		"binary":             provider.BinaryPath,
 		"mls_data_dir":       provider.DataDir,
 		"device":             device,
+		"group":              group,
+		"recovery":           recovery,
 		"contract_test_only": contractTest,
 	}
 	if a.globals.DryRun {
 		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee key package publish planned", nil, a.identityMeta())
 	}
-	result, publishErr := service.PublishGroupE2EEKeyPackage(cmd.Context(), a.globals.Identity, device, contractTest)
+	result, publishErr := service.PublishGroupE2EEKeyPackage(cmd.Context(), a.globals.Identity, device, group, recovery, contractTest)
 	if publishErr != nil {
-		return a.messageExit(publishErr, "Install anp-mls, set AWIKI_ANP_MLS_BINARY, and ensure message-service group E2EE APIs are enabled.")
+		return a.messageExit(publishErr, "Install anp-mls, set AWIKI_ANP_MLS_BINARY, pass --group when --recovery is used, and ensure message-service group E2EE APIs are enabled.")
 	}
 	result.Data["plan"] = plan
 	return a.renderMessageResult(cmd, format, result)
@@ -152,6 +156,44 @@ func (a *App) runGroupE2EEProcessLeaveRequest(cmd *cobra.Command, args []string)
 	result, processErr := service.ProcessGroupE2EELeaveRequest(cmd.Context(), request)
 	if processErr != nil {
 		return a.messageExit(processErr, "Ensure the leave request exists, the active identity can remove members, and anp-mls/message-service group E2EE APIs are enabled.")
+	}
+	result.Data["plan"] = plan
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runGroupE2EERecoverMember(cmd *cobra.Command, args []string) error {
+	group, _ := cmd.Flags().GetString("group")
+	member, _ := cmd.Flags().GetString("member")
+	device, _ := cmd.Flags().GetString("device")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	provider := message.NewDefaultMLSExecProvider(service.Config())
+	request := message.GroupE2EERecoverMemberRequest{
+		IdentityName: a.globals.Identity,
+		Group:        group,
+		Member:       member,
+		DeviceID:     device,
+	}
+	plan := map[string]any{
+		"action":               "group.e2ee.recover_member",
+		"identity":             a.globals.Identity,
+		"runtime_mode":         service.Config().RuntimeMode,
+		"provider":             "exec",
+		"mls_data_dir":         provider.DataDir,
+		"group":                group,
+		"member":               member,
+		"device":               device,
+		"p4_membership_mutate": false,
+		"orchestration":        []string{"lease recovery KeyPackage", "anp-mls recover-member-prepare", "hidden group.e2ee.recover_member", "finalize on accept", "abort on deterministic rejection"},
+	}
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group e2ee recover-member planned", nil, a.identityMeta())
+	}
+	result, recoverErr := service.RecoverGroupE2EEMember(cmd.Context(), request)
+	if recoverErr != nil {
+		return a.messageExit(recoverErr, "Ensure the target remains an active P4 member, has published a --recovery --group KeyPackage, and anp-mls/message-service PR-B3 APIs are enabled.")
 	}
 	result.Data["plan"] = plan
 	return a.renderMessageResult(cmd, format, result)

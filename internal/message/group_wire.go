@@ -291,8 +291,22 @@ func BuildGroupE2EEPublishKeyPackageRPCParams(record *identity.StoredIdentity, m
 }
 
 func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, targetDID string) (map[string]any, error) {
+	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, map[string]any{"target_did": strings.TrimSpace(targetDID)})
+}
+
+func BuildGroupE2EEGetRecoveryKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, groupDID string, targetDID string, deviceID string) (map[string]any, error) {
+	body := map[string]any{
+		"target_did": targetDID,
+		"purpose":    "recovery",
+		"group_did":  strings.TrimSpace(groupDID),
+		"device_id":  defaultString(strings.TrimSpace(deviceID), "default"),
+	}
+	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, body)
+}
+
+func buildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, body map[string]any) (map[string]any, error) {
 	serviceDID = strings.TrimSpace(serviceDID)
-	targetDID = strings.TrimSpace(targetDID)
+	targetDID := strings.TrimSpace(stringFromAny(body["target_did"]))
 	if serviceDID == "" {
 		return nil, fmt.Errorf("message service did is required")
 	}
@@ -313,7 +327,6 @@ func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 		"created_at":       nowRFC3339(),
 		"content_type":     "application/json",
 	}
-	body := map[string]any{"target_did": targetDID}
 	payload := signedPayload{Method: "group.e2ee.get_key_package", Meta: meta, Body: body}
 	originProof, err := buildOriginProof(auth, payload)
 	if err != nil {
@@ -324,6 +337,11 @@ func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 		"auth": map[string]any{"scheme": OriginProofScheme, "origin_proof": originProof},
 		"body": body,
 	}, nil
+}
+
+func BuildGroupE2EERecoverMemberRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) (map[string]any, error) {
+	body := e2eeRecoveryCommitBody(groupDID, memberDID, deviceID, prepared, leasedPackage)
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.recover_member", body, "", stringFromAny(prepared["operation_id"]), "", GroupE2EESecurityProfile)
 }
 
 func BuildGroupE2EENoticeRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, limit int, markDelivered bool, noticeIDs []string) (map[string]any, error) {
@@ -727,6 +745,74 @@ func e2eeMembershipCommitBody(groupDID string, subjectDID string, defaultSubject
 	}
 	if _, ok := body["subject_status"]; !ok && defaultSubjectStatus != "" {
 		body["subject_status"] = defaultSubjectStatus
+	}
+	groupStateRef, _ := body["group_state_ref"].(map[string]any)
+	if len(groupStateRef) == 0 {
+		groupStateRef = map[string]any{"group_did": groupDID}
+		body["group_state_ref"] = groupStateRef
+	}
+	if cryptoGroupID := stringFromAny(body["crypto_group_id_b64u"]); cryptoGroupID != "" {
+		groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
+	}
+	if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
+		groupStateRef["epoch"] = fromEpoch
+	}
+	return body
+}
+
+func e2eeRecoveryCommitBody(groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) map[string]any {
+	body := map[string]any{
+		"group_did": groupDID,
+		"group_state_ref": map[string]any{
+			"group_did": groupDID,
+		},
+		"target": map[string]any{
+			"agent_did": memberDID,
+			"device_id": defaultString(strings.TrimSpace(deviceID), "default"),
+		},
+	}
+	for _, key := range []string{
+		"crypto_group_id_b64u",
+		"epoch",
+		"epoch_authenticator",
+		"epoch_authenticator_b64u",
+		"suite",
+		"last_handshake_digest",
+		"pending_commit_id",
+		"operation_id",
+		"commit_b64u",
+		"welcome_b64u",
+		"ratchet_tree_b64u",
+		"group_info_b64u",
+		"from_epoch",
+		"to_epoch",
+		"old_generation_id",
+		"new_generation_id",
+	} {
+		if value, ok := prepared[key]; ok {
+			body[key] = value
+		}
+	}
+	if _, ok := body["epoch"]; !ok {
+		if value, ok := prepared["to_epoch"]; ok {
+			body["epoch"] = value
+		}
+	}
+	if _, ok := body["epoch_authenticator"]; !ok {
+		if value, ok := prepared["epoch_authenticator_b64u"]; ok {
+			body["epoch_authenticator"] = value
+		}
+	}
+	keyPackageID := firstNonEmptyString(
+		stringFromAny(prepared["recovery_key_package_id"]),
+		stringFromAny(prepared["key_package_id"]),
+		stringFromAny(leasedPackage["key_package_id"]),
+	)
+	if keyPackageID != "" {
+		body["recovery_key_package_id"] = keyPackageID
+	}
+	if groupKeyPackage, ok := leasedPackage["group_key_package"].(map[string]any); ok && len(groupKeyPackage) > 0 {
+		body["group_key_package"] = sanitizeGroupKeyPackageForService(groupKeyPackage)
 	}
 	groupStateRef, _ := body["group_state_ref"].(map[string]any)
 	if len(groupStateRef) == 0 {

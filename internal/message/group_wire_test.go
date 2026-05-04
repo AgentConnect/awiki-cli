@@ -641,3 +641,61 @@ func testStoredIdentity(t *testing.T) *identity.StoredIdentity {
 		Key1PrivatePEM: generated.Key1PrivatePEM,
 	}
 }
+
+func TestBuildGroupE2EERecoverMemberRPCParamsAvoidsP4MembershipFields(t *testing.T) {
+	t.Parallel()
+
+	record := testStoredIdentity(t)
+	params, err := BuildGroupE2EERecoverMemberRPCParams(record, nil, "did:wba:awiki.ai:groups:demo:e1_group", "did:wba:awiki.ai:user:bob:e1_bob", "bob-main", map[string]any{
+		"operation_id":             "op-recover-1",
+		"pending_commit_id":        "pc-recover-1",
+		"crypto_group_id_b64u":     "Y3J5cHRv",
+		"from_epoch":               "5",
+		"to_epoch":                 "6",
+		"commit_b64u":              "Y29tbWl0",
+		"welcome_b64u":             "d2VsY29tZQ",
+		"ratchet_tree_b64u":        "cmF0Y2hldA",
+		"epoch_authenticator_b64u": "YXV0aDY",
+		"application_plaintext":    "must-not-leak",
+		"member_did":               "must-not-be-forwarded",
+	}, map[string]any{
+		"key_package_id": "kp-recovery-1",
+		"group_key_package": map[string]any{
+			"owner_did":                "did:wba:awiki.ai:user:bob:e1_bob",
+			"purpose":                  "recovery",
+			"device_id":                "bob-main",
+			"private_key_package_b64u": "must-not-leak",
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildGroupE2EERecoverMemberRPCParams() error = %v", err)
+	}
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["operation_id"]); got != "op-recover-1" {
+		t.Fatalf("operation_id = %q, want prepared operation", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if _, ok := body["member_did"]; ok {
+		t.Fatalf("recover_member must not carry P4 member_did: %#v", body)
+	}
+	if _, ok := body["role"]; ok {
+		t.Fatalf("recover_member must not carry P4 role: %#v", body)
+	}
+	target := mustMapValue(t, body["target"], "body.target")
+	if got := stringFromAny(target["agent_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		t.Fatalf("target.agent_did = %q, want bob", got)
+	}
+	if got := stringFromAny(target["device_id"]); got != "bob-main" {
+		t.Fatalf("target.device_id = %q, want bob-main", got)
+	}
+	if got := stringFromAny(body["recovery_key_package_id"]); got != "kp-recovery-1" {
+		t.Fatalf("recovery_key_package_id = %q, want kp", got)
+	}
+	if _, ok := body["application_plaintext"]; ok {
+		t.Fatalf("plaintext leaked into recovery body: %#v", body)
+	}
+	recoveryPackage := mustMapValue(t, body["group_key_package"], "body.group_key_package")
+	if _, ok := recoveryPackage["private_key_package_b64u"]; ok {
+		t.Fatalf("private KeyPackage material leaked: %#v", recoveryPackage)
+	}
+}

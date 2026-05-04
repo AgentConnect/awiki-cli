@@ -174,6 +174,13 @@ type GroupE2EEProcessLeaveRequest struct {
 	ReasonText     string
 }
 
+type GroupE2EERecoverMemberRequest struct {
+	IdentityName string
+	Group        string
+	Member       string
+	DeviceID     string
+}
+
 type GroupUpdateRequest struct {
 	IdentityName        string
 	Group               string
