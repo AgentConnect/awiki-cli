@@ -121,8 +121,8 @@ func TestLeaveGroupE2EECreatesLeaveRequestWithoutLocalMLSLeave(t *testing.T) {
 	if got := stringFromAny(result["leave_request_id"]); got != "lr-bob-1" {
 		t.Fatalf("leave_request_id = %q, want lr-bob-1", got)
 	}
-	if got := strings.Join(warnings, "\n"); !strings.Contains(got, "owner/admin") {
-		t.Fatalf("warnings = %#v, want owner/admin processing guidance", warnings)
+	if got := strings.Join(warnings, "\n"); !strings.Contains(got, "group owner") {
+		t.Fatalf("warnings = %#v, want owner processing guidance", warnings)
 	}
 }
 

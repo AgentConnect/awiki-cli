@@ -35,5 +35,5 @@
 
 ## Caveats
 
-- Owner/admin remove is routed through hidden PR-A `group.e2ee.remove` orchestration with local pending commit finalize/abort semantics. E2EE `group leave` is now routed to hidden/test-only `group.e2ee.leave_request`; owner/admin processing uses `group e2ee process-leave-request` and the existing epoch-advancing `group.e2ee.remove` orchestration instead of submitting a same-epoch local-terminal leave artifact. Still no External Commit, attachment group E2EE, cloud snapshot, or product-wide public beta claim.
+- Owner-only remove is routed through hidden PR-A `group.e2ee.remove` orchestration with local pending commit finalize/abort semantics. E2EE `group leave` is now routed to hidden/test-only `group.e2ee.leave_request`; owner processing uses `group e2ee process-leave-request` and the existing epoch-advancing `group.e2ee.remove` orchestration instead of submitting a same-epoch local-terminal leave artifact. Still no External Commit, attachment group E2EE, cloud snapshot, or product-wide public beta claim.
 - No k1 DID compatibility is included.

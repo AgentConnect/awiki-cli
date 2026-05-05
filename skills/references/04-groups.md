@@ -40,7 +40,7 @@ This file is a **reference**, not an entry skill. Load it only when the task cle
 - Need to inspect metadata or policy -> `group get`
 - Need to join an open group -> `group join`
 - Need to add or remove one member -> `group add` / `group remove`
-- Need an E2EE member to leave safely -> `group leave --e2ee` creates a hidden leave request, then an owner/admin processes it with `group e2ee process-leave-request`
+- Need an E2EE member to leave safely -> `group leave --e2ee` creates a hidden leave request, then the group owner processes it with `group e2ee process-leave-request`
 - Need to change the name, description, or policy -> `group update`
 - Need to send text to the group -> use `03-messaging.md`
 

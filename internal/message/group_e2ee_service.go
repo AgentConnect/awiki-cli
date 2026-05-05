@@ -325,7 +325,7 @@ func (s *Service) leaveGroupE2EE(ctx context.Context, record *identity.StoredIde
 		"subject_status":   "leave_requested",
 		"leave_request_id": requestID,
 	}
-	warnings = append(warnings, "Group E2EE leave request created; an owner/admin must process it with `group e2ee process-leave-request` to advance the MLS epoch.")
+	warnings = append(warnings, "Group E2EE leave request created; the group owner must process it with `group e2ee process-leave-request` to advance the MLS epoch.")
 	return data, warnings, nil
 }
 
@@ -348,7 +348,7 @@ func (s *Service) ProcessGroupE2EELeaveRequest(ctx context.Context, request Grou
 		IdentityName:   request.IdentityName,
 		Group:          request.Group,
 		Member:         memberDID,
-		ReasonText:     firstNonEmptyString(strings.TrimSpace(request.ReasonText), "leave request processed by owner/admin"),
+		ReasonText:     firstNonEmptyString(strings.TrimSpace(request.ReasonText), "leave request processed by owner"),
 		E2EE:           true,
 		LeaveRequestID: strings.TrimSpace(request.LeaveRequestID),
 	}
@@ -398,9 +398,12 @@ func (s *Service) UpdateGroupE2EEKey(ctx context.Context, request GroupE2EEUpdat
 	if headErr != nil {
 		warnings = append(warnings, fmt.Sprintf("Group E2EE service head unavailable before update-key: %v", headErr))
 	} else {
+		if eligible, ok := serviceHead["actor_e2ee_controller_eligible"].(bool); ok && !eligible {
+			return nil, fmt.Errorf("group E2EE update-key requires the actor to be the active owner before public discovery; actor role=%s status=%s", stringFromAny(serviceHead["actor_membership_role"]), stringFromAny(serviceHead["actor_membership_status"]))
+		}
 		actorStatus := strings.ToLower(strings.TrimSpace(stringFromAny(serviceHead["actor_membership_status"])))
 		if actorStatus != "" && actorStatus != "active" {
-			return nil, fmt.Errorf("group E2EE update-key requires the actor to be an active owner/admin; actor status=%s", actorStatus)
+			return nil, fmt.Errorf("group E2EE update-key requires the actor to be the active owner before public discovery; actor status=%s", actorStatus)
 		}
 	}
 	leasedPackage, err := transport.GetGroupE2EEUpdateKeyPackage(ctx, request.Group, memberDID, deviceID)
@@ -503,7 +506,7 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 	if headErr != nil {
 		warnings = append(warnings, fmt.Sprintf("Group E2EE service head unavailable before recovery: %v", headErr))
 	} else if !boolFromAny(serviceHead["actor_recovery_eligible"]) {
-		return nil, fmt.Errorf("group E2EE recovery requires the actor to be an active P4 group member/admin; status=%s", stringFromAny(serviceHead["actor_membership_status"]))
+		return nil, fmt.Errorf("group E2EE recovery requires the actor to be the active owner before public discovery; role=%s status=%s", stringFromAny(serviceHead["actor_membership_role"]), stringFromAny(serviceHead["actor_membership_status"]))
 	}
 	leasedPackage, err := transport.GetGroupE2EERecoveryKeyPackage(ctx, request.Group, memberDID, deviceID)
 	if err != nil {
@@ -1256,7 +1259,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	}
 	diagnosis := groupE2EERecoveryDiagnosis(localStatus, serviceHead, remainingPending, localErr)
 	if action := stringFromAny(diagnosis["next_action"]); action == "needs_snapshot_or_readd" {
-		warnings = append(warnings, "Group E2EE repair could not prove epoch continuity; fail closed and ask an owner/admin to run group e2ee recover-member after this member publishes a --recovery --group KeyPackage.")
+		warnings = append(warnings, "Group E2EE repair could not prove epoch continuity; fail closed and ask the group owner to run group e2ee recover-member after this member publishes a --recovery --group KeyPackage.")
 	}
 	recoveryArtifact := groupE2EERecoveryArtifact(record, groupDID, localDeviceID, localStatus, serviceHead, diagnosis)
 	return &CommandResult{

@@ -181,7 +181,7 @@ type GroupE2EERecoverMemberRequest struct {
 	DeviceID     string
 }
 
-// GroupE2EEUpdateKeyRequest requests a hidden/test-only owner/admin controlled
+// GroupE2EEUpdateKeyRequest requests a hidden/test-only owner-controlled
 // MLS leaf replacement for an active member using an update-scoped KeyPackage.
 type GroupE2EEUpdateKeyRequest struct {
 	IdentityName string

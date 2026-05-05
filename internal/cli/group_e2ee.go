@@ -274,7 +274,7 @@ func (a *App) runGroupE2EERejoin(cmd *cobra.Command, args []string) error {
 	}
 	result, rejoinErr := service.AddGroupMember(cmd.Context(), request)
 	if rejoinErr != nil {
-		return a.messageExit(rejoinErr, "Removed/left rejoin requires a fresh normal KeyPackage published after removal/leave, then owner/admin `group add --e2ee`; do not use recover-member for removed/left members.")
+		return a.messageExit(rejoinErr, "Removed/left rejoin requires a fresh normal KeyPackage published after removal/leave, then owner-only `group add --e2ee`; do not use recover-member for removed/left members.")
 	}
 	result.Data["plan"] = plan
 	return a.renderMessageResult(cmd, format, result)
