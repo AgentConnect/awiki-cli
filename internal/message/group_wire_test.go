@@ -198,10 +198,7 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 	if _, ok := body["application_plaintext"]; ok {
 		t.Fatalf("plaintext leaked into E2EE send body: %#v", body)
 	}
-	groupCipher := mustMapValue(t, body["group_cipher_object"], "body.group_cipher_object")
-	if _, ok := body["group_cipher_object"]; !ok {
-		t.Fatalf("group_cipher_object missing: %#v", body)
-	}
+	groupCipher := body
 	if _, ok := groupCipher["openmls_group_id_b64u"]; ok {
 		t.Fatalf("provider-local OpenMLS group id leaked into service body: %#v", groupCipher)
 	}

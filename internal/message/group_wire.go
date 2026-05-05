@@ -232,7 +232,7 @@ func BuildGroupE2EELeaveRPCParams(record *identity.StoredIdentity, manager *iden
 }
 
 func BuildGroupE2EESendRPCParams(record *identity.StoredIdentity, manager *identity.Manager, groupDID string, cipher map[string]any, operationID string, messageID string) (map[string]any, error) {
-	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.send", map[string]any{"group_cipher_object": sanitizeGroupCipherObjectForService(cipher)}, "application/anp-group-cipher+json", operationID, messageID, GroupE2EESecurityProfile)
+	return buildGroupE2EERPCParams(record, manager, "group", groupDID, "group.e2ee.send", sanitizeGroupCipherObjectForService(cipher), "application/anp-group-cipher+json", operationID, messageID, GroupE2EESecurityProfile)
 }
 
 func sanitizeGroupCipherObjectForService(cipher map[string]any) map[string]any {
