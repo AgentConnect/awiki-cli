@@ -238,7 +238,7 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Group E2EE service transport unavailable: %v", err)}
 	}
-	leasedPackage, err := transport.GetGroupE2EEKeyPackage(ctx, memberDID)
+	leasedPackage, err := transport.GetGroupE2EEKeyPackage(ctx, groupDID, memberDID)
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Group E2EE member KeyPackage lookup failed: %v", err)}
 	}
@@ -1048,7 +1048,7 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 			"group_did":            groupDID,
 			"welcome_b64u":         welcomeB64U,
 			"ratchet_tree_b64u":    ratchetTreeB64U,
-			"group_state_ref":      firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+			"group_state_ref":      notice["group_state_ref"],
 			"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
 			"epoch":                firstNonNil(notice["to_epoch"], notice["epoch"]),
 			"to_epoch":             notice["to_epoch"],
@@ -1712,7 +1712,7 @@ func (s *Service) processGroupWelcomeNotice(ctx context.Context, record *identit
 			"group_did":            groupDID,
 			"welcome_b64u":         welcomeB64U,
 			"ratchet_tree_b64u":    ratchetTreeB64U,
-			"group_state_ref":      firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+			"group_state_ref":      notice["group_state_ref"],
 			"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
 			"epoch":                firstNonNil(notice["to_epoch"], notice["epoch"]),
 			"to_epoch":             notice["to_epoch"],

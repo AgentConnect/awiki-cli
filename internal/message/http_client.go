@@ -259,12 +259,12 @@ func (t *HTTPTransport) PublishGroupE2EEKeyPackage(ctx context.Context, packageR
 	return t.rpcMapCall(ctx, "group.e2ee.publish_key_package", params)
 }
 
-func (t *HTTPTransport) GetGroupE2EEKeyPackage(ctx context.Context, targetDID string) (map[string]any, error) {
+func (t *HTTPTransport) GetGroupE2EEKeyPackage(ctx context.Context, groupDID string, targetDID string) (map[string]any, error) {
 	serviceDID, err := t.GetMessageServiceDID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	params, err := BuildGroupE2EEGetKeyPackageRPCParams(t.auth.record, nil, serviceDID, targetDID)
+	params, err := BuildGroupE2EEGetKeyPackageRPCParams(t.auth.record, nil, serviceDID, groupDID, targetDID)
 	if err != nil {
 		return nil, err
 	}

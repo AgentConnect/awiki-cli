@@ -592,7 +592,7 @@ func TestBuildGroupE2EEGetKeyPackageUsesTransportProtectedServiceTarget(t *testi
 	t.Parallel()
 
 	record := testStoredIdentity(t)
-	params, err := BuildGroupE2EEGetKeyPackageRPCParams(record, nil, "did:wba:awiki.ai:services:message:e1_service", "did:wba:awiki.ai:users:bob:e1_bob")
+	params, err := BuildGroupE2EEGetKeyPackageRPCParams(record, nil, "did:wba:awiki.ai:services:message:e1_service", "did:wba:awiki.ai:groups:demo:e1_group", "did:wba:awiki.ai:users:bob:e1_bob")
 	if err != nil {
 		t.Fatalf("BuildGroupE2EEGetKeyPackageRPCParams() error = %v", err)
 	}
@@ -603,6 +603,10 @@ func TestBuildGroupE2EEGetKeyPackageUsesTransportProtectedServiceTarget(t *testi
 	target := mustMapValue(t, meta["target"], "meta.target")
 	if got := stringFromAny(target["kind"]); got != "service" {
 		t.Fatalf("get target.kind = %q, want service", got)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := stringFromAny(body["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
+		t.Fatalf("body.group_did = %q, want group DID", got)
 	}
 }
 

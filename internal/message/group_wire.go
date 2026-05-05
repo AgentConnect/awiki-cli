@@ -290,8 +290,11 @@ func BuildGroupE2EEPublishKeyPackageRPCParams(record *identity.StoredIdentity, m
 	}, nil
 }
 
-func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, targetDID string) (map[string]any, error) {
-	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, map[string]any{"target_did": strings.TrimSpace(targetDID)})
+func BuildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, groupDID string, targetDID string) (map[string]any, error) {
+	return buildGroupE2EEGetKeyPackageRPCParams(record, manager, serviceDID, map[string]any{
+		"target_did": strings.TrimSpace(targetDID),
+		"group_did":  strings.TrimSpace(groupDID),
+	})
 }
 
 func BuildGroupE2EEGetRecoveryKeyPackageRPCParams(record *identity.StoredIdentity, manager *identity.Manager, serviceDID string, groupDID string, targetDID string, deviceID string) (map[string]any, error) {
@@ -322,6 +325,9 @@ func buildGroupE2EEGetKeyPackageRPCParams(record *identity.StoredIdentity, manag
 	}
 	if targetDID == "" {
 		return nil, ErrMemberRequired
+	}
+	if strings.TrimSpace(stringFromAny(body["group_did"])) == "" {
+		return nil, ErrGroupRequired
 	}
 	auth, err := newAuthContext(record, manager)
 	if err != nil {
