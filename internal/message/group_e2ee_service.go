@@ -1043,12 +1043,16 @@ func (s *Service) processLocalGroupWelcome(ctx context.Context, memberDID string
 		AgentDID:   memberRecord.DID,
 		DeviceID:   deviceID,
 		Params: map[string]any{
-			"agent_did":         memberRecord.DID,
-			"device_id":         deviceID,
-			"group_did":         groupDID,
-			"welcome_b64u":      welcomeB64U,
-			"ratchet_tree_b64u": ratchetTreeB64U,
-			"group_state_ref":   map[string]any{"group_did": groupDID},
+			"agent_did":            memberRecord.DID,
+			"device_id":            deviceID,
+			"group_did":            groupDID,
+			"welcome_b64u":         welcomeB64U,
+			"ratchet_tree_b64u":    ratchetTreeB64U,
+			"group_state_ref":      firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+			"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
+			"epoch":                firstNonNil(notice["to_epoch"], notice["epoch"]),
+			"to_epoch":             notice["to_epoch"],
+			"from_epoch":           notice["from_epoch"],
 		},
 	})
 	if err != nil {
@@ -1180,7 +1184,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 	provider := s.groupMLSProvider()
 	for _, notice := range noticesFromResult(pending["notices"]) {
 		noticeType := stringFromAny(notice["notice_type"])
-		if noticeType != "welcome-delivery" && noticeType != "update-welcome-delivery" && noticeType != "commit-delivery" {
+		if !isGroupE2EEWelcomeNoticeType(noticeType) && noticeType != "commit-delivery" {
 			continue
 		}
 		targetGroupDID := defaultString(stringFromAny(notice["group_did"]), groupDID)
@@ -1189,7 +1193,7 @@ func (s *Service) RepairGroupE2EENotices(ctx context.Context, identityName strin
 			continue
 		}
 		recipient := firstNonEmptyString(notice["recipient_did"], notice["member_did"])
-		if (noticeType == "welcome-delivery" || noticeType == "update-welcome-delivery") && recipient == "" {
+		if isGroupE2EEWelcomeNoticeType(noticeType) && recipient == "" {
 			recipient = stringFromAny(notice["subject_did"])
 		}
 		if recipient != "" && recipient != record.DID {
@@ -1666,7 +1670,24 @@ func (s *Service) groupWelcomeAlreadyAvailable(ctx context.Context, provider MLS
 	if err != nil || resp == nil {
 		return false
 	}
-	return stringFromAny(resp.Result["status"]) == "active"
+	if stringFromAny(resp.Result["status"]) != "active" {
+		return false
+	}
+	targetEpoch, hasTargetEpoch := groupE2EEWelcomeNoticeTargetEpoch(notice)
+	if !hasTargetEpoch {
+		return true
+	}
+	localEpoch, hasLocalEpoch := groupE2EELocalEpochFromStatus(resp.Result)
+	return hasLocalEpoch && localEpoch >= targetEpoch
+}
+
+func groupE2EEWelcomeNoticeTargetEpoch(notice map[string]any) (int64, bool) {
+	for _, key := range []string{"to_epoch", "epoch", "local_epoch"} {
+		if epoch, ok := int64FromAny(notice[key]); ok {
+			return epoch, true
+		}
+	}
+	return 0, false
 }
 
 func (s *Service) processGroupWelcomeNotice(ctx context.Context, record *identity.StoredIdentity, groupDID string, notice map[string]any) (map[string]any, []string) {
@@ -1686,12 +1707,16 @@ func (s *Service) processGroupWelcomeNotice(ctx context.Context, record *identit
 		AgentDID:   record.DID,
 		DeviceID:   deviceID,
 		Params: map[string]any{
-			"agent_did":         record.DID,
-			"device_id":         deviceID,
-			"group_did":         groupDID,
-			"welcome_b64u":      welcomeB64U,
-			"ratchet_tree_b64u": ratchetTreeB64U,
-			"group_state_ref":   firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+			"agent_did":            record.DID,
+			"device_id":            deviceID,
+			"group_did":            groupDID,
+			"welcome_b64u":         welcomeB64U,
+			"ratchet_tree_b64u":    ratchetTreeB64U,
+			"group_state_ref":      firstNonNil(notice["group_state_ref"], map[string]any{"group_did": groupDID}),
+			"crypto_group_id_b64u": notice["crypto_group_id_b64u"],
+			"epoch":                firstNonNil(notice["to_epoch"], notice["epoch"]),
+			"to_epoch":             notice["to_epoch"],
+			"from_epoch":           notice["from_epoch"],
 		},
 	})
 	if err != nil {
@@ -1722,6 +1747,15 @@ func (s *Service) localIdentityByDID(did string) (*identity.StoredIdentity, erro
 		}
 	}
 	return nil, identity.ErrIdentityNotFound
+}
+
+func isGroupE2EEWelcomeNoticeType(noticeType string) bool {
+	switch noticeType {
+	case "welcome-delivery", "recovery-welcome-delivery", "update-welcome-delivery":
+		return true
+	default:
+		return false
+	}
 }
 
 func e2eeNoticeObject(delivery map[string]any) map[string]any {
