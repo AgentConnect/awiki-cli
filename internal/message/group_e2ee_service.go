@@ -737,7 +737,10 @@ func pendingCommitParams(record *identity.StoredIdentity, groupDID string, prepa
 		"group_did":   groupDID,
 		"commit_b64u": prepared["commit_b64u"],
 	}
-	for _, key := range []string{"pending_commit_id", "operation_id", "subject_did", "subject_status", "from_epoch", "to_epoch"} {
+	// Do not reuse the prepare operation_id for finalize/abort calls. anp-mls
+	// records prepare operations by operation_id and would treat a terminal
+	// command with the same id but different input as an idempotency conflict.
+	for _, key := range []string{"pending_commit_id", "subject_did", "subject_status", "from_epoch", "to_epoch"} {
 		if value, ok := prepared[key]; ok {
 			params[key] = value
 		}

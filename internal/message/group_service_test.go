@@ -56,6 +56,29 @@ func TestLeaveGroupRejectsActiveOwnerFromCachedSnapshot(t *testing.T) {
 	}
 }
 
+func TestPendingCommitTerminalParamsDoNotReusePrepareOperationID(t *testing.T) {
+	t.Parallel()
+
+	params := pendingCommitParams(&identity.StoredIdentity{
+		DID: "did:wba:awiki.test:user:alice:e1",
+	}, "did:wba:awiki.test:groups:demo:e1", map[string]any{
+		"pending_commit_id": "pc-1",
+		"operation_id":      "op-prepare-1",
+		"subject_did":       "did:wba:awiki.test:user:bob:e1",
+		"subject_status":    "recovered",
+		"from_epoch":        "1",
+		"to_epoch":          "2",
+		"commit_b64u":       "opaque-commit",
+	})
+
+	if _, ok := params["operation_id"]; ok {
+		t.Fatalf("terminal pending commit params must not reuse prepare operation_id: %#v", params)
+	}
+	if got := params["pending_commit_id"]; got != "pc-1" {
+		t.Fatalf("pending_commit_id = %v, want pc-1", got)
+	}
+}
+
 func TestLeaveGroupE2EECreatesLeaveRequestWithoutLocalMLSLeave(t *testing.T) {
 	t.Parallel()
 
