@@ -74,7 +74,7 @@ Message =
 direct + plain  = supported
 direct + e2ee   = supported
 group  + plain  = supported
-group  + e2ee   = not supported yet
+group  + e2ee   = hidden/test-only supported; public discovery still disabled
 ```
 
  
@@ -487,7 +487,8 @@ awiki-cli schema --skills
     "direct_plain": true,
     "direct_e2ee": true,
     "group_plain": true,
-    "group_e2ee": false
+    "group_e2ee": false,
+    "group_e2ee_hidden_test_only": true
   },
   "args": [],
   "returns": {},

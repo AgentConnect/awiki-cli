@@ -118,6 +118,8 @@
 **docs/architecture/awiki-v2-architecture.md**: awiki CLI V2 的整体架构设计文档。
 **docs/architecture/awiki-command-v2.md**: awiki CLI 命令模型与命令层设计文档。
 **docs/architecture/anp-service-discovery.md**: awiki-cli 生成 DID 文档时的 `ANPMessageService` 填写规则、配置约束与实施记录。
+**docs/architecture/direct-e2ee-operations.md**: awiki-cli Direct E2EE P5 编排文档，说明 secure direct UX、Go SDK 集成、本地 session/prekey/outbox 存储、listener/history 解密与 public discovery 收口。
+**docs/architecture/group-e2ee-operations.md**: awiki-cli Group E2EE hidden/test-only 编排文档，说明 `anp-mls` exec provider、命令 UX、本地状态、repair/recovery/update-key/rejoin 与 discovery 隐藏边界。
 **docs/architecture/websocket-host-notification-v1.md**: websocket listener 向宿主 Agent 暴露统一通知事件的 v1 设计文档。
 **docs/architecture/openclaw-host-adapter-v1.md**: websocket host notification 到 OpenClaw `/hooks/agent` 的 v1 适配设计文档。
 **docs/architecture/output-format.md**: CLI 输出格式约束与展示设计文档。

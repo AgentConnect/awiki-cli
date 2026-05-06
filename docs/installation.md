@@ -36,6 +36,8 @@ go get github.com/agent-network-protocol/anp/golang@v0.8.7
 
 P5 secure direct / OPK 客户端能力已随 `v0.8.7` 发布；主线 `go.mod` 应直接依赖远端模块，不再提交同级工作区 `replace`。首次拉取依赖时请确保本机可以访问公开 Go module proxy 或对应源码仓库。
 
+Direct E2EE 的 CLI 编排、session/prekey/outbox 本地状态和 discovery 收口见 [`docs/architecture/direct-e2ee-operations.md`](architecture/direct-e2ee-operations.md)。
+
 ### 1.3 Docker 备选（无本地 Go 时）
 
 如本机未安装 Go，可使用 Docker 镜像：
@@ -138,7 +140,7 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 
 ### 3.3 `anp-mls` binary discovery and release staging
 
-Group E2EE commands keep the Go CLI pure-Go/no-CGO by invoking the Rust `anp-mls` binary as a one-shot process. Discovery order is:
+Group E2EE commands keep the Go CLI pure-Go/no-CGO by invoking the Rust `anp-mls` binary as a one-shot process. See [`docs/architecture/group-e2ee-operations.md`](architecture/group-e2ee-operations.md) for the full hidden/test-only CLI orchestration, repair, recovery, update-key, and rejoin model. Discovery order is:
 
 1. `AWIKI_ANP_MLS_BINARY` absolute path override.
 2. Runtime/test injected provider path.
