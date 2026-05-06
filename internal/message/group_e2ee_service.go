@@ -221,6 +221,7 @@ func (s *Service) createGroupE2EE(ctx context.Context, record *identity.StoredId
 	if err != nil {
 		return nil, []string{fmt.Sprintf("Group E2EE MLS create failed: %v", err)}
 	}
+	mlsHead = attachGroupStateRef(mlsHead, groupDID, s.localGroupStateRef(ctx, record, groupDID))
 	transport, _, err := s.httpTransport(record)
 	if err != nil {
 		return map[string]any{"mls": mlsHead}, []string{fmt.Sprintf("Group E2EE service transport unavailable: %v", err)}
@@ -243,6 +244,7 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 		return nil, []string{fmt.Sprintf("Group E2EE member KeyPackage lookup failed: %v", err)}
 	}
 	provider := s.groupMLSProvider()
+	groupStateRef := s.localGroupStateRef(ctx, record, groupDID)
 	mlsHead, err := provider.AddMember(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-add-" + generateOperationID(),
@@ -253,6 +255,7 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 			"device_id":          "default",
 			"group_did":          groupDID,
 			"member_did":         memberDID,
+			"group_state_ref":    groupStateRef,
 			"group_key_package":  leasedPackage["group_key_package"],
 			"key_package_id":     leasedPackage["key_package_id"],
 			"target_key_package": leasedPackage,
@@ -267,6 +270,7 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 	if groupKeyPackage, ok := leasedPackage["group_key_package"]; ok {
 		mlsHead["group_key_package"] = groupKeyPackage
 	}
+	mlsHead = attachGroupStateRef(mlsHead, groupDID, groupStateRef)
 	delivery, err := transport.AddGroupE2EE(ctx, groupDID, memberDID, mlsHead)
 	if err != nil {
 		return map[string]any{"mls": mlsHead, "leased_key_package": redactedKeyPackageSummary(leasedPackage)}, []string{fmt.Sprintf("Group E2EE add delivery failed: %v", err)}
@@ -284,6 +288,7 @@ func (s *Service) addGroupMemberE2EE(ctx context.Context, record *identity.Store
 func (s *Service) removeGroupMemberE2EE(ctx context.Context, record *identity.StoredIdentity, request GroupMemberRequest) (map[string]any, []string, error) {
 	operationID := "op-" + generateOperationID()
 	provider := s.groupMLSProvider()
+	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	prepared, err := provider.RemoveMember(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-remove-" + generateOperationID(),
@@ -297,12 +302,13 @@ func (s *Service) removeGroupMemberE2EE(ctx context.Context, record *identity.St
 			"member_did":      request.Member,
 			"subject_did":     request.Member,
 			"operation_id":    operationID,
-			"group_state_ref": s.localGroupStateRef(ctx, record, request.Group),
+			"group_state_ref": groupStateRef,
 		},
 	})
 	if err != nil {
 		return nil, nil, err
 	}
+	prepared = attachGroupStateRef(prepared, request.Group, groupStateRef)
 	return s.submitPreparedGroupE2EECommit(ctx, record, request.Group, request.Member, request.ReasonText, prepared, func(transport *HTTPTransport) (map[string]any, error) {
 		return transport.RemoveGroupE2EE(ctx, request.Group, request.Member, prepared, request.ReasonText, request.LeaveRequestID)
 	})
@@ -412,6 +418,7 @@ func (s *Service) UpdateGroupE2EEKey(ctx context.Context, request GroupE2EEUpdat
 	}
 	provider := s.groupMLSProvider()
 	operationID := "op-" + generateOperationID()
+	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	prepared, err := provider.UpdateMemberPrepare(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-update-key-prepare-" + generateOperationID(),
@@ -429,13 +436,14 @@ func (s *Service) UpdateGroupE2EEKey(ctx context.Context, request GroupE2EEUpdat
 			"group_key_package":        leasedPackage["group_key_package"],
 			"target_key_package":       leasedPackage,
 			"operation_id":             operationID,
-			"group_state_ref":          s.localGroupStateRef(ctx, record, request.Group),
+			"group_state_ref":          groupStateRef,
 			"update_operation_purpose": "same-did-device-key-rotation",
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
+	prepared = attachGroupStateRef(prepared, request.Group, groupStateRef)
 	delivery, submitErr := transport.UpdateGroupE2EEKey(ctx, request.Group, memberDID, deviceID, prepared, leasedPackage)
 	if submitErr != nil {
 		if shouldAbortGroupE2EEPendingCommit(submitErr) {
@@ -514,6 +522,7 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 	}
 	provider := s.groupMLSProvider()
 	operationID := "op-" + generateOperationID()
+	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	prepared, err := provider.RecoverMemberPrepare(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-recover-member-prepare-" + generateOperationID(),
@@ -531,7 +540,7 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 			"group_key_package":          leasedPackage["group_key_package"],
 			"target_key_package":         leasedPackage,
 			"operation_id":               operationID,
-			"group_state_ref":            s.localGroupStateRef(ctx, record, request.Group),
+			"group_state_ref":            groupStateRef,
 			"p4_membership_mutate":       false,
 			"recovery_operation_purpose": "same-device-crypto-recovery",
 		},
@@ -539,6 +548,7 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 	if err != nil {
 		return nil, err
 	}
+	prepared = attachGroupStateRef(prepared, request.Group, groupStateRef)
 	delivery, submitErr := transport.RecoverGroupE2EEMember(ctx, request.Group, memberDID, deviceID, prepared, leasedPackage)
 	if submitErr != nil {
 		if shouldAbortGroupE2EEPendingCommit(submitErr) {
@@ -977,6 +987,14 @@ func decryptGroupCipherWithDevices(ctx context.Context, provider MLSExecProvider
 }
 
 func (s *Service) persistGroupE2EESummary(ctx context.Context, record *identity.StoredIdentity, groupDID string, mls map[string]any, delivery map[string]any) []string {
+	existingSnapshot, _ := s.readCachedGroupSnapshot(ctx, record, groupDID)
+	existingRef := groupStateRefFromSnapshot(groupDID, existingSnapshot)
+	groupStateVersion := firstNonEmptyString(
+		groupStateVersionFromAny(mls["group_state_ref"]),
+		groupStateVersionFromAny(delivery["group_state_ref"]),
+		delivery["group_state_version"],
+		existingRef["group_state_version"],
+	)
 	db, err := store.Open(s.resolved.Paths)
 	if err != nil {
 		return []string{fmt.Sprintf("Failed to open local store for group E2EE summary: %v", err)}
@@ -994,7 +1012,11 @@ func (s *Service) persistGroupE2EESummary(ctx context.Context, record *identity.
 			"suite":                stringFromAny(firstNonNil(mls["suite"], delivery["suite"])),
 			"updated_at":           stringFromAny(delivery["updated_at"]),
 			"operation_id":         stringFromAny(delivery["operation_id"]),
+			"group_state_version":  groupStateVersion,
 		},
+	}
+	if groupStateVersion != "" {
+		metadata["group_state_version"] = groupStateVersion
 	}
 	if err := store.UpsertGroup(ctx, db, store.GroupRecord{
 		OwnerDID:         record.DID,
@@ -1791,6 +1813,17 @@ func (s *Service) localGroupStateRef(ctx context.Context, record *identity.Store
 	return groupStateRefFromSnapshot(groupDID, snapshot)
 }
 
+func attachGroupStateRef(input map[string]any, groupDID string, groupStateRef map[string]any) map[string]any {
+	output := cloneStringAnyMap(input)
+	ref := cloneStringAnyMap(groupStateRef)
+	if len(ref) == 0 {
+		ref = map[string]any{"group_did": groupDID}
+	}
+	ref["group_did"] = groupDID
+	output["group_state_ref"] = ref
+	return output
+}
+
 func groupStateRefFromSnapshot(groupDID string, snapshot map[string]any) map[string]any {
 	ref := map[string]any{"group_did": groupDID}
 	metadata := decodeMetadataMap(snapshot["metadata"])
@@ -1806,6 +1839,14 @@ func groupStateRefFromSnapshot(groupDID string, snapshot map[string]any) map[str
 		}
 	}
 	return ref
+}
+
+func groupStateVersionFromAny(value any) string {
+	ref, _ := value.(map[string]any)
+	if len(ref) == 0 {
+		return ""
+	}
+	return stringFromAny(ref["group_state_version"])
 }
 
 func (s *Service) groupHasLocalE2EEState(ctx context.Context, record *identity.StoredIdentity, groupDID string) bool {

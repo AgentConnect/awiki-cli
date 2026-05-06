@@ -602,6 +602,97 @@ func writeCachedGroupState(t *testing.T, resolved *appconfig.Resolved, record *i
 	}
 }
 
+func TestAddGroupMemberE2EEUsesOnlyServiceLeasedKeyPackageForMLS(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:add:e1_group"
+	bobDID := "did:wba:awiki.ai:user:bob:e1_bob"
+	methods := []string(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envelope := decodeRPCRequest(t, r)
+		methods = append(methods, envelope.Method)
+		var result map[string]any
+		switch envelope.Method {
+		case "anp.get_capabilities":
+			result = map[string]any{"service_did": "did:wba:awiki.ai:services:message:e1_service"}
+		case "group.e2ee.get_key_package":
+			body := mustMapValue(t, envelope.Params["body"], "get_key_package.body")
+			if got := stringFromAny(body["group_did"]); got != groupDID {
+				t.Fatalf("get_key_package group_did = %q, want group DID", got)
+			}
+			result = map[string]any{
+				"key_package_id": "kp-service-verified-1",
+				"lease_id":       "lease-service-verified-1",
+				"group_key_package": map[string]any{
+					"owner_did": bobDID,
+					"device_id": "bob-main",
+					"purpose":   "normal",
+					"group_did": groupDID,
+					"did_wba_binding": map[string]any{
+						"proof": map[string]any{"proofValue": "verified-by-message-service"},
+					},
+				},
+			}
+		case "group.e2ee.add":
+			body := mustMapValue(t, envelope.Params["body"], "add.body")
+			if got := stringFromAny(body["key_package_id"]); got != "kp-service-verified-1" {
+				t.Fatalf("add key_package_id = %q, want leased id", got)
+			}
+			groupKeyPackage := mustMapValue(t, body["group_key_package"], "add.group_key_package")
+			if got := stringFromAny(groupKeyPackage["owner_did"]); got != bobDID {
+				t.Fatalf("add group_key_package.owner_did = %q, want bob", got)
+			}
+			ref := mustMapValue(t, body["group_state_ref"], "add.group_state_ref")
+			if got := stringFromAny(ref["group_state_version"]); got != "3" {
+				t.Fatalf("add group_state_version = %q, want cached P4 version", got)
+			}
+			result = map[string]any{
+				"accepted":              true,
+				"operation_id":          stringFromAny(mustMapValue(t, envelope.Params["meta"], "add.meta")["operation_id"]),
+				"epoch":                 "2",
+				"crypto_group_id_b64u":  "crypto-service-verified",
+				"group_state_version":   "3",
+				"epoch_authenticator":   "auth-2",
+				"last_handshake_digest": "digest-2",
+			}
+		default:
+			t.Fatalf("unexpected RPC method %q", envelope.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": result})
+	}))
+	defer server.Close()
+
+	service, resolved, record := newMessageServiceForTest(t, server.URL)
+	writeCachedGroupState(t, resolved, record, store.GroupRecord{
+		OwnerDID:         record.DID,
+		GroupID:          groupDID,
+		GroupDID:         groupDID,
+		MyRole:           "owner",
+		MembershipStatus: "active",
+		Metadata:         `{"group_state_version":"3","group_e2ee":{"epoch":"1","crypto_group_id_b64u":"crypto-service-verified"}}`,
+		CredentialName:   record.IdentityName,
+	}, nil)
+	runner := &groupE2EEAddMLSRunner{}
+	service.mlsProvider = &MLSExecProvider{BinaryPath: "anp-mls", Runner: runner}
+
+	result, warnings := service.addGroupMemberE2EE(context.Background(), record, groupDID, bobDID)
+	if got := strings.Join(warnings, "\n"); got != "" {
+		t.Fatalf("addGroupMemberE2EE() warnings = %q", got)
+	}
+	if result == nil {
+		t.Fatalf("addGroupMemberE2EE() result is nil")
+	}
+	if !runner.sawAddMember {
+		t.Fatalf("anp-mls add-member was not called; calls=%#v", runner.calls)
+	}
+	if len(methods) < 2 || methods[0] != "anp.get_capabilities" || methods[1] != "group.e2ee.get_key_package" {
+		t.Fatalf("expected service KeyPackage lease before MLS add; methods=%#v", methods)
+	}
+	if got := stringFromAny(mustMapValue(t, result["leased_key_package"], "result.leased_key_package")["key_package_id"]); got != "kp-service-verified-1" {
+		t.Fatalf("result leased_key_package.key_package_id = %q, want leased id", got)
+	}
+}
+
 func TestRecoverGroupE2EEMemberUsesRecoverMemberWithoutGroupAdd(t *testing.T) {
 	t.Parallel()
 
@@ -756,6 +847,68 @@ func TestUpdateGroupE2EEKeyUsesUpdateMethodWithoutGroupAdd(t *testing.T) {
 	if !runner.sawUpdatePrepare || !runner.sawUpdateFinalize {
 		t.Fatalf("runner prepare/finalize = %v/%v, calls=%#v", runner.sawUpdatePrepare, runner.sawUpdateFinalize, runner.calls)
 	}
+}
+
+type groupE2EEAddMLSRunner struct {
+	calls        []string
+	sawAddMember bool
+}
+
+func (r *groupE2EEAddMLSRunner) Run(_ context.Context, _ string, args []string, stdin []byte) ([]byte, []byte, error) {
+	var req MLSRequest
+	_ = json.Unmarshal(stdin, &req)
+	command := strings.Join(args, " ")
+	r.calls = append(r.calls, command)
+	if !strings.Contains(command, "add-member") {
+		return []byte(mustJSONForTest(map[string]any{
+			"ok":          true,
+			"api_version": "anp-mls/v1",
+			"request_id":  req.RequestID,
+			"result":      map[string]any{"status": "active", "epoch": "2", "crypto_group_id_b64u": "crypto-service-verified"},
+		})), nil, nil
+	}
+	r.sawAddMember = true
+	if got := stringFromAny(req.Params["key_package_id"]); got != "kp-service-verified-1" {
+		return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"unverified_key_package","message":"MLS add-member did not receive the message-service leased KeyPackage id"}}`, req.RequestID)), nil, nil
+	}
+	targetPackage := mustStringAnyMapForTest(req.Params["target_key_package"])
+	if got := stringFromAny(targetPackage["lease_id"]); got != "lease-service-verified-1" {
+		return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"unverified_key_package","message":"MLS add-member did not receive the message-service lease envelope"}}`, req.RequestID)), nil, nil
+	}
+	groupKeyPackage := mustStringAnyMapForTest(req.Params["group_key_package"])
+	if got := stringFromAny(groupKeyPackage["owner_did"]); got != "did:wba:awiki.ai:user:bob:e1_bob" {
+		return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"wrong_key_package","message":"MLS add-member did not receive Bob's leased KeyPackage"}}`, req.RequestID)), nil, nil
+	}
+	groupStateRef := mustStringAnyMapForTest(req.Params["group_state_ref"])
+	if got := stringFromAny(groupStateRef["group_state_version"]); got != "3" {
+		return []byte(fmt.Sprintf(`{"ok":false,"api_version":"anp-mls/v1","request_id":%q,"error":{"code":"missing_group_state_version","message":"MLS add-member did not receive P4 group_state_version"}}`, req.RequestID)), nil, nil
+	}
+	return []byte(mustJSONForTest(map[string]any{
+		"ok":          true,
+		"api_version": "anp-mls/v1",
+		"request_id":  req.RequestID,
+		"result": map[string]any{
+			"operation_id":             stringFromAny(req.Params["operation_id"]),
+			"pending_commit_id":        "pc-add-1",
+			"key_package_id":           "kp-service-verified-1",
+			"crypto_group_id_b64u":     "crypto-service-verified",
+			"from_epoch":               "1",
+			"to_epoch":                 "2",
+			"epoch":                    "2",
+			"epoch_authenticator_b64u": "auth-2",
+			"commit_b64u":              "opaque-commit",
+			"welcome_b64u":             "opaque-welcome",
+			"ratchet_tree_b64u":        "opaque-ratchet-tree",
+		},
+	})), nil, nil
+}
+
+func mustStringAnyMapForTest(value any) map[string]any {
+	result, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return result
 }
 
 type groupE2EERecoverMLSRunner struct {

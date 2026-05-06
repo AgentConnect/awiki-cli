@@ -73,14 +73,14 @@ These commands are hidden/test-only until public discovery is approved. `schema`
 ### Add and welcome
 
 1. Ensure target is P4 active through `group add`.
-2. Lease target normal KeyPackage via `group.e2ee.get_key_package` with `body.group_did`.
-3. Run `anp-mls group add-member`.
+2. Lease target normal KeyPackage via `group.e2ee.get_key_package` with `body.group_did`; do not pass arbitrary non-service KeyPackage JSON into `anp-mls`.
+3. Run `anp-mls group add-member` with the service-verified leased package and the cached P4 `group_state_ref.group_state_version`.
 4. Submit `group.e2ee.add` with commit, welcome, ratchet tree, epoch, and crypto group ID.
 5. Target pulls `group.e2ee.notice` and processes Welcome.
 
 ### Send and receive
 
-1. Sender encrypts with `anp-mls message encrypt` and canonical P6 AAD metadata.
+1. Sender syncs the group snapshot, then encrypts with `anp-mls message encrypt` and canonical P6 AAD metadata including `group_state_ref.group_state_version`.
 2. CLI submits `group.e2ee.send` with the opaque `group_cipher_object` as the direct P6 body.
 3. Receiver pulls/history-reads the opaque cipher, decrypts with `anp-mls message decrypt`, and stores only the local plaintext view.
 

@@ -243,8 +243,6 @@ func sanitizeGroupCipherObjectForService(cipher map[string]any) map[string]any {
 		"private_message_b64u",
 		"group_state_ref",
 		"epoch_authenticator",
-		"non_cryptographic",
-		"artifact_mode",
 	} {
 		if value, ok := cipher[key]; ok {
 			sanitized[key] = value
@@ -722,10 +720,8 @@ func buildGroupE2EERPCParams(record *identity.StoredIdentity, manager *identity.
 
 func e2eeHeadBody(groupDID string, memberDID string, mlsHead map[string]any) map[string]any {
 	body := map[string]any{
-		"group_did": groupDID,
-		"group_state_ref": map[string]any{
-			"group_did": groupDID,
-		},
+		"group_did":       groupDID,
+		"group_state_ref": groupStateRefFromSource(groupDID, mlsHead),
 	}
 	for _, key := range []string{"crypto_group_id_b64u", "epoch", "epoch_authenticator", "epoch_authenticator_b64u", "suite", "last_handshake_digest"} {
 		if value, ok := mlsHead[key]; ok {
@@ -739,7 +735,43 @@ func e2eeHeadBody(groupDID string, memberDID string, mlsHead map[string]any) map
 		body["member_did"] = memberDID
 		body["subject_did"] = memberDID
 	}
+	augmentGroupStateRefWithCryptoClaims(body, false)
 	return body
+}
+
+func groupStateRefFromSource(groupDID string, source map[string]any) map[string]any {
+	ref := map[string]any{"group_did": strings.TrimSpace(groupDID)}
+	if sourceRef, ok := source["group_state_ref"].(map[string]any); ok {
+		for key, value := range sourceRef {
+			ref[key] = value
+		}
+	}
+	ref["group_did"] = strings.TrimSpace(groupDID)
+	if version := firstNonEmptyString(source["group_state_version"], ref["group_state_version"]); version != "" {
+		ref["group_state_version"] = version
+	}
+	return ref
+}
+
+func augmentGroupStateRefWithCryptoClaims(body map[string]any, preferFromEpoch bool) {
+	groupStateRef, _ := body["group_state_ref"].(map[string]any)
+	if len(groupStateRef) == 0 {
+		groupDID := stringFromAny(body["group_did"])
+		groupStateRef = map[string]any{"group_did": groupDID}
+		body["group_state_ref"] = groupStateRef
+	}
+	if cryptoGroupID := stringFromAny(body["crypto_group_id_b64u"]); cryptoGroupID != "" {
+		groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
+	}
+	if preferFromEpoch {
+		if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
+			groupStateRef["epoch"] = fromEpoch
+			return
+		}
+	}
+	if epoch := stringFromAny(body["epoch"]); epoch != "" {
+		groupStateRef["epoch"] = epoch
+	}
 }
 
 func e2eeMembershipCommitBody(groupDID string, subjectDID string, defaultSubjectStatus string, preparedCommit map[string]any) map[string]any {
@@ -772,17 +804,7 @@ func e2eeMembershipCommitBody(groupDID string, subjectDID string, defaultSubject
 	if _, ok := body["subject_status"]; !ok && defaultSubjectStatus != "" {
 		body["subject_status"] = defaultSubjectStatus
 	}
-	groupStateRef, _ := body["group_state_ref"].(map[string]any)
-	if len(groupStateRef) == 0 {
-		groupStateRef = map[string]any{"group_did": groupDID}
-		body["group_state_ref"] = groupStateRef
-	}
-	if cryptoGroupID := stringFromAny(body["crypto_group_id_b64u"]); cryptoGroupID != "" {
-		groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
-	}
-	if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
-		groupStateRef["epoch"] = fromEpoch
-	}
+	augmentGroupStateRefWithCryptoClaims(body, true)
 	return body
 }
 
@@ -807,10 +829,8 @@ func e2eeUpdateCommitBody(groupDID string, memberDID string, deviceID string, pr
 
 func e2eeRecoveryCommitBody(groupDID string, memberDID string, deviceID string, prepared map[string]any, leasedPackage map[string]any) map[string]any {
 	body := map[string]any{
-		"group_did": groupDID,
-		"group_state_ref": map[string]any{
-			"group_did": groupDID,
-		},
+		"group_did":       groupDID,
+		"group_state_ref": groupStateRefFromSource(groupDID, prepared),
 		"target": map[string]any{
 			"agent_did": memberDID,
 			"device_id": defaultString(strings.TrimSpace(deviceID), "default"),
@@ -859,17 +879,7 @@ func e2eeRecoveryCommitBody(groupDID string, memberDID string, deviceID string, 
 	if groupKeyPackage, ok := leasedPackage["group_key_package"].(map[string]any); ok && len(groupKeyPackage) > 0 {
 		body["group_key_package"] = sanitizeGroupKeyPackageForService(groupKeyPackage)
 	}
-	groupStateRef, _ := body["group_state_ref"].(map[string]any)
-	if len(groupStateRef) == 0 {
-		groupStateRef = map[string]any{"group_did": groupDID}
-		body["group_state_ref"] = groupStateRef
-	}
-	if cryptoGroupID := stringFromAny(body["crypto_group_id_b64u"]); cryptoGroupID != "" {
-		groupStateRef["crypto_group_id_b64u"] = cryptoGroupID
-	}
-	if fromEpoch := stringFromAny(body["from_epoch"]); fromEpoch != "" {
-		groupStateRef["epoch"] = fromEpoch
-	}
+	augmentGroupStateRefWithCryptoClaims(body, true)
 	return body
 }
 

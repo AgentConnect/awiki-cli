@@ -172,7 +172,9 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 		"epoch":                 "1",
 		"private_message_b64u":  "Y2lwaGVy",
 		"epoch_authenticator":   "YXV0aA",
-		"group_state_ref":       map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group"},
+		"group_state_ref":       map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "group_state_version": "7"},
+		"non_cryptographic":     true,
+		"artifact_mode":         "contract-test",
 		"application_plaintext": map[string]any{"text": "secret"},
 	}, "op-e2ee-send", "msg-e2ee-send")
 	if err != nil {
@@ -205,8 +207,18 @@ func TestBuildGroupE2EESendRPCParamsSendsOnlyOpaqueCipherObject(t *testing.T) {
 	if _, ok := groupCipher["application_plaintext"]; ok {
 		t.Fatalf("plaintext leaked into service cipher object: %#v", groupCipher)
 	}
+	if _, ok := groupCipher["non_cryptographic"]; ok {
+		t.Fatalf("legacy contract marker leaked into service cipher object: %#v", groupCipher)
+	}
+	if _, ok := groupCipher["artifact_mode"]; ok {
+		t.Fatalf("legacy artifact marker leaked into service cipher object: %#v", groupCipher)
+	}
 	if got := stringFromAny(groupCipher["crypto_group_id_b64u"]); got != "Y3J5cHRv" {
 		t.Fatalf("crypto_group_id_b64u = %q, want Y3J5cHRv", got)
+	}
+	ref := mustMapValue(t, groupCipher["group_state_ref"], "group_cipher.group_state_ref")
+	if got := stringFromAny(ref["group_state_version"]); got != "7" {
+		t.Fatalf("group_state_ref.group_state_version = %q, want server state version 7", got)
 	}
 }
 
@@ -222,6 +234,7 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 		"commit_b64u":          "Y29tbWl0",
 		"ratchet_tree_b64u":    "cmF0Y2hldA",
 		"key_package_id":       "kp-bob-1",
+		"group_state_ref":      map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "group_state_version": "12"},
 		"group_key_package":    map[string]any{"owner_did": "did:wba:awiki.ai:user:bob:e1_bob", "key_package_id": "kp-bob-1", "device_id": "phone"},
 	})
 	if err != nil {
@@ -247,6 +260,10 @@ func TestBuildGroupE2EEAddRPCParamsIncludesConsumedKeyPackageID(t *testing.T) {
 	if got := stringFromAny(body["ratchet_tree_b64u"]); got != "cmF0Y2hldA" {
 		t.Fatalf("ratchet_tree_b64u = %q, want ratchet tree", got)
 	}
+	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
+	if got := stringFromAny(ref["group_state_version"]); got != "12" {
+		t.Fatalf("group_state_ref.group_state_version = %q, want P4 state version", got)
+	}
 }
 
 func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) {
@@ -265,7 +282,7 @@ func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) 
 		"epoch_authenticator_b64u":  "YXV0aDU",
 		"application_plaintext":     "must-not-leak",
 		"provider_private_material": "must-not-leak",
-		"group_state_ref":           map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "epoch": "4"},
+		"group_state_ref":           map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "group_state_version": "8", "epoch": "4"},
 	}, "cleanup", "leave-req-1")
 	if err != nil {
 		t.Fatalf("BuildGroupE2EERemoveRPCParams() error = %v", err)
@@ -306,6 +323,9 @@ func TestBuildGroupE2EERemoveRPCParamsUsesHiddenCompositeMutation(t *testing.T) 
 	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
 	if got := stringFromAny(ref["epoch"]); got != "4" {
 		t.Fatalf("group_state_ref.epoch = %q, want from_epoch/pre-remove epoch", got)
+	}
+	if got := stringFromAny(ref["group_state_version"]); got != "8" {
+		t.Fatalf("group_state_ref.group_state_version = %q, want P4 state version", got)
 	}
 }
 
@@ -495,6 +515,7 @@ func TestBuildGroupE2EECreateRPCParamsUsesServiceTarget(t *testing.T) {
 		"crypto_group_id_b64u": "Y3J5cHRv",
 		"epoch":                "0",
 		"epoch_authenticator":  "YXV0aA",
+		"group_state_ref":      map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "group_state_version": "3"},
 	})
 	if err != nil {
 		t.Fatalf("BuildGroupE2EECreateRPCParams() error = %v", err)
@@ -514,6 +535,9 @@ func TestBuildGroupE2EECreateRPCParamsUsesServiceTarget(t *testing.T) {
 	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
 	if got := stringFromAny(ref["group_did"]); got != "did:wba:awiki.ai:groups:demo:e1_group" {
 		t.Fatalf("group_state_ref.group_did = %q, want group DID", got)
+	}
+	if got := stringFromAny(ref["group_state_version"]); got != "3" {
+		t.Fatalf("group_state_ref.group_state_version = %q, want P4 state version", got)
 	}
 }
 
@@ -686,6 +710,7 @@ func TestBuildGroupE2EERecoverMemberRPCParamsAvoidsP4MembershipFields(t *testing
 		"welcome_b64u":             "d2VsY29tZQ",
 		"ratchet_tree_b64u":        "cmF0Y2hldA",
 		"epoch_authenticator_b64u": "YXV0aDY",
+		"group_state_ref":          map[string]any{"group_did": "did:wba:awiki.ai:groups:demo:e1_group", "group_state_version": "9"},
 		"application_plaintext":    "must-not-leak",
 		"member_did":               "must-not-be-forwarded",
 	}, map[string]any{
@@ -733,5 +758,9 @@ func TestBuildGroupE2EERecoverMemberRPCParamsAvoidsP4MembershipFields(t *testing
 	}
 	if got := stringFromAny(recoveryPackage["device_id"]); got != "bob-main" {
 		t.Fatalf("recovery group_key_package.device_id = %q, want bob-main", got)
+	}
+	ref := mustMapValue(t, body["group_state_ref"], "body.group_state_ref")
+	if got := stringFromAny(ref["group_state_version"]); got != "9" {
+		t.Fatalf("group_state_ref.group_state_version = %q, want P4 state version", got)
 	}
 }
