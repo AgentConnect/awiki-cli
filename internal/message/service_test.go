@@ -13,6 +13,7 @@ import (
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestRequireActiveIdentityRejectsLocalOnlyIdentity(t *testing.T) {
@@ -764,7 +765,7 @@ func testResolvedConfig(t *testing.T) *appconfig.Resolved {
 			StateDir:             filepath.Join(root, "state"),
 			DatabaseFile:         filepath.Join(root, "data", "awiki-cli.db"),
 		},
-		ServiceBaseURL: "https://awiki.test",
+		ServiceBaseURL: testenv.BaseURL(),
 		DIDDomain:      "awiki.ai",
 	}
 }

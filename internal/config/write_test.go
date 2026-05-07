@@ -3,6 +3,8 @@ package config
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestUpdateRuntimeSettingsWritesConfigSchemaVersion(t *testing.T) {
@@ -86,9 +88,9 @@ func TestUpdateDIDDomainPreservesExistingServiceSettings(t *testing.T) {
 	root := t.TempDir()
 	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
 	initial := FileConfig{}
-	initial.Services.ServiceBaseURL = "https://platform.awiki.test"
-	initial.Services.ANPServiceEndpoint = "https://rpc.awiki.test/anp"
-	initial.Services.ANPServiceDID = "did:wba:rpc.awiki.test"
+	initial.Services.ServiceBaseURL = testenv.SubdomainURL("platform")
+	initial.Services.ANPServiceEndpoint = testenv.SubdomainURL("rpc") + "/anp"
+	initial.Services.ANPServiceDID = "did:wba:" + testenv.Subdomain("rpc")
 	if err := WriteFileConfig(paths.ConfigFile, initial); err != nil {
 		t.Fatalf("WriteFileConfig() error = %v", err)
 	}

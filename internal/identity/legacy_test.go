@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func legacyTestManager(root string) *Manager {
@@ -21,11 +22,11 @@ func legacyTestManager(root string) *Manager {
 func writeLegacyFlatCredential(t *testing.T, legacyRoot string, credentialName string, handle string) *GeneratedIdentity {
 	t.Helper()
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           "awiki.test",
+		Hostname:           testenv.Domain(),
 		PathPrefix:         []string{handle},
-		ProofDomain:        "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		ProofDomain:        testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 	})
 	if err != nil {
 		t.Fatalf("GenerateIdentity() error = %v", err)
@@ -55,11 +56,11 @@ func writeLegacyFlatCredential(t *testing.T, legacyRoot string, credentialName s
 func writeLegacyIndexedCredential(t *testing.T, legacyRoot string, credentialName string, dirName string, handle string) IndexEntry {
 	t.Helper()
 	generated, err := GenerateIdentity(GenerateOptions{
-		Hostname:           "awiki.test",
+		Hostname:           testenv.Domain(),
 		PathPrefix:         []string{handle},
-		ProofDomain:        "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		ProofDomain:        testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 	})
 	if err != nil {
 		t.Fatalf("GenerateIdentity() error = %v", err)
@@ -261,7 +262,7 @@ func TestImportAllLegacySkipsConflictingFlatCredentials(t *testing.T) {
 	existing := writeLegacyFlatCredential(t, legacyRoot, "conflict", "conflict")
 	if _, err := manager.Save(SaveInput{
 		IdentityName:   "conflict",
-		DID:            "did:wba:awiki.test:user:conflict:e1_other",
+		DID:            testenv.DID("user", "conflict", "e1_other"),
 		UniqueID:       "e1_other",
 		DisplayName:    "Conflict",
 		DIDDocument:    existing.DIDDocument,

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestNormalizeHostNotificationDirectIncomingKeepsMinimalFields(t *testing.T) {
@@ -304,7 +305,7 @@ func TestHandleNotificationDispatchesHostNotificationToSink(t *testing.T) {
 func TestHandleNotificationStoresMessageWhenHostNotifyFails(t *testing.T) {
 	t.Parallel()
 
-	resolved := testResolvedConfig(t, "https://awiki.test")
+	resolved := testResolvedConfig(t, testenv.BaseURL())
 	supervisor, err := NewSupervisor(resolved)
 	if err != nil {
 		t.Fatalf("NewSupervisor() error = %v", err)
@@ -353,7 +354,7 @@ func TestHandleNotificationStoresMessageWhenHostNotifyFails(t *testing.T) {
 func TestHandleNotificationDispatchesMailNotificationToSink(t *testing.T) {
 	t.Parallel()
 
-	resolved := testResolvedConfig(t, "https://awiki.test")
+	resolved := testResolvedConfig(t, testenv.BaseURL())
 	supervisor, err := NewSupervisor(resolved)
 	if err != nil {
 		t.Fatalf("NewSupervisor() error = %v", err)

@@ -10,6 +10,7 @@ import (
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/output"
 	listenerrt "github.com/agentconnect/awiki-cli/internal/runtime/listener"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 	"github.com/agentconnect/awiki-cli/internal/upgrade"
 	"github.com/spf13/cobra"
 )
@@ -61,13 +62,14 @@ func TestRunInitAutoMigratesLegacyOnlyWorkspaceBeforeInitialization(t *testing.T
 		if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
 			return err
 		}
-		return os.WriteFile(configPath, []byte(`schema_version: 1
-runtime:
-  mode: http
-services:
-  service_base_url: https://legacy.awiki.test
-  did_domain: legacy.awiki.test
-`), 0o600)
+		return os.WriteFile(configPath, []byte(
+			"schema_version: 1\n"+
+				"runtime:\n"+
+				"  mode: http\n"+
+				"services:\n"+
+				"  service_base_url: "+testenv.SubdomainURL("legacy")+"\n"+
+				"  did_domain: "+testenv.Subdomain("legacy")+"\n",
+		), 0o600)
 	}
 	initApplyRuntimePolicyFunc = func(*appconfig.Resolved) (listenerrt.Status, error) {
 		return listenerrt.Status{}, nil
@@ -94,10 +96,10 @@ services:
 	if fileConfig.Runtime.Mode != "http" {
 		t.Fatalf("runtime mode = %q, want http", fileConfig.Runtime.Mode)
 	}
-	if fileConfig.Services.ServiceBaseURL != "https://legacy.awiki.test" {
+	if fileConfig.Services.ServiceBaseURL != testenv.SubdomainURL("legacy") {
 		t.Fatalf("service base url = %q, want migrated legacy value", fileConfig.Services.ServiceBaseURL)
 	}
-	if fileConfig.Services.DIDDomain != "legacy.awiki.test" {
+	if fileConfig.Services.DIDDomain != testenv.Subdomain("legacy") {
 		t.Fatalf("did domain = %q, want migrated legacy value", fileConfig.Services.DIDDomain)
 	}
 

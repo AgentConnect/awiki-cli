@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 type rpcRequestEnvelope struct {
@@ -357,7 +359,7 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 func TestHTTPTransportGetMessageServiceDIDUsesConfiguredOrCapabilities(t *testing.T) {
 	t.Parallel()
 
-	transport, _, _ := newHTTPTransportForTest(t, "https://awiki.test")
+	transport, _, _ := newHTTPTransportForTest(t, testenv.BaseURL())
 	transport.resolved.ANPServiceDID = "did:wba:configured.example"
 	got, err := transport.GetMessageServiceDID(context.Background())
 	if err != nil {

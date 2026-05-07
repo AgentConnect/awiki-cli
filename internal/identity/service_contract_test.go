@@ -11,6 +11,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Resolved, *identity.Manager) {
@@ -29,9 +30,9 @@ func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfi
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
 		ServiceBaseURL:     serviceBaseURL,
-		DIDDomain:          "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		DIDDomain:          testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 		OutputFormat:       "json",
 	}
 	return resolved, identity.NewManager(resolved.Paths)
@@ -40,11 +41,11 @@ func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfi
 func saveServiceTestIdentity(t *testing.T, manager *identity.Manager, identityName string, handle string, jwtToken string) *identity.StoredIdentity {
 	t.Helper()
 	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
-		Hostname:           "awiki.test",
+		Hostname:           testenv.Domain(),
 		PathPrefix:         []string{handle},
-		ProofDomain:        "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		ProofDomain:        testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 	})
 	if err != nil {
 		t.Fatalf("identity.GenerateIdentity() error = %v", err)
@@ -331,7 +332,7 @@ func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.
 			method, _ := payload["method"].(string)
 			if method == "resolve" {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"did:wba:awiki.test:user:alice"},"id":"req-1"}`))
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("user", "alice") + `"},"id":"req-1"}`))
 				return
 			}
 			http.Error(w, "profile unavailable", http.StatusBadGateway)
@@ -347,7 +348,7 @@ func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.
 		t.Fatalf("identity.NewService() error = %v", err)
 	}
 
-	result, err := service.Resolve(context.Background(), "", "did:wba:awiki.test:user:alice")
+	result, err := service.Resolve(context.Background(), "", testenv.DID("user", "alice"))
 	if err != nil {
 		t.Fatalf("Service.Resolve() error = %v", err)
 	}
@@ -430,7 +431,7 @@ func TestServiceGetProfileByHandleReturnsBareAndFullHandleSubject(t *testing.T) 
 			params, _ := payload["params"].(map[string]any)
 			lookupHandle, _ = params["handle"].(string)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"did:wba:awiki.test:alice:e1_test"},"id":"req-1"}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("alice", "e1_test") + `"},"id":"req-1"}`))
 		case "/user-service/did/profile/rpc":
 			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -439,7 +440,7 @@ func TestServiceGetProfileByHandleReturnsBareAndFullHandleSubject(t *testing.T) 
 			params, _ := payload["params"].(map[string]any)
 			profileDID, _ = params["did"].(string)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"did:wba:awiki.test:alice:e1_test","handle":"alice"},"id":"req-1"}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("alice", "e1_test") + `","handle":"alice"},"id":"req-1"}`))
 		default:
 			t.Fatalf("unexpected request path %q", r.URL.Path)
 		}
@@ -456,23 +457,23 @@ func TestServiceGetProfileByHandleReturnsBareAndFullHandleSubject(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Service.GetProfile() error = %v", err)
 	}
-	if lookupHandle != "alice.awiki.test" {
-		t.Fatalf("lookup handle = %q, want alice.awiki.test", lookupHandle)
+	if lookupHandle != testenv.FullHandle("alice") {
+		t.Fatalf("lookup handle = %q, want %q", lookupHandle, testenv.FullHandle("alice"))
 	}
-	if profileDID != "did:wba:awiki.test:alice:e1_test" {
-		t.Fatalf("profile did = %q, want did:wba:awiki.test:alice:e1_test", profileDID)
+	if profileDID != testenv.DID("alice", "e1_test") {
+		t.Fatalf("profile did = %q, want %q", profileDID, testenv.DID("alice", "e1_test"))
 	}
 	subject, _ := result.Data["subject"].(map[string]any)
 	if got, _ := subject["handle"].(string); got != "alice" {
 		t.Fatalf("subject.handle = %q, want alice", got)
 	}
-	if got, _ := subject["full_handle"].(string); got != "alice.awiki.test" {
-		t.Fatalf("subject.full_handle = %q, want alice.awiki.test", got)
+	if got, _ := subject["full_handle"].(string); got != testenv.FullHandle("alice") {
+		t.Fatalf("subject.full_handle = %q, want %q", got, testenv.FullHandle("alice"))
 	}
-	if got, _ := subject["domain"].(string); got != "awiki.test" {
-		t.Fatalf("subject.domain = %q, want awiki.test", got)
+	if got, _ := subject["domain"].(string); got != testenv.Domain() {
+		t.Fatalf("subject.domain = %q, want %q", got, testenv.Domain())
 	}
-	if got, _ := subject["did"].(string); got != "did:wba:awiki.test:alice:e1_test" {
-		t.Fatalf("subject.did = %q, want did:wba:awiki.test:alice:e1_test", got)
+	if got, _ := subject["did"].(string); got != testenv.DID("alice", "e1_test") {
+		t.Fatalf("subject.did = %q, want %q", got, testenv.DID("alice", "e1_test"))
 	}
 }

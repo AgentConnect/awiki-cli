@@ -10,6 +10,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestCreatePageCallsContentRPC(t *testing.T) {
@@ -64,7 +65,7 @@ func TestCreatePageCallsContentRPC(t *testing.T) {
 func TestUpdatePageRejectsEmptyMutation(t *testing.T) {
 	t.Parallel()
 
-	service := newTestService(t, "https://awiki.test", "token-123")
+	service := newTestService(t, testenv.BaseURL(), "token-123")
 	_, err := service.UpdatePage(context.Background(), UpdatePageParams{Slug: "hello-world"})
 	if err != ErrNoUpdateFields {
 		t.Fatalf("UpdatePage() error = %v, want %v", err, ErrNoUpdateFields)
