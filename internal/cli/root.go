@@ -227,6 +227,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupLeave
 	case "group.update":
 		return a.runGroupUpdate
+	case "group.list":
+		return a.runGroupList
 	case "group.members":
 		return a.runGroupMembers
 	case "group.messages":

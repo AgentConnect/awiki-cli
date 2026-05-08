@@ -198,6 +198,24 @@ func (s *Service) UpdateGroup(ctx context.Context, request GroupUpdateRequest) (
 	return &CommandResult{Data: map[string]any{"group": snapshot, "delivery": responses}, Summary: fmt.Sprintf("Updated group %s", request.Group), Warnings: compactWarnings(warnings)}, nil
 }
 
+func (s *Service) ListGroups(ctx context.Context, request GroupListRequest) (*CommandResult, error) {
+	record, err := s.requireActiveIdentity(request.IdentityName)
+	if err != nil {
+		return nil, err
+	}
+	transport, warnings, err := s.groupControlTransport(record)
+	if err != nil {
+		return nil, err
+	}
+	result, err := transport.ListGroups(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	groups := groupListFromResult(result["groups"])
+	total := intValueFromAny(result["total"], len(groups))
+	return &CommandResult{Data: map[string]any{"groups": groups, "total": total, "source": groupControlSource(result)}, Summary: fmt.Sprintf("Loaded %d groups", total), Warnings: compactWarnings(warnings)}, nil
+}
+
 func (s *Service) GroupMembers(ctx context.Context, request GroupMembersRequest) (*CommandResult, error) {
 	if strings.TrimSpace(request.Group) == "" {
 		return nil, ErrGroupRequired
@@ -643,6 +661,10 @@ func normalizeGroupSnapshot(raw map[string]any) map[string]any {
 }
 
 func groupMembersFromResult(value any) []map[string]any {
+	return messagesFromResult(value)
+}
+
+func groupListFromResult(value any) []map[string]any {
 	return messagesFromResult(value)
 }
 

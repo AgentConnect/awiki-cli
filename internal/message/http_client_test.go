@@ -317,6 +317,22 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 			},
 		},
 		{
+			name:       "list groups",
+			wantMethod: "group.list",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.ListGroups(context.Background(), GroupListRequest{Limit: 7})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if intValueFromAny(body["limit"], 0) != 7 {
+					t.Fatalf("body = %#v, want limit", body)
+				}
+				if _, ok := body["group_did"]; ok {
+					t.Fatalf("body.group_did should be absent for group.list: %#v", body)
+				}
+			},
+		},
+		{
 			name:       "list messages",
 			wantMethod: "group.list_messages",
 			call: func(transport *HTTPTransport) error {

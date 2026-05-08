@@ -73,6 +73,22 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:        "group list includes limit",
+			spec:        "group.list",
+			setFlags:    map[string]string{"limit": "25"},
+			wantSummary: "Dry run: group list planned",
+			wantAction:  "group.list",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				request, ok := plan["request"].(map[string]any)
+				if !ok {
+					t.Fatalf("plan.request type = %T, want map[string]any", plan["request"])
+				}
+				if request["Limit"] != float64(25) {
+					t.Fatalf("request.Limit = %#v, want 25", request["Limit"])
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -97,6 +113,8 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupKick(cmd, nil)
 				case "group.messages":
 					return app.runGroupMessages(cmd, nil)
+				case "group.list":
+					return app.runGroupList(cmd, nil)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil

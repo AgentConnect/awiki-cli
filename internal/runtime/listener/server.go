@@ -344,6 +344,12 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			return nil, err
 		}
 		return client.SendRPC(context.Background(), "group.get", params)
+	case "group.list":
+		params, err := message.BuildGroupListRPCParams(record, message.GroupListRequest{Limit: intValue(request.Params["limit"])})
+		if err != nil {
+			return nil, err
+		}
+		return client.SendRPC(context.Background(), "group.list", params)
 	case "group.list_members":
 		params, err := message.BuildGroupMembersRPCParams(record, message.GroupMembersRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"])})
 		if err != nil {
