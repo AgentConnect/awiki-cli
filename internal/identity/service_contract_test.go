@@ -131,14 +131,16 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	t.Parallel()
 
 	var (
-		statusQueryEmail string
-		registerMethod   string
-		registerEmail    string
+		statusQueryEmail  string
+		statusQueryHandle string
+		registerMethod    string
+		registerEmail     string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/user-service/auth/email-status":
 			statusQueryEmail = r.URL.Query().Get("email")
+			statusQueryHandle = r.URL.Query().Get("handle")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
 		case "/user-service/did-auth/rpc":
@@ -173,6 +175,9 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	if statusQueryEmail != "alice@example.com" {
 		t.Fatalf("email status query = %q, want alice@example.com", statusQueryEmail)
 	}
+	if statusQueryHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email status handle query = %q, want %s", statusQueryHandle, testenv.FullHandle("alice"))
+	}
 	if registerMethod != "register" {
 		t.Fatalf("register rpc method = %q, want register", registerMethod)
 	}
@@ -201,13 +206,15 @@ func TestServiceRegisterFullHandleUsesExplicitDomainForDID(t *testing.T) {
 	t.Parallel()
 
 	var (
-		registerMethod string
-		registerHandle string
-		registerDID    string
+		statusQueryHandle string
+		registerMethod    string
+		registerHandle    string
+		registerDID       string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/user-service/auth/email-status":
+			statusQueryHandle = r.URL.Query().Get("handle")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
 		case "/user-service/did-auth/rpc":
@@ -241,6 +248,9 @@ func TestServiceRegisterFullHandleUsesExplicitDomainForDID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Service.Register() error = %v", err)
 	}
+	if statusQueryHandle != "alice.partner.test" {
+		t.Fatalf("email status handle query = %q, want alice.partner.test", statusQueryHandle)
+	}
 	if registerMethod != "register" {
 		t.Fatalf("register rpc method = %q, want register", registerMethod)
 	}
@@ -261,6 +271,62 @@ func TestServiceRegisterFullHandleUsesExplicitDomainForDID(t *testing.T) {
 	}
 	if stored.Handle != "alice" || stored.FullHandle != "alice.partner.test" {
 		t.Fatalf("stored identity = %#v, want alice/alice.partner.test", stored)
+	}
+}
+
+func TestServiceRegisterEmailSendsScopedVerificationForHandle(t *testing.T) {
+	t.Parallel()
+
+	var (
+		statusQueryHandle string
+		sendEmail         string
+		sendHandle        string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			statusQueryHandle = r.URL.Query().Get("handle")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"verified":false}`))
+		case "/user-service/auth/email-send":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			sendEmail, _ = payload["email"].(string)
+			sendHandle, _ = payload["handle"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"Activation email sent."}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, _ := newIdentityServiceWorkspace(t, server.URL)
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+
+	result, err := service.Register(context.Background(), identity.RegisterParams{
+		Handle: "alice",
+		Email:  "alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Service.Register() error = %v", err)
+	}
+	if statusQueryHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email status handle query = %q, want %s", statusQueryHandle, testenv.FullHandle("alice"))
+	}
+	if sendEmail != "alice@example.com" {
+		t.Fatalf("email send payload email = %q, want alice@example.com", sendEmail)
+	}
+	if sendHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email send payload handle = %q, want %s", sendHandle, testenv.FullHandle("alice"))
+	}
+	if got := result.Data["verification_state"]; got != "email_sent" {
+		t.Fatalf("result.Data[verification_state] = %#v, want email_sent", got)
 	}
 }
 
@@ -311,6 +377,47 @@ func TestServiceBindPhoneUsesAuthenticatedRequestAndSanitizesOTP(t *testing.T) {
 	}
 	if gotCode != "123456" {
 		t.Fatalf("code payload = %q, want 123456", gotCode)
+	}
+	if got := result.Data["verification_state"]; got != "completed" {
+		t.Fatalf("result.Data[verification_state] = %#v, want completed", got)
+	}
+}
+
+func TestServiceBindEmailStatusUsesAuthenticatedBearer(t *testing.T) {
+	t.Parallel()
+
+	var statusAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			statusAuth = r.Header.Get("Authorization")
+			if got := r.URL.Query().Get("handle"); got != "" {
+				t.Fatalf("email status handle query = %q, want empty for bind flow", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, manager := newIdentityServiceWorkspace(t, server.URL)
+	resolved.ActiveIdentity = "alice"
+	saveServiceTestIdentity(t, manager, "alice", "alice", "jwt-bind")
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.Bind(context.Background(), identity.BindParams{
+		Email: "alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Service.Bind() error = %v", err)
+	}
+	if statusAuth != "Bearer jwt-bind" {
+		t.Fatalf("email status Authorization = %q, want Bearer jwt-bind", statusAuth)
 	}
 	if got := result.Data["verification_state"]; got != "completed" {
 		t.Fatalf("result.Data[verification_state] = %#v, want completed", got)
