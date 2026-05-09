@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -126,6 +127,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 				if cacheErr == nil && len(cachedDIDs) > 0 {
 					cached, readErr := s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
 					if readErr == nil {
+						cached = filterDisplayableDirectE2EEMessages(cached)
 						return &CommandResult{
 							Data: map[string]any{
 								"messages": cached,
@@ -160,7 +162,12 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 					cached, cacheErr = s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
 				}
 			}
-			if cacheErr == nil && len(cached) > 0 {
+			cacheHasPendingDirectE2EE := false
+			if cacheErr == nil {
+				cacheHasPendingDirectE2EE = containsPendingDirectE2EEWireMessages(cached)
+				cached = filterDisplayableDirectE2EEMessages(cached)
+			}
+			if cacheErr == nil && len(cached) > 0 && !cacheHasPendingDirectE2EE {
 				return &CommandResult{
 					Data: map[string]any{
 						"messages": cached,
@@ -221,17 +228,27 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 	}
 	messages, total, persistWarnings := s.persistInboxMessages(ctx, record, raw, peerHandle)
 	warnings = append(warnings, persistWarnings...)
+	messages = filterDisplayableDirectE2EEMessages(messages)
+	total = len(messages)
 	if targetIsHandle {
 		cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
 		if didErr != nil {
 			warnings = append(warnings, fmt.Sprintf("Failed to expand handle history: %v", didErr))
 		} else if len(cachedDIDs) > 0 {
 			cached, cacheErr := s.readInboxFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit, request.UnreadOnly)
+			cacheHasPendingDirectE2EE := false
 			if cacheErr == nil {
-				messages = cached
-				total = len(cached)
-				raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
-			} else {
+				cacheHasPendingDirectE2EE = containsPendingDirectE2EEWireMessages(cached)
+				cached = filterDisplayableDirectE2EEMessages(cached)
+			}
+			if cacheErr == nil && len(cached) > 0 {
+				merged := mergeDirectHistoryMessages(messages, cached, request.Limit)
+				if len(merged) > len(messages) || (!cacheHasPendingDirectE2EE && shouldPreferDirectCacheMessages(messages, cached)) {
+					messages = merged
+					total = len(messages)
+					raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
+				}
+			} else if cacheErr != nil {
 				warnings = append(warnings, fmt.Sprintf("Failed to load handle history from cache: %v", cacheErr))
 			}
 		}
@@ -241,6 +258,7 @@ func (s *Service) Inbox(ctx context.Context, request InboxRequest) (*CommandResu
 		if len(messageIDs) > 0 {
 			if _, markErr := s.MarkRead(ctx, MarkReadRequest{IdentityName: record.IdentityName, MessageIDs: messageIDs}); markErr == nil {
 				raw["mark_read"] = true
+				markMessagesReadInResult(messages, messageIDs)
 			}
 		}
 	}
@@ -278,6 +296,7 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 			if cacheErr == nil && len(cachedDIDs) > 0 {
 				cached, readErr := s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
 				if readErr == nil {
+					cached = filterDisplayableDirectE2EEMessages(cached)
 					return &CommandResult{
 						Data: map[string]any{
 							"messages":      cached,
@@ -312,7 +331,12 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 					cached, cacheErr = s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
 				}
 			}
-			if cacheErr == nil && len(cached) > 0 {
+			cacheHasPendingDirectE2EE := false
+			if cacheErr == nil {
+				cacheHasPendingDirectE2EE = containsPendingDirectE2EEWireMessages(cached)
+				cached = filterDisplayableDirectE2EEMessages(cached)
+			}
+			if cacheErr == nil && len(cached) > 0 && !cacheHasPendingDirectE2EE {
 				return &CommandResult{
 					Data: map[string]any{
 						"messages": cached,
@@ -373,6 +397,8 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 	}
 	messages, total, persistWarnings := s.persistHistoryMessages(ctx, record, peerDID, peerHandle, raw)
 	warnings = append(warnings, persistWarnings...)
+	messages = filterDisplayableDirectE2EEMessages(messages)
+	total = len(messages)
 	if targetIsHandle {
 		cachedDIDs, didErr := s.peerDIDsForHandleFromStore(ctx, record.DID, peerHandle, peerDID)
 		if didErr != nil {
@@ -380,11 +406,17 @@ func (s *Service) History(ctx context.Context, request HistoryRequest) (*Command
 		} else if len(cachedDIDs) > 0 {
 			cached, cacheErr := s.readHistoryFromCacheByPeerDIDs(ctx, record, cachedDIDs, request.Limit)
 			if cacheErr == nil {
-				messages = cached
-				total = len(cached)
-				raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
-				raw["resolved_dids"] = cachedDIDs
-			} else {
+				cached = filterDisplayableDirectE2EEMessages(cached)
+			}
+			if cacheErr == nil && len(cached) > 0 {
+				merged := mergeDirectHistoryMessages(messages, cached, request.Limit)
+				if len(merged) > len(messages) || shouldPreferDirectCacheMessages(messages, cached) {
+					messages = merged
+					total = len(messages)
+					raw["source"] = sourceWithDefault(raw, mode.Mode) + "+handle_history"
+					raw["resolved_dids"] = cachedDIDs
+				}
+			} else if cacheErr != nil {
 				warnings = append(warnings, fmt.Sprintf("Failed to load handle history from cache: %v", cacheErr))
 			}
 		}
@@ -1018,6 +1050,113 @@ func (s *Service) readHistoryFromCacheByPeerDIDs(ctx context.Context, record *id
 	return store.ListDirectMessagesByPeerDIDs(ctx, db, record.DID, peerDIDs, limit, false, false)
 }
 
+func shouldPreferDirectCacheMessages(remote []map[string]any, cached []map[string]any) bool {
+	if len(cached) == 0 {
+		return false
+	}
+	if containsProcessedDirectE2EEMessages(remote) {
+		return false
+	}
+	return true
+}
+
+func mergeDirectHistoryMessages(remote []map[string]any, cached []map[string]any, limit int) []map[string]any {
+	if len(remote) == 0 {
+		return limitMessages(cached, limit)
+	}
+	if len(cached) == 0 {
+		return remote
+	}
+	merged := make([]map[string]any, 0, len(remote)+len(cached))
+	seen := make(map[string]struct{}, len(remote)+len(cached))
+	for _, message := range append(append([]map[string]any{}, cached...), remote...) {
+		id := messageIdentity(message)
+		if id == "" {
+			id = fmt.Sprintf("idx:%d", len(merged))
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		merged = append(merged, message)
+	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		leftSeq := int64Value(merged[i]["server_seq"])
+		rightSeq := int64Value(merged[j]["server_seq"])
+		if leftSeq != rightSeq {
+			return leftSeq > rightSeq
+		}
+		leftTime := messageSortTime(merged[i])
+		rightTime := messageSortTime(merged[j])
+		if leftTime != rightTime {
+			return leftTime > rightTime
+		}
+		return messageIdentity(merged[i]) > messageIdentity(merged[j])
+	})
+	return limitMessages(merged, limit)
+}
+
+func limitMessages(messages []map[string]any, limit int) []map[string]any {
+	if limit <= 0 || len(messages) <= limit {
+		return messages
+	}
+	return messages[:limit]
+}
+
+func messageIdentity(message map[string]any) string {
+	for _, key := range []string{"id", "msg_id", "client_msg_id"} {
+		if value := stringFromAny(message[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func messageSortTime(message map[string]any) string {
+	for _, key := range []string{"sent_at", "created_at", "stored_at"} {
+		if value := stringFromAny(message[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func containsProcessedDirectE2EEMessages(messages []map[string]any) bool {
+	for _, message := range messages {
+		if !boolFromAny(message["secure"]) {
+			continue
+		}
+		state := stringFromAny(message["decryption_state"])
+		if state == "decrypted" || state == "undecryptable" || boolFromAny(message["secure_control"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsPendingDirectE2EEWireMessages(messages []map[string]any) bool {
+	for _, message := range messages {
+		if isDirectE2EEWireContentType(stringFromAny(message["content_type"])) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterDisplayableDirectE2EEMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return messages
+	}
+	filtered := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		if isDirectE2EEControlOrUndisplayable(message) {
+			continue
+		}
+		filtered = append(filtered, message)
+	}
+	return filtered
+}
+
 func messagesFromResult(value any) []map[string]any {
 	items, ok := value.([]any)
 	if !ok {
@@ -1126,12 +1265,42 @@ func buildNormalizedMailNotificationContent(mailboxAddress string, fromAddr stri
 
 func collectMessageIDs(messages []map[string]any) []string {
 	ids := make([]string, 0, len(messages))
+	seen := make(map[string]struct{}, len(messages))
 	for _, message := range messages {
-		if id := stringFromAny(message["id"]); id != "" {
-			ids = append(ids, id)
+		id := messageIdentity(message)
+		if id == "" {
+			continue
 		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
 	}
 	return ids
+}
+
+func markMessagesReadInResult(messages []map[string]any, ids []string) {
+	if len(messages) == 0 || len(ids) == 0 {
+		return
+	}
+	targets := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id != "" {
+			targets[id] = struct{}{}
+		}
+	}
+	for _, message := range messages {
+		if _, ok := targets[messageIdentity(message)]; !ok {
+			continue
+		}
+		switch message["is_read"].(type) {
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+			message["is_read"] = int64(1)
+		default:
+			message["is_read"] = true
+		}
+	}
 }
 
 func contentTypeForMessageType(messageType string) string {

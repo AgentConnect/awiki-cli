@@ -46,6 +46,129 @@ func TestStoreMessageAndThreadView(t *testing.T) {
 	}
 }
 
+func TestStoreMessageUpdatesCachedRawWireWithDecryptedContent(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t)
+	ctx := context.Background()
+	if err := EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	ownerDID := "did:wba:awiki.ai:user:bob"
+	peerDID := "did:wba:awiki.ai:user:alice"
+	threadID := MakeThreadID(ownerDID, peerDID, "")
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "msg-secure-1",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      0,
+		SenderDID:      peerDID,
+		ReceiverDID:    ownerDID,
+		ContentType:    "application/anp-direct-cipher+json",
+		Content:        `{"ciphertext_b64u":"raw"}`,
+		IsRead:         true,
+		CredentialName: "bob",
+	}); err != nil {
+		t.Fatalf("StoreMessage(raw) error = %v", err)
+	}
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "msg-secure-1",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      0,
+		SenderDID:      peerDID,
+		ReceiverDID:    ownerDID,
+		ContentType:    "text/plain",
+		Content:        "decrypted hello",
+		ServerSeq:      int64Ptr(42),
+		IsRead:         false,
+		IsE2EE:         true,
+		Metadata:       `{"decryption_state":"decrypted"}`,
+		CredentialName: "bob",
+	}); err != nil {
+		t.Fatalf("StoreMessage(decrypted) error = %v", err)
+	}
+	got, err := GetMessageByID(ctx, db, "msg-secure-1", ownerDID, "")
+	if err != nil {
+		t.Fatalf("GetMessageByID() error = %v", err)
+	}
+	if got["content_type"] != "text/plain" {
+		t.Fatalf("content_type = %#v, want text/plain", got["content_type"])
+	}
+	if got["content"] != "decrypted hello" {
+		t.Fatalf("content = %#v, want decrypted hello", got["content"])
+	}
+	if got["is_e2ee"] != int64(1) {
+		t.Fatalf("is_e2ee = %#v, want 1", got["is_e2ee"])
+	}
+	if got["is_read"] != int64(1) {
+		t.Fatalf("is_read = %#v, want preserved read state", got["is_read"])
+	}
+	if got["server_seq"] != int64(42) {
+		t.Fatalf("server_seq = %#v, want 42", got["server_seq"])
+	}
+}
+
+func TestStoreMessagePreservesDecryptedContentWhenRawWireArrivesLater(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t)
+	ctx := context.Background()
+	if err := EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	ownerDID := "did:wba:awiki.ai:user:bob"
+	peerDID := "did:wba:awiki.ai:user:alice"
+	threadID := MakeThreadID(ownerDID, peerDID, "")
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "msg-secure-2",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      0,
+		SenderDID:      peerDID,
+		ReceiverDID:    ownerDID,
+		ContentType:    "text/plain",
+		Content:        "already decrypted",
+		ServerSeq:      int64Ptr(42),
+		IsE2EE:         true,
+		Metadata:       `{"decryption_state":"decrypted"}`,
+		CredentialName: "bob",
+	}); err != nil {
+		t.Fatalf("StoreMessage(decrypted) error = %v", err)
+	}
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "msg-secure-2",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      0,
+		SenderDID:      peerDID,
+		ReceiverDID:    ownerDID,
+		ContentType:    "application/anp-direct-cipher+json",
+		Content:        `{"ciphertext_b64u":"raw"}`,
+		ServerSeq:      int64Ptr(43),
+		Metadata:       `{"content_type":"application/anp-direct-cipher+json"}`,
+		CredentialName: "bob",
+	}); err != nil {
+		t.Fatalf("StoreMessage(raw) error = %v", err)
+	}
+	got, err := GetMessageByID(ctx, db, "msg-secure-2", ownerDID, "")
+	if err != nil {
+		t.Fatalf("GetMessageByID() error = %v", err)
+	}
+	if got["content_type"] != "text/plain" {
+		t.Fatalf("content_type = %#v, want text/plain", got["content_type"])
+	}
+	if got["content"] != "already decrypted" {
+		t.Fatalf("content = %#v, want already decrypted", got["content"])
+	}
+	if got["metadata"] != `{"decryption_state":"decrypted"}` {
+		t.Fatalf("metadata = %#v, want decrypted metadata preserved", got["metadata"])
+	}
+	if got["server_seq"] != int64(43) {
+		t.Fatalf("server_seq = %#v, want newest server seq", got["server_seq"])
+	}
+}
+
 func TestRebindOwnerDIDAndClearE2EEData(t *testing.T) {
 	t.Parallel()
 

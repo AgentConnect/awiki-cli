@@ -17,12 +17,80 @@ func StoreMessage(ctx context.Context, db *sql.DB, record MessageRecord) error {
 		return fmt.Errorf("thread_id is required")
 	}
 	now := nowUTC()
-	_, err := db.ExecContext(ctx, `
-INSERT OR IGNORE INTO messages
+	_, err := db.ExecContext(ctx, storeMessageSQL(),
+		messageRecordArgs(record, now)...,
+	)
+	return err
+}
+
+func StoreMessagesBatch(ctx context.Context, db *sql.DB, batch []MessageRecord) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.PrepareContext(ctx, storeMessageSQL())
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	now := nowUTC()
+	for _, record := range batch {
+		if _, err := stmt.ExecContext(ctx, messageRecordArgs(record, now)...); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func storeMessageSQL() string {
+	return `
+INSERT INTO messages
     (msg_id, owner_did, thread_id, direction, sender_did, receiver_did, group_id, group_did,
      content_type, content, title, server_seq, sent_at, stored_at, is_e2ee, is_read,
      sender_name, metadata, credential_name)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(msg_id, owner_did)
+DO UPDATE SET
+    thread_id = excluded.thread_id,
+    direction = excluded.direction,
+    sender_did = excluded.sender_did,
+    receiver_did = excluded.receiver_did,
+    group_id = excluded.group_id,
+    group_did = excluded.group_did,
+    content_type = CASE
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        THEN messages.content_type
+        ELSE excluded.content_type
+    END,
+    content = CASE
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        THEN messages.content
+        ELSE excluded.content
+    END,
+    title = excluded.title,
+    server_seq = COALESCE(excluded.server_seq, messages.server_seq),
+    sent_at = COALESCE(excluded.sent_at, messages.sent_at),
+    is_e2ee = CASE WHEN excluded.is_e2ee = 1 OR messages.is_e2ee = 1 THEN 1 ELSE 0 END,
+    is_read = CASE WHEN excluded.is_read = 1 OR messages.is_read = 1 THEN 1 ELSE 0 END,
+    sender_name = COALESCE(excluded.sender_name, messages.sender_name),
+    metadata = CASE
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        THEN messages.metadata
+        ELSE COALESCE(excluded.metadata, messages.metadata)
+    END,
+    credential_name = COALESCE(excluded.credential_name, messages.credential_name)`
+}
+
+func messageRecordArgs(record MessageRecord, now string) []any {
+	return []any{
 		record.MsgID,
 		normalizeOwnerDID(record.OwnerDID),
 		record.ThreadID,
@@ -42,57 +110,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		normalizeOptionalString(record.SenderName),
 		normalizeMetadata(record.Metadata),
 		normalizeCredentialName(record.CredentialName),
-	)
-	return err
-}
-
-func StoreMessagesBatch(ctx context.Context, db *sql.DB, batch []MessageRecord) error {
-	if len(batch) == 0 {
-		return nil
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	stmt, err := tx.PrepareContext(ctx, `
-INSERT OR IGNORE INTO messages
-    (msg_id, owner_did, thread_id, direction, sender_did, receiver_did, group_id, group_did,
-     content_type, content, title, server_seq, sent_at, stored_at, is_e2ee, is_read,
-     sender_name, metadata, credential_name)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	defer stmt.Close()
-	now := nowUTC()
-	for _, record := range batch {
-		if _, err := stmt.ExecContext(ctx,
-			record.MsgID,
-			normalizeOwnerDID(record.OwnerDID),
-			record.ThreadID,
-			record.Direction,
-			normalizeOptionalString(record.SenderDID),
-			normalizeOptionalString(record.ReceiverDID),
-			normalizeOptionalString(record.GroupID),
-			normalizeOptionalString(record.GroupDID),
-			defaultString(record.ContentType, "text"),
-			record.Content,
-			normalizeOptionalString(record.Title),
-			normalizeOptionalInt64(record.ServerSeq),
-			normalizeOptionalString(record.SentAt),
-			defaultString(record.StoredAt, now),
-			boolToInt(record.IsE2EE),
-			boolToInt(record.IsRead),
-			normalizeOptionalString(record.SenderName),
-			normalizeMetadata(record.Metadata),
-			normalizeCredentialName(record.CredentialName),
-		); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 func QueueE2EEOutbox(ctx context.Context, db *sql.DB, record E2EEOutboxRecord) (string, error) {
