@@ -203,6 +203,23 @@ func (a *App) runGroupUpdate(cmd *cobra.Command, args []string) error {
 	return a.renderMessageResult(cmd, format, result)
 }
 
+func (a *App) runGroupList(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.GroupListRequest{IdentityName: a.globals.Identity, Limit: limit}
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.list", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group list planned", nil, a.identityMeta())
+	}
+	result, err := service.ListGroups(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the active identity is registered and the message service is reachable.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
 func (a *App) runGroupMembers(cmd *cobra.Command, args []string) error {
 	group, _ := cmd.Flags().GetString("group")
 	limit, _ := cmd.Flags().GetInt("limit")

@@ -120,8 +120,8 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 | 日志目录 | `~/.awiki-cli/logs/` | 无 |
 | MLS 状态目录（P6 group E2EE / `anp-mls`） | `~/.awiki-cli/mls/` | 无 |
 
-> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
-> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 之外的旧 `AWIKI_* / AVIKI_* / E2E_*` 业务环境变量不再驱动 awiki-cli；若工作区仍保留上一版的 `config.json`，CLI 会在首次访问工作区时自动迁移到 `config.yaml`。
 >
 > 工作区内容包括：
@@ -238,7 +238,7 @@ services:
 flag > config.yaml > default
 ```
 
-> 该文件可选。未创建时所有配置使用默认值。  
+> 该文件可选。未创建时所有配置使用默认值。
 > `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
 >
 > - `service_base_url`：CLI 连接 user-service / content / group / message 的统一平台基础地址
@@ -276,10 +276,10 @@ runtime:
     hermes:
       notify_url: http://127.0.0.1:8765/notify/host-event
 services:
-  service_base_url: https://awiki.test
-  did_domain: awiki.test
-  anp_service_endpoint: https://awiki.test/anp-im/rpc
-  anp_service_did: did:wba:awiki.test
+  service_base_url: https://xxx.xxx
+  did_domain: xxx.xxx
+  anp_service_endpoint: https://xxx.xxx/anp-im/rpc
+  anp_service_did: did:wba:xxx.xxx
   ca_bundle: ""
 ```
 
@@ -366,6 +366,9 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 
 # 查看当前配置
 ./awiki-cli config show
+
+# 更新 did_domain（修改后不需要重启 listener）
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### 4.4 运行测试
@@ -574,6 +577,7 @@ rm ~/.awiki-cli/data/awiki-cli.db
 
 ```bash
 ./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### Q: v1 身份迁移

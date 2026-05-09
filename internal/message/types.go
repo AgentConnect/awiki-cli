@@ -208,6 +208,11 @@ type GroupUpdateRequest struct {
 	MemberMaxTotalChars *int64
 }
 
+type GroupListRequest struct {
+	IdentityName string
+	Limit        int
+}
+
 type GroupMembersRequest struct {
 	IdentityName string
 	Group        string

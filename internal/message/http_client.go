@@ -27,6 +27,7 @@ type Transport interface {
 	RemoveGroupMember(context.Context, GroupMemberRequest) (map[string]any, error)
 	LeaveGroup(context.Context, GroupLeaveRequest) (map[string]any, error)
 	GetGroup(context.Context, GroupGetRequest) (map[string]any, error)
+	ListGroups(context.Context, GroupListRequest) (map[string]any, error)
 	ListGroupMembers(context.Context, GroupMembersRequest) (map[string]any, error)
 	ListGroupMessages(context.Context, GroupMessagesRequest) (map[string]any, error)
 	UpdateGroupProfile(context.Context, GroupGetRequest, map[string]any) (map[string]any, error)
@@ -425,6 +426,14 @@ func (t *HTTPTransport) GetGroup(ctx context.Context, request GroupGetRequest) (
 		return nil, err
 	}
 	return t.rpcMapCall(ctx, "group.get", params)
+}
+
+func (t *HTTPTransport) ListGroups(ctx context.Context, request GroupListRequest) (map[string]any, error) {
+	params, err := BuildGroupListRPCParams(t.auth.record, request)
+	if err != nil {
+		return nil, err
+	}
+	return t.rpcMapCall(ctx, "group.list", params)
 }
 
 func (t *HTTPTransport) ListGroupMembers(ctx context.Context, request GroupMembersRequest) (map[string]any, error) {

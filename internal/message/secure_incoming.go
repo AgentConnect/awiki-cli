@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/identity"
@@ -53,18 +54,43 @@ func (s *Service) maybeDecryptDirectE2EEMessages(ctx context.Context, record *id
 		}
 		notification, err := directE2EENotificationFromMessageView(message)
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("Skipped secure direct message %s: %v", stringFromAny(message["id"]), err))
+			if !isDirectE2EEWireControlMessage(message) {
+				warnings = append(warnings, fmt.Sprintf("Skipped secure direct message %s: %v", stringFromAny(message["id"]), err))
+			}
 			continue
 		}
 		result, err := client.ProcessIncoming(ctx, notification)
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("Failed to decrypt secure direct message %s: %v", stringFromAny(message["id"]), err))
+			if !isDirectE2EEWireControlMessage(message) {
+				warnings = append(warnings, fmt.Sprintf("Failed to decrypt secure direct message %s: %v", stringFromAny(message["id"]), err))
+			}
 			continue
 		}
+		warnings = append(warnings, s.maybeFlushPollingSecureAck(ctx, record, transport, message, result)...)
 		warnings = append(warnings, s.maybeAckPollingDirectInit(ctx, record, transport, client, message, result)...)
 		applyDirectE2EEProcessingResult(message, result)
 	}
 	return compactWarnings(warnings)
+}
+
+func (s *Service) maybeFlushPollingSecureAck(ctx context.Context, record *identity.StoredIdentity, transport *HTTPTransport, message map[string]any, result map[string]any) []string {
+	if record == nil || transport == nil {
+		return nil
+	}
+	if stringFromAny(result["state"]) != "decrypted" {
+		return nil
+	}
+	plaintext, err := mapFromAny(result["plaintext"])
+	if err != nil || !IsSecureAckPlaintext(plaintext) {
+		return nil
+	}
+	peerDID := stringFromAny(message["sender_did"])
+	if peerDID == "" || peerDID == record.DID {
+		return nil
+	}
+	return FlushQueuedSecureOutbox(ctx, s.resolved, s.manager, record, peerDID, func(method string, params map[string]any) (map[string]any, error) {
+		return transport.rpcMapCall(ctx, method, params)
+	})
 }
 
 func (s *Service) maybeAckPollingDirectInit(ctx context.Context, record *identity.StoredIdentity, transport *HTTPTransport, client *anpsdk.MessageServiceE2EEClient, message map[string]any, result map[string]any) []string {
@@ -176,6 +202,29 @@ func applyDirectE2EEProcessingResult(message map[string]any, result map[string]a
 		message["content"] = stringFromAny(plaintext["payload_b64u"])
 		message["type"] = "binary"
 	}
+}
+
+func isDirectE2EEControlOrUndisplayable(message map[string]any) bool {
+	if boolFromAny(message["secure_control"]) {
+		return true
+	}
+	if !isDirectE2EEWireContentType(stringFromAny(message["content_type"])) {
+		return false
+	}
+	state := stringFromAny(message["decryption_state"])
+	return state == "undecryptable" || state == "failed" || state == ""
+}
+
+func isDirectE2EEWireControlMessage(message map[string]any) bool {
+	switch stringFromAny(message["content_type"]) {
+	case "application/anp-direct-init+json":
+		return true
+	}
+	id := stringFromAny(message["id"])
+	if id == "" {
+		id = stringFromAny(message["msg_id"])
+	}
+	return strings.HasPrefix(id, "secure-init-") || strings.HasPrefix(id, "ack-")
 }
 
 func int64Value(value any) int64 {

@@ -62,17 +62,19 @@
 **internal/cli/init.go**: `init` 命令处理器，负责初始化工作区目录、upgrade 目录和最小 `config.yaml`。
 **internal/cli/id.go**: `id` 域命令处理器，包含 create/list/current/use/register/bind/resolve/recover/profile/import-v1，以及公开但危险的维护命令 `replace-did`。
 **internal/cli/debug.go**: `debug db query`、`debug db handle-history` 与 `debug db import-v1` 的 CLI 处理器。
+**internal/cli/config.go**: `config set` 等配置写入命令处理器。
 **internal/cli/msg.go**: `msg send/inbox/history/mark-read` 的 CLI 处理器，现已支持 direct + group plain messaging。
 **internal/cli/group.go**: `group create/get/join/add/remove/leave/update/members/messages` 的 CLI 处理器；E2EE 群 remove/leave 会路由到 hidden `group.e2ee.remove/leave` 组合编排而不是公开 P4-only 方法。
 **internal/cli/group_e2ee.go**: P6 group E2EE 诊断/维护命令处理器；支持本地 exec provider/status/KeyPackage 发布路径、`publish-key-package --purpose normal|recovery|update`（`--recovery` 兼容）、hidden/test-only `group.e2ee.head` local/service epoch 对比、`group.e2ee.notice` pending/repair 拉取与 welcome/commit/update-welcome 重放、PR-C1 hidden `update-key` owner-only update KeyPackage 轮换、PR-C2 hidden `rejoin` wrapper（canonical `group add --e2ee`）、PR-B2 accepted pending commit 安全 finalize / unrecoverable gap fail-closed 诊断、PR-B3 `recover-member` owner-only same-device crypto recovery 编排（prepare -> hidden `group.e2ee.recover_member` -> finalize/abort，禁止 P4 `group.add`），以及 PR-B1 `process-leave-request` owner-only epoch-advancing remove 编排；`contract-test` 仅在显式 flag 下启用。
+**internal/cli/site.go**: `site` 域命令处理器，负责租户站点页面管理。
 **internal/identity/types.go**: identity store、legacy scan、command result 等核心类型。
 **internal/identity/layout.go**: identity 根目录、index.json、路径与安全写入辅助。
 **internal/identity/store.go**: 当前 v2 identity store 的读写、默认 identity 管理。
 **internal/identity/legacy.go**: v1 indexed/flat credential layout 扫描与导入。
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。
-**internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.6+ 下仍可完成 DID WBA 签名。
+**internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.7+ 下仍可完成 DID WBA 签名。
 **internal/identity/client.go**: user-service RPC/REST 客户端。
-**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
+**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。邮箱注册 Handle 时会在 email-send/email-status 中携带完整 Handle，绑定邮箱时会用当前身份 JWT 查询状态，以匹配 user-service 的邮箱验证作用域。
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。
 **internal/identity/store_test.go**: identity store 与 legacy import 测试。
 **internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。
@@ -104,6 +106,7 @@
 **internal/message/helpers.go**: message 域常用值转换和解码辅助。
 **internal/message/proof_test.go**: origin_proof round-trip 测试。
 **internal/message/group_wire_test.go**: group RPC 参数构造与签名测试。
+**internal/site/service.go**: 站点页面 RPC client 与业务编排。
 **internal/runtime/config.go**: runtime mode（默认 websocket）、listener 默认策略、host notify 默认开启（默认 sink 为 `log`）与本地 bridge 配置解析。
 **internal/runtime/listener/types.go**: listener 状态与 session 状态结构。
 **internal/runtime/listener/files.go**: listener 的 pid/status/log/socket 路径与状态文件读写。

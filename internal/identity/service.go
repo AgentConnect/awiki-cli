@@ -229,13 +229,13 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 	}
 
 	if email != "" {
-		verified, verifiedAt, err := s.checkEmailVerified(ctx, email)
+		verified, verifiedAt, err := s.checkEmailVerified(ctx, email, target.FullHandle, "")
 		if err != nil {
 			return nil, err
 		}
 		if !verified {
 			var sendResult map[string]any
-			if err := s.remote.restPost(ctx, emailSendEndpoint, map[string]any{"email": email}, "", &sendResult); err != nil {
+			if err := s.remote.restPost(ctx, emailSendEndpoint, map[string]any{"email": email, "handle": target.FullHandle}, "", &sendResult); err != nil {
 				return nil, err
 			}
 			if !params.Wait {
@@ -261,7 +261,7 @@ func (s *Service) Register(ctx context.Context, params RegisterParams) (*Command
 			if pollInterval <= 0 {
 				pollInterval = DefaultEmailPollIntervalSecs
 			}
-			verified, verifiedAt, err = s.waitForEmailVerification(ctx, email, timeout, pollInterval)
+			verified, verifiedAt, err = s.waitForEmailVerification(ctx, email, target.FullHandle, "", timeout, pollInterval)
 			if err != nil {
 				return nil, err
 			}
@@ -398,7 +398,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 		}, nil
 	}
 
-	verified, _, err := s.checkEmailVerified(ctx, email)
+	verified, _, err := s.checkEmailVerified(ctx, email, "", auth.CurrentJWT())
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +427,7 @@ func (s *Service) Bind(ctx context.Context, params BindParams) (*CommandResult, 
 		if pollInterval <= 0 {
 			pollInterval = DefaultEmailPollIntervalSecs
 		}
-		verified, _, err = s.waitForEmailVerification(ctx, email, timeout, pollInterval)
+		verified, _, err = s.waitForEmailVerification(ctx, email, "", auth.CurrentJWT(), timeout, pollInterval)
 		if err != nil {
 			return nil, err
 		}
@@ -1112,13 +1112,17 @@ func splitCSV(raw string) []string {
 	return values
 }
 
-func (s *Service) checkEmailVerified(ctx context.Context, email string) (bool, string, error) {
+func (s *Service) checkEmailVerified(ctx context.Context, email string, handle string, bearer string) (bool, string, error) {
 	var result struct {
 		Email      string `json:"email"`
 		Verified   bool   `json:"verified"`
 		VerifiedAt string `json:"verified_at"`
 	}
-	if err := s.remote.restGet(ctx, emailStatusEndpoint, url.Values{"email": {strings.ToLower(strings.TrimSpace(email))}}, &result); err != nil {
+	query := url.Values{"email": {strings.ToLower(strings.TrimSpace(email))}}
+	if handle = strings.TrimSpace(handle); handle != "" {
+		query.Set("handle", handle)
+	}
+	if err := s.remote.restGet(ctx, emailStatusEndpoint, query, bearer, &result); err != nil {
 		if serviceErr, ok := err.(*ServiceError); ok && serviceErr.StatusCode == 404 {
 			return false, "", nil
 		}
@@ -1127,7 +1131,7 @@ func (s *Service) checkEmailVerified(ctx context.Context, email string) (bool, s
 	return result.Verified, result.VerifiedAt, nil
 }
 
-func (s *Service) waitForEmailVerification(ctx context.Context, email string, timeoutSecs int, pollIntervalSecs float64) (bool, string, error) {
+func (s *Service) waitForEmailVerification(ctx context.Context, email string, handle string, bearer string, timeoutSecs int, pollIntervalSecs float64) (bool, string, error) {
 	if timeoutSecs <= 0 {
 		timeoutSecs = DefaultEmailVerificationSecs
 	}
@@ -1136,7 +1140,7 @@ func (s *Service) waitForEmailVerification(ctx context.Context, email string, ti
 	}
 	deadline := time.Now().Add(time.Duration(timeoutSecs) * time.Second)
 	for time.Now().Before(deadline) {
-		verified, verifiedAt, err := s.checkEmailVerified(ctx, email)
+		verified, verifiedAt, err := s.checkEmailVerified(ctx, email, handle, bearer)
 		if err != nil {
 			return false, "", err
 		}

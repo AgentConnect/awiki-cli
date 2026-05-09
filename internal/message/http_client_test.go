@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 type rpcRequestEnvelope struct {
@@ -369,6 +371,22 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 			},
 		},
 		{
+			name:       "list groups",
+			wantMethod: "group.list",
+			call: func(transport *HTTPTransport) error {
+				_, err := transport.ListGroups(context.Background(), GroupListRequest{Limit: 7})
+				return err
+			},
+			verifyBody: func(t *testing.T, body map[string]any) {
+				if intValueFromAny(body["limit"], 0) != 7 {
+					t.Fatalf("body = %#v, want limit", body)
+				}
+				if _, ok := body["group_did"]; ok {
+					t.Fatalf("body.group_did should be absent for group.list: %#v", body)
+				}
+			},
+		},
+		{
 			name:       "list messages",
 			wantMethod: "group.list_messages",
 			call: func(transport *HTTPTransport) error {
@@ -411,7 +429,7 @@ func TestHTTPTransportGroupMethodsUseExpectedRPCMethods(t *testing.T) {
 func TestHTTPTransportGetMessageServiceDIDUsesConfiguredOrCapabilities(t *testing.T) {
 	t.Parallel()
 
-	transport, _, _ := newHTTPTransportForTest(t, "https://awiki.test")
+	transport, _, _ := newHTTPTransportForTest(t, testenv.BaseURL())
 	transport.resolved.ANPServiceDID = "did:wba:configured.example"
 	got, err := transport.GetMessageServiceDID(context.Background())
 	if err != nil {

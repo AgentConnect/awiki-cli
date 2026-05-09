@@ -23,6 +23,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/message"
 	"github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 	"github.com/coder/websocket"
 )
 
@@ -777,7 +778,7 @@ func TestSessionLoopReconnectsAndStoresNotifications(t *testing.T) {
 func TestNewSupervisorMarksInstalledWhenRunningAsService(t *testing.T) {
 	t.Setenv(listenerServiceModeEnv, "1")
 
-	resolved := testResolvedConfig(t, "https://awiki.test")
+	resolved := testResolvedConfig(t, testenv.BaseURL())
 	supervisor, err := NewSupervisor(resolved)
 	if err != nil {
 		t.Fatalf("NewSupervisor() error = %v", err)
@@ -792,7 +793,7 @@ func TestNewSupervisorMarksInstalledWhenRunningAsService(t *testing.T) {
 func TestStartSocketPersistsBridgeAvailability(t *testing.T) {
 	t.Parallel()
 
-	resolved := testResolvedConfig(t, "https://awiki.test")
+	resolved := testResolvedConfig(t, testenv.BaseURL())
 	supervisor, err := NewSupervisor(resolved)
 	if err != nil {
 		t.Fatalf("NewSupervisor() error = %v", err)

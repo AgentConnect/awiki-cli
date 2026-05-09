@@ -67,6 +67,20 @@ func TestWSProxyTransportCallsLocalBridgeAndDecodesResponses(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:       "list groups preserves limit",
+			wantMethod: "group.list",
+			call: func(t *testing.T, transport *WSProxyTransport) error {
+				t.Helper()
+				_, err := transport.ListGroups(context.Background(), GroupListRequest{Limit: 12})
+				return err
+			},
+			verify: func(t *testing.T, params map[string]any) {
+				if params["limit"] != float64(12) {
+					t.Fatalf("params = %#v, want limit", params)
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {

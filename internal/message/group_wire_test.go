@@ -655,6 +655,28 @@ func TestBuildGroupMembersRPCParamsDefaultsLimitToHundred(t *testing.T) {
 	}
 }
 
+func TestBuildGroupListRPCParamsDefaultsLimitToFifty(t *testing.T) {
+	t.Parallel()
+
+	record := &identity.StoredIdentity{DID: "did:wba:awiki.ai:user:alice:e1_alice"}
+	params, err := BuildGroupListRPCParams(record, GroupListRequest{})
+	if err != nil {
+		t.Fatalf("BuildGroupListRPCParams() error = %v", err)
+	}
+
+	meta := mustMapValue(t, params["meta"], "params.meta")
+	if got := stringFromAny(meta["profile"]); got != "anp.group.local.v1" {
+		t.Fatalf("meta.profile = %q, want anp.group.local.v1", got)
+	}
+	if _, ok := meta["target"]; ok {
+		t.Fatalf("meta.target should be absent for group.list: %#v", meta)
+	}
+	body := mustMapValue(t, params["body"], "params.body")
+	if got := intValueFromAny(body["limit"], 0); got != 50 {
+		t.Fatalf("body.limit = %d, want 50", got)
+	}
+}
+
 func TestBuildGroupMessagesRPCParamsDefaultsLimitToFifty(t *testing.T) {
 	t.Parallel()
 

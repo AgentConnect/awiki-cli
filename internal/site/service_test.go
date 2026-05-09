@@ -1,4 +1,4 @@
-package content
+package site
 
 import (
 	"context"
@@ -10,21 +10,18 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
-	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
-func TestCreatePageCallsContentRPC(t *testing.T) {
+func TestGetRootCallsSiteRPC(t *testing.T) {
 	t.Parallel()
 
 	var (
 		gotMethod string
-		gotAuth   string
 		gotParams map[string]any
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		if r.URL.Path != contentRPCEndpoint {
-			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, contentRPCEndpoint)
+		if r.URL.Path != siteRPCEndpoint {
+			t.Fatalf("r.URL.Path = %q, want %q", r.URL.Path, siteRPCEndpoint)
 		}
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -33,42 +30,24 @@ func TestCreatePageCallsContentRPC(t *testing.T) {
 		gotMethod, _ = payload["method"].(string)
 		gotParams, _ = payload["params"].(map[string]any)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"slug":"hello-world","title":"Hello","visibility":"draft"},"id":"req-1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"domain":"tenant.example","kind":"root","body":"Welcome"},"id":"req-1"}`))
 	}))
 	defer server.Close()
 
 	service := newTestService(t, server.URL, "token-123")
-	result, err := service.CreatePage(context.Background(), CreatePageParams{
-		Slug:       "hello-world",
-		Title:      "Hello",
-		Body:       "# Hello",
-		Visibility: "draft",
-	})
+	result, err := service.GetRoot(context.Background(), "Tenant.Example.")
 	if err != nil {
-		t.Fatalf("CreatePage() error = %v", err)
+		t.Fatalf("GetRoot() error = %v", err)
 	}
-	if gotMethod != "create" {
-		t.Fatalf("rpc method = %q, want create", gotMethod)
+	if gotMethod != "get_root" {
+		t.Fatalf("rpc method = %q, want get_root", gotMethod)
 	}
-	if gotAuth != "Bearer token-123" {
-		t.Fatalf("Authorization = %q, want Bearer token-123", gotAuth)
+	if got, _ := gotParams["domain"].(string); got != "tenant.example" {
+		t.Fatalf("params.domain = %q, want tenant.example", got)
 	}
-	if got, _ := gotParams["visibility"].(string); got != "draft" {
-		t.Fatalf("params.visibility = %q, want draft", got)
-	}
-	page, _ := result.Data["page"].(map[string]any)
-	if got, _ := page["slug"].(string); got != "hello-world" {
-		t.Fatalf("page.slug = %q, want hello-world", got)
-	}
-}
-
-func TestUpdatePageRejectsEmptyMutation(t *testing.T) {
-	t.Parallel()
-
-	service := newTestService(t, testenv.BaseURL(), "token-123")
-	_, err := service.UpdatePage(context.Background(), UpdatePageParams{Slug: "hello-world"})
-	if err != ErrNoUpdateFields {
-		t.Fatalf("UpdatePage() error = %v, want %v", err, ErrNoUpdateFields)
+	root, _ := result.Data["root"].(map[string]any)
+	if got, _ := root["kind"].(string); got != "root" {
+		t.Fatalf("root.kind = %q, want root", got)
 	}
 }
 
@@ -77,12 +56,12 @@ func TestDeletePageMapsRPCError(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32004,"message":"slug already exists"},"id":"req-1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","error":{"code":-32001,"message":"forbidden"},"id":"req-1"}`))
 	}))
 	defer server.Close()
 
 	service := newTestService(t, server.URL, "token-123")
-	_, err := service.DeletePage(context.Background(), "hello-world")
+	_, err := service.DeletePage(context.Background(), "tenant.example", "hello")
 	if err == nil {
 		t.Fatal("DeletePage() error = nil, want rpc error")
 	}
@@ -90,24 +69,16 @@ func TestDeletePageMapsRPCError(t *testing.T) {
 	if !ok {
 		t.Fatalf("DeletePage() error = %T, want *ServiceError", err)
 	}
-	if serviceErr.RPCCode != -32004 {
-		t.Fatalf("serviceErr.RPCCode = %d, want -32004", serviceErr.RPCCode)
+	if serviceErr.RPCCode != -32001 {
+		t.Fatalf("serviceErr.RPCCode = %d, want -32001", serviceErr.RPCCode)
 	}
 }
 
-func TestNormalizeVisibility(t *testing.T) {
+func TestNormalizeDomainRejectsURLs(t *testing.T) {
 	t.Parallel()
 
-	got, err := normalizeVisibility("", false)
-	if err != nil || got != "public" {
-		t.Fatalf("normalizeVisibility('', false) = (%q, %v), want (public, nil)", got, err)
-	}
-	got, err = normalizeVisibility("UNLISTED", false)
-	if err != nil || got != "unlisted" {
-		t.Fatalf("normalizeVisibility('UNLISTED', false) = (%q, %v), want (unlisted, nil)", got, err)
-	}
-	if _, err := normalizeVisibility("private", false); err != ErrVisibilityInvalid {
-		t.Fatalf("normalizeVisibility('private', false) error = %v, want %v", err, ErrVisibilityInvalid)
+	if _, err := normalizeDomain("https://tenant.example"); err == nil {
+		t.Fatal("normalizeDomain() error = nil, want invalid domain")
 	}
 }
 

@@ -185,6 +185,15 @@ awiki-cli page update --slug jd [--title "..."] [--markdown "..."] [--markdown-f
 awiki-cli page rename --slug jd --to hiring
 awiki-cli page delete --slug hiring
 
+awiki-cli site root get --domain xianglianggongshi.cn
+awiki-cli site root set --domain xianglianggongshi.cn --markdown-file ./root.md
+awiki-cli site page list --domain xianglianggongshi.cn
+awiki-cli site page get --domain xianglianggongshi.cn --slug about
+awiki-cli site page create --domain xianglianggongshi.cn --slug about --markdown-file ./about.md
+awiki-cli site page update --domain xianglianggongshi.cn --slug about --markdown-file ./about-v2.md
+awiki-cli site page rename --domain xianglianggongshi.cn --slug about --to intro
+awiki-cli site page delete --domain xianglianggongshi.cn --slug intro
+
 awiki-cli discovery scan --group GROUP_ID
 awiki-cli discovery recommend --group GROUP_ID
 awiki-cli discovery draft-intro --group GROUP_ID
@@ -198,6 +207,12 @@ awiki-cli debug logs [--follow]
 ```
 
 这棵树延续了两份文档的核心设计：`status / docs / schema / doctor / id / msg / runtime` 作为核心，`people / page / discovery / debug` 作为扩展；其中**所有发送动作都统一收敛到 `msg send`**，不再按“私聊脚本 / 群发脚本 / E2EE 脚本”分裂。 
+
+### page 与 site 的边界
+
+- `page` 表示 **handle 级 content page**，绑定当前身份关联的 handle，用于原有内容发布能力。
+- `site` 表示 **tenant bare-domain site page**，绑定租户域名根路径和 `/pages/{slug}.md`，必须显式传 `--domain`。
+- 两者是两个独立产品面，不共享 slug 空间、不共享存储，也不应在文档或帮助文本中混用。
 
 ## 3.2 新增的 Go 标准命令
 

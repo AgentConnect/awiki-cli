@@ -16,12 +16,13 @@ import (
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 	t.Parallel()
 
-	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy := generateK1IdentityForTest(t, testenv.Domain(), []string{"alice"})
 	var (
 		gotAuth   string
 		gotMethod string
@@ -44,7 +45,7 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 			t.Fatalf("new did = %q, want e1 did", gotNewDID)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"` + testenv.FullHandle("alice") + `","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
 	}))
 	defer server.Close()
 
@@ -154,7 +155,7 @@ func TestReplaceDIDUpdatesIdentityAndLocalStore(t *testing.T) {
 func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
 	t.Parallel()
 
-	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy := generateK1IdentityForTest(t, testenv.Domain(), []string{"alice"})
 	legacy.Key1PrivatePEM = legacyANPPrivatePEMFromStandard(t, legacy.Key1PrivatePEM, "ANP SECP256K1 PRIVATE KEY")
 
 	var methods []string
@@ -186,7 +187,7 @@ func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
 			if !identity.IsE1DID(gotNewDID) {
 				t.Fatalf("new did = %q, want e1 did", gotNewDID)
 			}
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"` + legacy.DID + `","did":"` + gotNewDID + `","user_id":"user-1","handle":"alice","full_handle":"` + testenv.FullHandle("alice") + `","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
 		default:
 			t.Fatalf("unexpected rpc method %q", method)
 		}
@@ -244,7 +245,7 @@ func TestReplaceDIDConvertsLegacyANPK1KeyWhenJWTMissing(t *testing.T) {
 func TestRefreshTokenUsesDIDAuthWithoutStoredBearerAndPersistsNewJWT(t *testing.T) {
 	t.Parallel()
 
-	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy := generateK1IdentityForTest(t, testenv.Domain(), []string{"alice"})
 	var gotAuth string
 	var gotMethod string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -323,7 +324,7 @@ func TestRefreshTokenUsesDIDAuthWithoutStoredBearerAndPersistsNewJWT(t *testing.
 func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
 	t.Parallel()
 
-	legacy := generateK1IdentityForTest(t, "awiki.test", []string{"alice"})
+	legacy := generateK1IdentityForTest(t, testenv.Domain(), []string{"alice"})
 	var remoteCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		remoteCalls.Add(1)
@@ -376,9 +377,9 @@ func TestReplaceDIDStopsBeforeRemoteWhenBackupFails(t *testing.T) {
 func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
 	t.Parallel()
 
-	first := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng"})
-	second := generateK1IdentityForTest(t, "awiki.test", []string{"zhuocheng", "archive"})
-	other := generateK1IdentityForTest(t, "awiki.test", []string{"lzc"})
+	first := generateK1IdentityForTest(t, testenv.Domain(), []string{"zhuocheng"})
+	second := generateK1IdentityForTest(t, testenv.Domain(), []string{"zhuocheng", "archive"})
+	other := generateK1IdentityForTest(t, testenv.Domain(), []string{"lzc"})
 
 	var gotHandle string
 	var gotMethod string
@@ -397,7 +398,7 @@ func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
 		document, _ := params["did_document"].(map[string]any)
 		gotRecoveredDID, _ = document["id"].(string)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + gotRecoveredDID + `","user_id":"user-z","handle":"zhuocheng","full_handle":"zhuocheng.awiki.test","access_token":"recover-token"},"id":"req-1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + gotRecoveredDID + `","user_id":"user-z","handle":"zhuocheng","full_handle":"` + testenv.FullHandle("zhuocheng") + `","access_token":"recover-token"},"id":"req-1"}`))
 	}))
 	defer server.Close()
 
@@ -474,8 +475,8 @@ func TestRecoverStagesAndFinalizesSameHandleLiveIdentities(t *testing.T) {
 	if gotMethod != "recover_handle" {
 		t.Fatalf("rpc method = %q, want recover_handle", gotMethod)
 	}
-	if gotHandle != "zhuocheng.awiki.test" {
-		t.Fatalf("recover handle = %q, want zhuocheng.awiki.test", gotHandle)
+	if gotHandle != testenv.FullHandle("zhuocheng") {
+		t.Fatalf("recover handle = %q, want %q", gotHandle, testenv.FullHandle("zhuocheng"))
 	}
 	if gotRecoveredDID == "" {
 		t.Fatal("recovered DID is empty")
@@ -624,9 +625,9 @@ func newReplaceTestWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Re
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
 		ServiceBaseURL:     serviceBaseURL,
-		DIDDomain:          "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		DIDDomain:          testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 		ActiveIdentity:     "alice",
 		OutputFormat:       "json",
 	}
@@ -643,7 +644,7 @@ func seedReplaceTestStore(t *testing.T, paths appconfig.Paths, ownerDID string) 
 	if err := store.EnsureSchema(context.Background(), db); err != nil {
 		t.Fatalf("store.EnsureSchema() error = %v", err)
 	}
-	peerDID := "did:wba:awiki.test:bob:e1_peer"
+	peerDID := testenv.DID("bob", "e1_peer")
 	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
 		MsgID:          "msg-1",
 		OwnerDID:       ownerDID,

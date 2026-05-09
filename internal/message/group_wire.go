@@ -495,6 +495,22 @@ func BuildGroupGetRPCParams(record *identity.StoredIdentity, request GroupGetReq
 	}, nil
 }
 
+func BuildGroupListRPCParams(record *identity.StoredIdentity, request GroupListRequest) (map[string]any, error) {
+	limit := request.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	return map[string]any{
+		"meta": map[string]any{
+			"anp_version":      "1.0",
+			"profile":          "anp.group.local.v1",
+			"security_profile": "transport-protected",
+			"sender_did":       record.DID,
+		},
+		"body": map[string]any{"limit": limit},
+	}, nil
+}
+
 func BuildGroupMembersRPCParams(record *identity.StoredIdentity, request GroupMembersRequest) (map[string]any, error) {
 	groupDID := strings.TrimSpace(request.Group)
 	if groupDID == "" {

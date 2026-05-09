@@ -595,6 +595,35 @@ func DeriveANPServiceDID(serviceBaseURL string) string {
 	return "did:wba:" + serviceHostFromBaseURL(serviceBaseURL)
 }
 
+// NormalizeDIDDomain returns a canonical bare-domain did_domain value.
+func NormalizeDIDDomain(raw string) (string, error) {
+	normalized := strings.TrimSpace(strings.ToLower(raw))
+	normalized = strings.TrimSuffix(normalized, ".")
+	if normalized == "" {
+		return "", fmt.Errorf("did_domain is required")
+	}
+	if strings.Contains(normalized, "://") {
+		return "", fmt.Errorf("did_domain must be a bare domain without a URL scheme")
+	}
+	if strings.ContainsAny(normalized, "/?#") {
+		return "", fmt.Errorf("did_domain must not include a path, query, or fragment")
+	}
+	if strings.Contains(normalized, ":") {
+		return "", fmt.Errorf("did_domain must not include a port")
+	}
+	if strings.ContainsAny(normalized, " \t\r\n") {
+		return "", fmt.Errorf("did_domain must not contain whitespace")
+	}
+	parsed, err := url.Parse("//" + normalized)
+	if err != nil || parsed.Hostname() == "" {
+		return "", fmt.Errorf("did_domain must be a bare domain")
+	}
+	if strings.ToLower(strings.TrimSpace(parsed.Hostname())) != normalized {
+		return "", fmt.Errorf("did_domain must be a bare domain")
+	}
+	return normalized, nil
+}
+
 func serviceHostFromBaseURL(serviceBaseURL string) string {
 	trimmed := NormalizeBaseURL(serviceBaseURL)
 	if trimmed == "" {
