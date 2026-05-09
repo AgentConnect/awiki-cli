@@ -67,11 +67,83 @@ function getDownloadUrl(version, osName, arch) {
   };
 }
 
-function download(url, destPath) {
+function readPositiveIntEnv(name, fallback) {
+  const raw = (process.env[name] || '').trim();
+  if (!raw) {
+    return fallback;
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return value;
+}
+
+function readNonNegativeIntEnv(name, fallback) {
+  const raw = (process.env[name] || '').trim();
+  if (!raw) {
+    return fallback;
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value < 0) {
+    return fallback;
+  }
+  return value;
+}
+
+function isGitHubReleaseUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'github.com' &&
+      parsed.pathname.startsWith('/AgentConnect/awiki-cli/releases/download/');
+  } catch {
+    return false;
+  }
+}
+
+function getDownloadOptions(url, sourceIndex, sourceCount) {
+  const defaultConnectTimeoutSeconds = readPositiveIntEnv('AWIKI_CLI_DOWNLOAD_CONNECT_TIMEOUT_SECONDS', 10);
+  const defaultMaxTimeSeconds = readPositiveIntEnv('AWIKI_CLI_DOWNLOAD_MAX_TIME_SECONDS', 60);
+  const options = {
+    connectTimeoutSeconds: defaultConnectTimeoutSeconds,
+    maxTimeSeconds: defaultMaxTimeSeconds,
+    speedLimitBytesPerSecond: 0,
+    speedTimeSeconds: 0,
+    fastFallback: false,
+  };
+
+  if (sourceIndex < sourceCount - 1 && isGitHubReleaseUrl(url)) {
+    const githubConnectTimeoutSeconds = readPositiveIntEnv('AWIKI_CLI_GITHUB_FAST_CONNECT_TIMEOUT_SECONDS', 5);
+    const githubMaxTimeSeconds = readPositiveIntEnv('AWIKI_CLI_GITHUB_FAST_MAX_TIME_SECONDS', 20);
+    options.connectTimeoutSeconds = Math.min(defaultConnectTimeoutSeconds, githubConnectTimeoutSeconds);
+    options.maxTimeSeconds = Math.min(defaultMaxTimeSeconds, githubMaxTimeSeconds);
+    options.speedLimitBytesPerSecond = readNonNegativeIntEnv('AWIKI_CLI_GITHUB_FAST_SPEED_LIMIT_BYTES', 64 * 1024);
+    options.speedTimeSeconds = readPositiveIntEnv('AWIKI_CLI_GITHUB_FAST_SPEED_TIME_SECONDS', 8);
+    options.fastFallback = true;
+  }
+
+  return options;
+}
+
+function formatDownloadOptions(options) {
+  if (!options.fastFallback) {
+    return '';
+  }
+
+  const parts = [`max ${options.maxTimeSeconds}s`];
+  if (options.speedLimitBytesPerSecond > 0 && options.speedTimeSeconds > 0) {
+    parts.push(`low-speed ${options.speedLimitBytesPerSecond} B/s for ${options.speedTimeSeconds}s`);
+  }
+  return ` (fast fallback: ${parts.join(', ')})`;
+}
+
+function download(url, destPath, options = {}) {
   return new Promise((resolve, reject) => {
     const curlCmd = process.env.AWIKI_CLI_CURL || 'curl';
     const isWindows = process.platform === 'win32';
     const args = [];
+    const connectTimeoutSeconds = options.connectTimeoutSeconds || 10;
+    const maxTimeSeconds = options.maxTimeSeconds || 60;
 
     if (isWindows) {
       // On Windows, avoid CRYPT_E_REVOCATION_OFFLINE errors when the
@@ -85,13 +157,21 @@ function download(url, destPath) {
       '--silent',
       '--show-error',
       '--connect-timeout',
-      '10',
+      String(connectTimeoutSeconds),
       '--max-time',
-      '60',
-      '--output',
-      destPath,
-      url
+      String(maxTimeSeconds)
     );
+
+    if (options.speedLimitBytesPerSecond > 0 && options.speedTimeSeconds > 0) {
+      args.push(
+        '--speed-limit',
+        String(options.speedLimitBytesPerSecond),
+        '--speed-time',
+        String(options.speedTimeSeconds)
+      );
+    }
+
+    args.push('--output', destPath, url);
 
     const child = spawn(curlCmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
@@ -295,13 +375,19 @@ async function main() {
   let lastError;
   for (let i = 0; i < urls.length; i += 1) {
     const url = urls[i];
-    console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url} ...`);
+    const downloadOptions = getDownloadOptions(url, i, urls.length);
+    console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url}${formatDownloadOptions(downloadOptions)} ...`);
     try {
-      await download(url, archivePath);
+      await download(url, archivePath, downloadOptions);
       lastError = undefined;
       break;
     } catch (err) {
       lastError = err;
+      try {
+        fs.rmSync(archivePath, { force: true });
+      } catch {
+        // best effort cleanup before trying the next source
+      }
       console.error(`[awiki-cli] Download failed from ${url}: ${err.message}`);
       if (i < urls.length - 1) {
         console.error('[awiki-cli] Retrying with the next download source ...');
