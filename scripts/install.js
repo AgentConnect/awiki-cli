@@ -37,15 +37,29 @@ function getDownloadUrl(version, osName, arch) {
   const mirror = (process.env.AWIKI_CLI_DOWNLOAD_MIRROR || '').trim();
   const mirrorBase = mirror ? mirror.replace(/\/+$/, '') : '';
   const githubBase = 'https://github.com/AgentConnect/awiki-cli/releases/download'.replace(/\/+$/, '');
+  const giteeBase = 'https://gitee.com/agentconnect/awiki-cli/releases/download'.replace(/\/+$/, '');
   const tag = `v${version}`;
 
   const urls = [];
+  const seenUrls = new Set();
+  const addUrl = base => {
+    if (!base) {
+      return;
+    }
+    const url = `${base}/${tag}/${fileName}`;
+    if (seenUrls.has(url)) {
+      return;
+    }
+    seenUrls.add(url);
+    urls.push(url);
+  };
+
   // If a mirror is configured, try it first.
-  if (mirrorBase) {
-    urls.push(`${mirrorBase}/${tag}/${fileName}`);
-  }
-  // Always fall back to GitHub.
-  urls.push(`${githubBase}/${tag}/${fileName}`);
+  addUrl(mirrorBase);
+  // Prefer GitHub, then fall back to Gitee for networks where GitHub release
+  // downloads are slow or blocked.
+  addUrl(githubBase);
+  addUrl(giteeBase);
 
   return {
     urls,
@@ -279,7 +293,8 @@ async function main() {
   const archivePath = path.join(tmpDir, fileName);
 
   let lastError;
-  for (const url of urls) {
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
     console.log(`Downloading awiki-cli ${version} for ${osName}/${arch} from ${url} ...`);
     try {
       await download(url, archivePath);
@@ -288,6 +303,9 @@ async function main() {
     } catch (err) {
       lastError = err;
       console.error(`[awiki-cli] Download failed from ${url}: ${err.message}`);
+      if (i < urls.length - 1) {
+        console.error('[awiki-cli] Retrying with the next download source ...');
+      }
     }
   }
 
@@ -322,7 +340,8 @@ if (require.main === module) {
     console.error(`[awiki-cli] Failed to install binary: ${err.message}`);
      console.error(
        '\nIf you are behind a firewall or using a restricted network, you can:\n' +
-       '  - Set AWIKI_CLI_DOWNLOAD_MIRROR to a reachable HTTPS base URL,\n' +
+       '  - The installer automatically tries GitHub releases and then Gitee releases,\n' +
+       '  - Set AWIKI_CLI_DOWNLOAD_MIRROR to a reachable HTTPS base URL to override the default order,\n' +
        '  - Or set AWIKI_CLI_LOCAL_BINARY to a local awiki-cli binary for local package testing,\n' +
        '  - Or manually download the archive and extract it into the awiki-cli bin directory.\n'
      );
