@@ -73,7 +73,7 @@ func (a *App) messageExit(err error, hint string) error {
 	case errors.Is(err, identity.ErrUserRegistrationRequired):
 		return output.NewExitError("identity_required", 3, err.Error(), "Complete user setup with `awiki-cli id register --handle <handle> ...` or recover an existing handle before using msg commands.")
 	case errors.Is(err, message.ErrSecureNotSupported):
-		return output.NewExitError("unsupported_mode", 1, err.Error(), "Direct secure messaging is planned for Phase 5.")
+		return output.NewExitError("unsupported_mode", 1, err.Error(), "Secure messaging is currently supported only for direct text messaging.")
 	case errors.Is(err, message.ErrTransportUnavailable):
 		return output.NewExitError("transport_unavailable", 1, err.Error(), "Start the websocket listener/daemon or switch runtime.mode back to http.")
 	default:
@@ -353,6 +353,149 @@ func (a *App) runMsgMarkRead(cmd *cobra.Command, args []string) error {
 	result, err := service.MarkRead(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the message ids are valid and runtime mode is available.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureStatus(cmd *cobra.Command, args []string) error {
+	with, _ := cmd.Flags().GetString("with")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecureStatusRequest{
+		IdentityName: a.globals.Identity,
+		With:         with,
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":   "msg.secure.status",
+			"identity": a.globals.Identity,
+			"with":     with,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure status planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureStatus(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the active identity exists and the peer filter is valid.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureInit(cmd *cobra.Command, args []string) error {
+	with, _ := cmd.Flags().GetString("with")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecurePeerRequest{
+		IdentityName: a.globals.Identity,
+		With:         with,
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":   "msg.secure.init",
+			"identity": a.globals.Identity,
+			"with":     with,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure init planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureInit(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the target exists and the active identity has secure E2EE key material.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureRepair(cmd *cobra.Command, args []string) error {
+	with, _ := cmd.Flags().GetString("with")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecurePeerRequest{
+		IdentityName: a.globals.Identity,
+		With:         with,
+	}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":   "msg.secure.repair",
+			"identity": a.globals.Identity,
+			"with":     with,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure repair planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureRepair(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the target exists and the active identity can rebuild secure state.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureFailed(cmd *cobra.Command, args []string) error {
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecureStatusRequest{IdentityName: a.globals.Identity}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":   "msg.secure.failed",
+			"identity": a.globals.Identity,
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure failed listing planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureFailed(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the active identity exists and local storage is readable.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureRetry(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return output.NewExitError("invalid_argument", 2, "msg secure retry requires one outbox id.", "Usage: awiki-cli msg secure retry <OUTBOX_ID>")
+	}
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecureOutboxActionRequest{IdentityName: a.globals.Identity, OutboxID: args[0]}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":    "msg.secure.retry",
+			"identity":  a.globals.Identity,
+			"outbox_id": args[0],
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure retry planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureRetry(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the outbox id exists and the active identity can reach the target service.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runMsgSecureDrop(cmd *cobra.Command, args []string) error {
+	if len(args) != 1 {
+		return output.NewExitError("invalid_argument", 2, "msg secure drop requires one outbox id.", "Usage: awiki-cli msg secure drop <OUTBOX_ID>")
+	}
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.SecureOutboxActionRequest{IdentityName: a.globals.Identity, OutboxID: args[0]}
+	if a.globals.DryRun {
+		data := map[string]any{"plan": map[string]any{
+			"action":    "msg.secure.drop",
+			"identity":  a.globals.Identity,
+			"outbox_id": args[0],
+		}}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, data, "Dry run: secure drop planned", nil, a.identityMeta())
+	}
+	result, err := service.SecureDrop(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the outbox id exists for the active identity.")
 	}
 	return a.renderMessageResult(cmd, format, result)
 }

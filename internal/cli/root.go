@@ -195,6 +195,18 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runMsgHistory
 	case "msg.mark-read":
 		return a.runMsgMarkRead
+	case "msg.secure.status":
+		return a.runMsgSecureStatus
+	case "msg.secure.init":
+		return a.runMsgSecureInit
+	case "msg.secure.repair":
+		return a.runMsgSecureRepair
+	case "msg.secure.failed":
+		return a.runMsgSecureFailed
+	case "msg.secure.retry":
+		return a.runMsgSecureRetry
+	case "msg.secure.drop":
+		return a.runMsgSecureDrop
 	case "mail.inbox":
 		return a.runMailInbox
 	case "mail.read":

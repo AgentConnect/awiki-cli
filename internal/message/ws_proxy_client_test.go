@@ -95,7 +95,7 @@ func TestWSProxyTransportCallsLocalBridgeAndDecodesResponses(t *testing.T) {
 			defer listener.Close()
 
 			requests := make(chan runtime.BridgeRequest, 1)
-			go serveBridgeOnce(t, listener, requests, runtime.BridgeResponse{OK: true, Result: map[string]any{
+			go serveBridgeProbeAndRequest(t, listener, requests, runtime.BridgeResponse{OK: true, Result: map[string]any{
 				"message_id":   "msg-1",
 				"operation_id": "op-1",
 			}})
@@ -133,7 +133,7 @@ func TestWSProxyTransportWrapsBridgeFailures(t *testing.T) {
 	}
 }
 
-func serveBridgeOnce(t *testing.T, listener net.Listener, requests chan<- runtime.BridgeRequest, response runtime.BridgeResponse) {
+func serveBridgeProbeAndRequest(t *testing.T, listener net.Listener, requests chan<- runtime.BridgeRequest, response runtime.BridgeResponse) {
 	t.Helper()
 	for {
 		conn, err := listener.Accept()

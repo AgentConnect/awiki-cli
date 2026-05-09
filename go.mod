@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
-	github.com/agent-network-protocol/anp/golang v0.8.5
+	github.com/agent-network-protocol/anp/golang v0.8.7
 	github.com/coder/websocket v1.8.12
 	github.com/itchyny/gojq v0.12.17
 	github.com/kardianos/service v1.2.3
@@ -19,6 +19,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gowebpki/jcs v1.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.6 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

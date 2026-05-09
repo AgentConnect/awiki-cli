@@ -7,13 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	directe2ee "github.com/agent-network-protocol/anp/golang/direct_e2ee"
+	"github.com/agentconnect/awiki-cli/internal/anpsdk"
 	"github.com/agentconnect/awiki-cli/internal/authsdk"
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
@@ -29,24 +33,27 @@ type Supervisor struct {
 	statusMu sync.Mutex
 	status   Status
 
-	sessionsMu sync.Mutex
-	sessions   map[string]*session
-	listener   net.Listener
-	db         *sql.DB
-	hostNotify HostNotifySink
+	sessionsMu           sync.Mutex
+	sessions             map[string]*session
+	localNotificationsMu sync.Mutex
+	localNotifications   map[string][]map[string]any
+	listener             net.Listener
+	db                   *sql.DB
+	hostNotify           HostNotifySink
 }
 
 type session struct {
-	identityName string
-	record       *identity.StoredIdentity
-	client       *WSClient
-	lastError    string
-	connected    bool
-	ctx          context.Context
-	cancelFunc   context.CancelFunc
-	initResult   chan error
-	initOnce     sync.Once
-	mu           sync.RWMutex
+	identityName  string
+	record        *identity.StoredIdentity
+	client        *WSClient
+	secureRPCCall func(context.Context, string, map[string]any) (map[string]any, error)
+	lastError     string
+	connected     bool
+	ctx           context.Context
+	cancelFunc    context.CancelFunc
+	initResult    chan error
+	initOnce      sync.Once
+	mu            sync.RWMutex
 }
 
 const (
@@ -102,9 +109,10 @@ func NewSupervisor(resolved *appconfig.Resolved) (*Supervisor, error) {
 			StartedAt:  time.Now().UTC().Format(time.RFC3339),
 			HostNotify: hostNotifyStatus,
 		},
-		sessions:   map[string]*session{},
-		db:         db,
-		hostNotify: hostNotifySink,
+		sessions:           map[string]*session{},
+		localNotifications: map[string][]map[string]any{},
+		db:                 db,
+		hostNotify:         hostNotifySink,
 	}, nil
 }
 
@@ -482,6 +490,10 @@ func (s *Supervisor) consumeNotifications(ctx context.Context, session *session,
 }
 
 func (s *Supervisor) handleNotification(ctx context.Context, session *session, notification map[string]any) {
+	notification = s.normalizeDirectSecureNotification(ctx, session, notification)
+	if notification == nil {
+		return
+	}
 	receivedAt := time.Now().UTC()
 	event, shouldNotify := NormalizeHostNotification(notification, receivedAt)
 	if record, ok := messageRecordFromDirectIncoming(notification, session.record.IdentityName); ok {
@@ -517,6 +529,420 @@ func (s *Supervisor) handleNotification(ctx context.Context, session *session, n
 		_ = store.StoreMessage(ctx, s.db, *messageRecord)
 	}
 	s.dispatchHostNotification(ctx, event, shouldNotify)
+}
+
+func (s *Supervisor) normalizeDirectSecureNotification(ctx context.Context, session *session, notification map[string]any) map[string]any {
+	if !isDirectSecureIncomingNotification(notification) {
+		return notification
+	}
+	record := session.currentRecord()
+	if record == nil {
+		return notification
+	}
+	rpcCall := session.secureRPC()
+	if rpcCall == nil {
+		return notification
+	}
+	client, err := message.NewSecureE2EEClientForRecord(ctx, s.manager, record, func(method string, params map[string]any) (map[string]any, error) {
+		return rpcCall(ctx, method, params)
+	})
+	if err != nil {
+		return notification
+	}
+	params, _ := notification["params"].(map[string]any)
+	result, err := client.ProcessIncoming(ctx, params)
+	if err != nil {
+		return notification
+	}
+	if stringValue(result["state"]) != "decrypted" {
+		return notification
+	}
+	plaintext, ok := result["plaintext"].(map[string]any)
+	if !ok {
+		return notification
+	}
+	meta, _ := params["meta"].(map[string]any)
+	originalBody := params["body"]
+	originalContentType := stringValue(meta["content_type"])
+	meta["content_type"] = stringValue(plaintext["application_content_type"])
+	params["body"] = plaintextBodyToNotificationBody(plaintext)
+	params["secure_state"] = "decrypted"
+	params["secure_wire_content_type"] = originalContentType
+	params["secure_wire_body"] = originalBody
+	if message.IsSecureAckPlaintext(plaintext) {
+		peerDID := stringValue(meta["sender_did"])
+		_ = message.FlushQueuedSecureOutbox(ctx, s.resolved, s.manager, record, peerDID, func(method string, params map[string]any) (map[string]any, error) {
+			return rpcCall(ctx, method, params)
+		})
+		notification["method"] = "direct.secure.ack"
+		return notification
+	}
+	if message.IsSecureInitPlaintext(plaintext) {
+		notification["method"] = "direct.secure.init"
+	}
+	if originalContentType == "application/anp-direct-init+json" {
+		sessionID := stringValue(mapValue(originalBody)["session_id"])
+		messageID := stringValue(meta["message_id"])
+		if sessionID != "" && messageID != "" {
+			ackID := "ack-" + sessionID
+			if !s.deliverLocalSecureAckInProcess(ctx, record, stringValue(meta["sender_did"]), sessionID, messageID, ackID) {
+				ackResult, ackErr := client.SendJSON(ctx, stringValue(meta["sender_did"]), message.BuildSecureAckPayload(sessionID, messageID), ackID, ackID)
+				if ackErr == nil {
+					s.deliverLocalSecureAck(ctx, record.DID, stringValue(meta["sender_did"]), ackID, ackResult)
+				} else {
+				}
+			}
+			s.flushPeerQueuedSecureOutbox(ctx, stringValue(meta["sender_did"]), record.DID)
+		}
+	}
+	return notification
+}
+
+func isDirectSecureIncomingNotification(notification map[string]any) bool {
+	method, _ := notification["method"].(string)
+	if method != "direct.incoming" {
+		return false
+	}
+	params, _ := notification["params"].(map[string]any)
+	meta, _ := params["meta"].(map[string]any)
+	return isSecureDirectWireContentType(stringValue(meta["content_type"]))
+}
+
+func isSecureDirectWireContentType(contentType string) bool {
+	switch contentType {
+	case "application/anp-direct-init+json", "application/anp-direct-cipher+json":
+		return true
+	default:
+		return false
+	}
+}
+
+func secureNotificationFromMessageView(messageView map[string]any) (map[string]any, error) {
+	body, ok := messageView["content"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("content is not a direct-e2ee object")
+	}
+	senderDID := stringValue(messageView["sender_did"])
+	receiverDID := stringValue(messageView["receiver_did"])
+	messageID := stringValue(messageView["id"])
+	if senderDID == "" || receiverDID == "" || messageID == "" {
+		return nil, fmt.Errorf("missing sender_did/receiver_did/id")
+	}
+	params := map[string]any{
+		"meta": map[string]any{
+			"sender_did":       senderDID,
+			"target":           map[string]any{"kind": "agent", "did": receiverDID},
+			"message_id":       messageID,
+			"profile":          "anp.direct.e2ee.v1",
+			"security_profile": "direct-e2ee",
+			"content_type":     stringValue(messageView["content_type"]),
+		},
+		"body": body,
+	}
+	if serverSeq := messageView["server_seq"]; serverSeq != nil {
+		params["server_seq"] = serverSeq
+	}
+	return map[string]any{"method": "direct.incoming", "params": params}, nil
+}
+
+func (s *Supervisor) flushPeerQueuedSecureOutbox(ctx context.Context, ownerDID string, peerDID string) {
+	s.sessionsMu.Lock()
+	sessions := make([]*session, 0, len(s.sessions))
+	for _, item := range s.sessions {
+		sessions = append(sessions, item)
+	}
+	s.sessionsMu.Unlock()
+	for _, item := range sessions {
+		record := item.currentRecord()
+		if record == nil || record.DID != ownerDID {
+			continue
+		}
+		rpcCall := item.secureRPC()
+		if rpcCall == nil {
+			return
+		}
+		warnings := message.FlushQueuedSecureOutbox(ctx, s.resolved, s.manager, record, peerDID, func(method string, params map[string]any) (map[string]any, error) {
+			return rpcCall(ctx, method, params)
+		})
+		log.Printf("listener queued secure outbox flush owner_did=%s peer_did=%s warnings=%v", ownerDID, peerDID, warnings)
+		return
+	}
+}
+
+func (s *Supervisor) deliverLocalSecureAck(ctx context.Context, senderDID string, recipientDID string, fallbackMessageID string, ackResult map[string]any) {
+	targetSession := s.activeSessionByDID(recipientDID)
+	if targetSession == nil {
+		return
+	}
+	body, _ := ackResult["body"].(map[string]any)
+	if len(body) == 0 {
+		return
+	}
+	messageID := fallbackString(stringValue(ackResult["message_id"]), fallbackMessageID)
+	notification := map[string]any{
+		"method": "direct.incoming",
+		"params": map[string]any{
+			"meta": map[string]any{
+				"sender_did":       senderDID,
+				"target":           map[string]any{"kind": "agent", "did": recipientDID},
+				"message_id":       messageID,
+				"profile":          "anp.direct.e2ee.v1",
+				"security_profile": "direct-e2ee",
+				"content_type":     "application/anp-direct-cipher+json",
+			},
+			"body": body,
+		},
+	}
+	s.handleNotification(ctx, targetSession, notification)
+}
+
+func (s *Supervisor) deliverLocalSecureAckInProcess(ctx context.Context, senderRecord *identity.StoredIdentity, recipientDID string, sessionID string, repliedMessageID string, ackMessageID string) bool {
+	if senderRecord == nil {
+		log.Printf("listener local secure ack skipped: sender record missing")
+		return false
+	}
+	recipientRecord := s.recordByDID(recipientDID)
+	if recipientRecord == nil {
+		log.Printf("listener local secure ack skipped: recipient %s not managed locally", recipientDID)
+		return false
+	}
+	paths, err := s.manager.PathsForIdentity(senderRecord.IdentityName)
+	if err != nil {
+		log.Printf("listener local secure ack skipped: sender paths error: %v", err)
+		return false
+	}
+	// Rebuild the sender-side session via file store so we can emit one local encrypted ack
+	// even when the service/websocket ack path is unavailable during reconnect recovery.
+	fileStore, err := anpsdk.NewFileSessionStore(filepath.Join(paths.IdentityDir, "p5-e2ee-sessions"))
+	if err != nil {
+		log.Printf("listener local secure ack skipped: session store error: %v", err)
+		return false
+	}
+	senderSession, ok, err := fileStore.FindByPeerDID(recipientDID)
+	if err != nil || !ok {
+		log.Printf("listener local secure ack skipped: sender session lookup peer=%s ok=%v err=%v", recipientDID, ok, err)
+		return false
+	}
+	candidateSession := senderSession
+	builder := directe2ee.DirectE2eeSession{}
+	_, ackBody, err := builder.EncryptFollowUp(
+		&candidateSession,
+		directe2ee.DirectEnvelopeMetadata{
+			SenderDID:       senderRecord.DID,
+			RecipientDID:    recipientDID,
+			MessageID:       ackMessageID,
+			Profile:         "anp.direct.e2ee.v1",
+			SecurityProfile: "direct-e2ee",
+		},
+		ackMessageID,
+		directe2ee.NewJSONPlaintext("application/json", message.BuildSecureAckPayload(sessionID, repliedMessageID)),
+	)
+	if err != nil {
+		log.Printf("listener local secure ack skipped: encrypt follow-up error: %v", err)
+		return false
+	}
+	notification := map[string]any{
+		"meta": map[string]any{
+			"sender_did":       senderRecord.DID,
+			"target":           map[string]any{"kind": "agent", "did": recipientDID},
+			"message_id":       ackMessageID,
+			"profile":          "anp.direct.e2ee.v1",
+			"security_profile": "direct-e2ee",
+			"content_type":     "application/anp-direct-cipher+json",
+		},
+		"body": structToMap(ackBody),
+	}
+	recipientClient, err := message.NewSecureE2EEClientForRecord(ctx, s.manager, recipientRecord, func(string, map[string]any) (map[string]any, error) {
+		return nil, fmt.Errorf("local secure ack delivery does not use outbound rpc")
+	})
+	if err != nil {
+		log.Printf("listener local secure ack skipped: recipient client init error: %v", err)
+		return false
+	}
+	result, err := recipientClient.ProcessIncoming(ctx, notification)
+	if err != nil || stringValue(result["state"]) != "decrypted" {
+		recipientPaths, pathErr := s.manager.PathsForIdentity(recipientRecord.IdentityName)
+		if pathErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s recipientPathsErr=%v", err, stringValue(result["state"]), pathErr)
+			return false
+		}
+		recipientStore, storeErr := anpsdk.NewFileSessionStore(filepath.Join(recipientPaths.IdentityDir, "p5-e2ee-sessions"))
+		if storeErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s recipientStoreErr=%v", err, stringValue(result["state"]), storeErr)
+			return false
+		}
+		recipientSession, loadErr := recipientStore.LoadSession(sessionID)
+		if loadErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s recipientLoadErr=%v", err, stringValue(result["state"]), loadErr)
+			return false
+		}
+		var ackCipher directe2ee.DirectCipherBody
+		rawBody, marshalErr := json.Marshal(notification["body"])
+		if marshalErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s marshalAckErr=%v", err, stringValue(result["state"]), marshalErr)
+			return false
+		}
+		if unmarshalErr := json.Unmarshal(rawBody, &ackCipher); unmarshalErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s unmarshalAckErr=%v", err, stringValue(result["state"]), unmarshalErr)
+			return false
+		}
+		_, decryptErr := builder.DecryptFollowUp(
+			&recipientSession,
+			directe2ee.DirectEnvelopeMetadata{
+				SenderDID:       senderRecord.DID,
+				RecipientDID:    recipientDID,
+				MessageID:       ackMessageID,
+				Profile:         "anp.direct.e2ee.v1",
+				SecurityProfile: "direct-e2ee",
+			},
+			ackCipher,
+		)
+		if decryptErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s decryptFallbackErr=%v", err, stringValue(result["state"]), decryptErr)
+			return false
+		}
+		if saveErr := recipientStore.SaveSession(recipientSession); saveErr != nil {
+			log.Printf("listener local secure ack skipped: recipient process incoming err=%v state=%s recipientSaveErr=%v", err, stringValue(result["state"]), saveErr)
+			return false
+		}
+	}
+	if err := fileStore.SaveSession(candidateSession); err != nil {
+		log.Printf("listener local secure ack skipped: save sender session error: %v", err)
+		return false
+	}
+	if targetSession := s.activeSessionByDID(recipientDID); targetSession != nil {
+		if rpcCall := targetSession.secureRPC(); rpcCall != nil {
+			warnings := message.FlushQueuedSecureOutbox(ctx, s.resolved, s.manager, recipientRecord, senderRecord.DID, func(method string, params map[string]any) (map[string]any, error) {
+				return rpcCall(ctx, method, params)
+			})
+			log.Printf("listener local secure ack delivered recipient=%s sender=%s flush_warnings=%v", recipientRecord.DID, senderRecord.DID, warnings)
+		}
+		log.Printf("listener local secure ack delivered recipient=%s sender=%s", recipientRecord.DID, senderRecord.DID)
+		return true
+	}
+	if s.hasRuntimeSessionForDID(recipientDID) {
+		s.queueLocalNotification(recipientDID, map[string]any{
+			"method": "direct.incoming",
+			"params": notification,
+		})
+		log.Printf("listener local secure ack queued for recipient=%s sender=%s until session activates", recipientRecord.DID, senderRecord.DID)
+		return true
+	}
+	log.Printf("listener local secure ack fallback to network: recipient session not managed recipient=%s sender=%s", recipientRecord.DID, senderRecord.DID)
+	return false
+}
+
+func (s *Supervisor) activeSessionByDID(did string) *session {
+	if strings.TrimSpace(did) == "" {
+		return nil
+	}
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	for _, item := range s.sessions {
+		record := item.currentRecord()
+		if record != nil && record.DID == did {
+			return item
+		}
+	}
+	return nil
+}
+
+func (s *Supervisor) recordByDID(did string) *identity.StoredIdentity {
+	if strings.TrimSpace(did) == "" || s.manager == nil {
+		return nil
+	}
+	identities, err := s.manager.List()
+	if err != nil {
+		return nil
+	}
+	for _, summary := range identities {
+		if summary.DID != did {
+			continue
+		}
+		record, err := s.manager.Load(summary.IdentityName)
+		if err == nil && record != nil {
+			return record
+		}
+	}
+	return nil
+}
+
+func (s *Supervisor) hasRuntimeSessionForDID(did string) bool {
+	if strings.TrimSpace(did) == "" {
+		return false
+	}
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	for _, item := range s.sessions {
+		if record := item.currentRecord(); record != nil && record.DID == did {
+			return true
+		}
+		if s.manager == nil {
+			continue
+		}
+		record, err := s.manager.Load(item.identityName)
+		if err == nil && record != nil && record.DID == did {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Supervisor) queueLocalNotification(recipientDID string, notification map[string]any) {
+	if strings.TrimSpace(recipientDID) == "" || notification == nil {
+		return
+	}
+	s.localNotificationsMu.Lock()
+	defer s.localNotificationsMu.Unlock()
+	s.localNotifications[recipientDID] = append(s.localNotifications[recipientDID], notification)
+}
+
+func (s *Supervisor) flushQueuedLocalNotifications(targetSession *session) {
+	if targetSession == nil {
+		return
+	}
+	record := targetSession.currentRecord()
+	if record == nil || strings.TrimSpace(record.DID) == "" {
+		return
+	}
+	s.localNotificationsMu.Lock()
+	queued := append([]map[string]any(nil), s.localNotifications[record.DID]...)
+	delete(s.localNotifications, record.DID)
+	s.localNotificationsMu.Unlock()
+	for _, notification := range queued {
+		s.handleNotification(targetSession.ctx, targetSession, notification)
+	}
+}
+
+func structToMap(value any) map[string]any {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return map[string]any{}
+	}
+	var result map[string]any
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return map[string]any{}
+	}
+	return result
+}
+
+func plaintextBodyToNotificationBody(plaintext map[string]any) map[string]any {
+	body := map[string]any{}
+	for _, key := range []string{"conversation_id", "reply_to_message_id", "annotations"} {
+		if value, ok := plaintext[key]; ok && value != nil {
+			body[key] = value
+		}
+	}
+	if text := stringValue(plaintext["text"]); text != "" {
+		body["text"] = text
+	}
+	if payload, ok := plaintext["payload"]; ok && payload != nil {
+		body["payload"] = payload
+	}
+	if payloadB64U := stringValue(plaintext["payload_b64u"]); payloadB64U != "" {
+		body["payload_b64u"] = payloadB64U
+	}
+	return body
 }
 
 func (s *Supervisor) dispatchHostNotification(ctx context.Context, event *HostNotificationEvent, shouldNotify bool) {
@@ -555,6 +981,21 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 	if sentAt == "" {
 		sentAt = time.Now().UTC().Format(time.RFC3339)
 	}
+	contentValue := body["text"]
+	if text := stringValue(body["text"]); text == "" {
+		switch {
+		case body["payload"] != nil:
+			contentValue = body["payload"]
+		case stringValue(body["payload_b64u"]) != "":
+			contentValue = body["payload_b64u"]
+		default:
+			contentValue = body
+		}
+	}
+	content := stringValue(contentValue)
+	if content == "" {
+		content = metadataValue(contentValue)
+	}
 	return store.MessageRecord{
 		MsgID:          stringValue(meta["message_id"]),
 		OwnerDID:       targetDID,
@@ -563,7 +1004,8 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 		SenderDID:      senderDID,
 		ReceiverDID:    targetDID,
 		ContentType:    contentType,
-		Content:        stringValue(body["text"]),
+		Content:        content,
+		IsE2EE:         stringValue(meta["security_profile"]) == "direct-e2ee" || stringValue(params["secure_state"]) == "decrypted",
 		SentAt:         sentAt,
 		IsRead:         false,
 		Metadata:       metadataValue(params),
@@ -1048,8 +1490,13 @@ func (s *Supervisor) runSessionLoop(session *session) {
 		session.markConnected(record, client)
 		session.signalInitial(nil)
 		s.refreshStatus()
+		s.flushQueuedLocalNotifications(session)
+		publishCtx, publishCancel := context.WithCancel(session.ctx)
+		go s.retryPublishSecurePrekeys(publishCtx, record)
+		go s.pollUnreadSecureDirectInbox(publishCtx, session, client)
 
 		err = s.consumeNotifications(session.ctx, session, client)
+		publishCancel()
 		_ = client.Close()
 		session.markDisconnected(err)
 		s.refreshStatus()
@@ -1061,6 +1508,161 @@ func (s *Supervisor) runSessionLoop(session *session) {
 		}
 		delay = minDuration(delay*2, sessionReconnectMaxDelay)
 	}
+}
+
+func (s *Supervisor) retryPublishSecurePrekeys(ctx context.Context, record *identity.StoredIdentity) {
+	for {
+		warnings := message.PublishSecurePrekeys(ctx, s.resolved, s.manager, record)
+		if len(warnings) == 0 {
+			return
+		}
+		log.Printf("listener secure prekey publish retry identity=%s warnings=%s", record.IdentityName, strings.Join(warnings, "; "))
+		if !sleepWithContext(ctx, time.Second) {
+			return
+		}
+	}
+}
+
+func (s *Supervisor) syncUnreadSecureDirectInbox(ctx context.Context, session *session, client *WSClient) {
+	record := session.currentRecord()
+	if record == nil {
+		return
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	params := message.BuildInboxRPCParams(record, message.InboxRequest{Scope: "direct", UnreadOnly: true, Limit: 100})
+	result, err := client.SendRPC(syncCtx, "inbox.get", params)
+	if err != nil {
+		return
+	}
+	items, _ := result["messages"].([]any)
+	for _, item := range items {
+		messageView, ok := item.(map[string]any)
+		if !ok || !isSecureDirectWireContentType(stringValue(messageView["content_type"])) {
+			continue
+		}
+		ownerDID := stringValue(messageView["receiver_did"])
+		if ownerDID == "" {
+			ownerDID = session.record.DID
+		}
+		if _, err := store.GetMessageByID(syncCtx, s.db, stringValue(messageView["id"]), ownerDID, session.identityName); err == nil {
+			continue
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		notification, err := secureNotificationFromMessageView(messageView)
+		if err != nil {
+			continue
+		}
+		log.Printf("listener secure backlog replay identity=%s message_id=%s content_type=%s", session.identityName, stringValue(messageView["id"]), stringValue(messageView["content_type"]))
+		s.handleNotification(syncCtx, session, notification)
+	}
+}
+
+func (s *Supervisor) pollUnreadSecureDirectInbox(ctx context.Context, session *session, client *WSClient) {
+	s.syncUnreadSecureDirectInbox(ctx, session, client)
+	s.syncPendingConfirmationSecureHistory(ctx, session, client)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.syncUnreadSecureDirectInbox(ctx, session, client)
+			s.syncPendingConfirmationSecureHistory(ctx, session, client)
+		}
+	}
+}
+
+func (s *Supervisor) syncPendingConfirmationSecureHistory(ctx context.Context, session *session, client *WSClient) {
+	record := session.currentRecord()
+	if record == nil {
+		return
+	}
+	peerDIDs := s.pendingConfirmationPeerDIDs(record.IdentityName)
+	if len(peerDIDs) == 0 {
+		return
+	}
+	for _, peerDID := range peerDIDs {
+		syncCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		params, buildErr := message.BuildHistoryRPCParams(record, message.HistoryRequest{With: peerDID, Limit: 50})
+		if buildErr != nil {
+			cancel()
+			continue
+		}
+		result, err := client.SendRPC(syncCtx, "direct.get_history", params)
+		cancel()
+		if err != nil {
+			continue
+		}
+		items, _ := result["messages"].([]any)
+		for _, item := range items {
+			messageView, ok := item.(map[string]any)
+			if !ok || !isSecureDirectWireContentType(stringValue(messageView["content_type"])) {
+				continue
+			}
+			if stringValue(messageView["sender_did"]) == record.DID {
+				continue
+			}
+			ownerDID := stringValue(messageView["receiver_did"])
+			if ownerDID == "" {
+				ownerDID = record.DID
+			}
+			if _, err := store.GetMessageByID(ctx, s.db, stringValue(messageView["id"]), ownerDID, session.identityName); err == nil {
+				continue
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			notification, err := secureNotificationFromMessageView(messageView)
+			if err != nil {
+				continue
+			}
+			s.handleNotification(ctx, session, notification)
+		}
+	}
+}
+
+func (s *Supervisor) pendingConfirmationPeerDIDs(identityName string) []string {
+	if s.manager == nil || strings.TrimSpace(identityName) == "" {
+		return nil
+	}
+	paths, err := s.manager.PathsForIdentity(identityName)
+	if err != nil {
+		return nil
+	}
+	entries, err := filepath.Glob(filepath.Join(paths.IdentityDir, "p5-e2ee-sessions", "*.json"))
+	if err != nil {
+		return nil
+	}
+	peers := make([]string, 0, len(entries))
+	seen := map[string]struct{}{}
+	for _, path := range entries {
+		var payload struct {
+			PeerDID string `json:"peer_did"`
+			Status  string `json:"status"`
+		}
+		if err := readJSONFile(path, &payload); err != nil {
+			continue
+		}
+		if payload.Status != "pending-confirmation" || strings.TrimSpace(payload.PeerDID) == "" {
+			continue
+		}
+		if _, ok := seen[payload.PeerDID]; ok {
+			continue
+		}
+		seen[payload.PeerDID] = struct{}{}
+		peers = append(peers, payload.PeerDID)
+	}
+	return peers
+}
+
+func readJSONFile(path string, out any) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
 }
 
 func (s *Supervisor) connectSession(identityName string) (*identity.StoredIdentity, *WSClient, error) {
@@ -1113,6 +1715,18 @@ func (s *session) currentClient() *WSClient {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.client
+}
+
+func (s *session) secureRPC() func(context.Context, string, map[string]any) (map[string]any, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.secureRPCCall != nil {
+		return s.secureRPCCall
+	}
+	if s.client == nil {
+		return nil
+	}
+	return s.client.SendRPC
 }
 
 func (s *session) currentRecord() *identity.StoredIdentity {

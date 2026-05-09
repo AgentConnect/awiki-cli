@@ -213,7 +213,7 @@ var indexStatements = []string{
 }
 
 var viewStatements = []string{
-	`CREATE VIEW threads AS
+	`CREATE VIEW IF NOT EXISTS threads AS
 SELECT
     owner_did,
     thread_id,
@@ -227,10 +227,10 @@ SELECT
      LIMIT 1) AS last_content
 FROM messages m
 GROUP BY owner_did, thread_id`,
-	`CREATE VIEW inbox AS
+	`CREATE VIEW IF NOT EXISTS inbox AS
 SELECT * FROM messages WHERE direction = 0
 ORDER BY owner_did, COALESCE(sent_at, stored_at) DESC`,
-	`CREATE VIEW outbox AS
+	`CREATE VIEW IF NOT EXISTS outbox AS
 SELECT * FROM messages WHERE direction = 1
 ORDER BY owner_did, COALESCE(sent_at, stored_at) DESC`,
 }
