@@ -52,6 +52,16 @@ func NewIndex() *Index {
 			},
 		},
 		{
+			Name:    "site",
+			Summary: "Tenant bare-domain site page commands and contracts",
+			References: []string{
+				"docs/architecture/awiki-site-pages.md",
+				"skills/references/11-site-pages.md",
+				"docs/architecture/awiki-command-v2.md",
+				"docs/architecture/awiki-v2-architecture.md",
+			},
+		},
+		{
 			Name:    "skills",
 			Summary: "Current skill entrypoint and reference topology",
 			References: []string{

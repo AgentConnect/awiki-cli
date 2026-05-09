@@ -99,6 +99,73 @@ func TestRunDocsExposesMailTopic(t *testing.T) {
 	}
 }
 
+func TestRunSchemaExposesTenantSiteCommandTree(t *testing.T) {
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", t.TempDir())
+
+	app := newSchemaDocsTestApp()
+	root := &cobra.Command{Use: "awiki-cli"}
+	cmd := &cobra.Command{Use: "schema"}
+	root.AddCommand(cmd)
+
+	rendered, err := captureStdout(func() error {
+		return app.runSchema(cmd, []string{"site"})
+	})
+	if err != nil {
+		t.Fatalf("runSchema(site) error = %v", err)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(rendered), &envelope); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; output=%q", err, rendered)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	children, _ := data["children"].([]any)
+	childNames := make(map[string]bool, len(children))
+	for _, child := range children {
+		item, _ := child.(map[string]any)
+		name, _ := item["name"].(string)
+		childNames[name] = true
+	}
+	for _, name := range []string{"site.page", "site.root"} {
+		if !childNames[name] {
+			t.Fatalf("schema children missing %q; got=%v", name, childNames)
+		}
+	}
+}
+
+func TestRunDocsExposesSiteTopic(t *testing.T) {
+	t.Setenv("AWIKI_CLI_WORKSPACE_HOME_DIR", t.TempDir())
+
+	app := newSchemaDocsTestApp()
+	root := &cobra.Command{Use: "awiki-cli"}
+	cmd := &cobra.Command{Use: "docs"}
+	root.AddCommand(cmd)
+
+	rendered, err := captureStdout(func() error {
+		return app.runDocs(cmd, []string{"site"})
+	})
+	if err != nil {
+		t.Fatalf("runDocs(site) error = %v", err)
+	}
+
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(rendered), &envelope); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; output=%q", err, rendered)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	topic, _ := data["topic"].(map[string]any)
+	if name, _ := topic["name"].(string); name != "site" {
+		t.Fatalf("data.topic.name = %q, want %q", name, "site")
+	}
+	references, _ := topic["references"].([]any)
+	if len(references) == 0 {
+		t.Fatal("data.topic.references = empty, want site references")
+	}
+	if first, _ := references[0].(string); first != "docs/architecture/awiki-site-pages.md" {
+		t.Fatalf("data.topic.references[0] = %q, want %q", first, "docs/architecture/awiki-site-pages.md")
+	}
+}
+
 func newSchemaDocsTestApp() *App {
 	return &App{
 		globals: GlobalOptions{Format: string(output.FormatJSON)},

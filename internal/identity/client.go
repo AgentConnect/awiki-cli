@@ -234,7 +234,7 @@ func (c *RemoteClient) AuthenticatedRestPost(ctx context.Context, endpoint strin
 	return nil
 }
 
-func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.Values, out any) error {
+func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.Values, bearer string, out any) error {
 	timeoutCtx, cancel := transportcfg.WithProfileTimeout(ctx, transportcfg.ProfileRPCDefault)
 	defer cancel()
 	finish := traceutil.RPCPhase(ctx, http.MethodGet+" "+endpoint)
@@ -246,6 +246,9 @@ func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.V
 	request, err := http.NewRequestWithContext(timeoutCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return err
+	}
+	if bearer = strings.TrimSpace(bearer); bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	response, err := c.client.Do(request)
 	if err != nil {
@@ -266,7 +269,7 @@ func (c *RemoteClient) restGet(ctx context.Context, endpoint string, query url.V
 }
 
 func (c *RemoteClient) RestGet(ctx context.Context, endpoint string, query url.Values, out any) error {
-	return c.restGet(ctx, endpoint, query, out)
+	return c.restGet(ctx, endpoint, query, "", out)
 }
 
 func (c *RemoteClient) LookupHandleByDID(ctx context.Context, did string) (*HandleLookupResult, error) {

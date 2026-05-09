@@ -71,7 +71,7 @@
 **internal/identity/did.go**: 本地 DID 文档与 proof 生成，当前默认生成 `e1` profile DID（`key-1` 为 Ed25519）。  
 **internal/identity/key_compat.go**: legacy ANP 私有 PEM 标签 / SEC1 私钥到标准 PKCS#8 PEM 的兼容迁移，确保旧身份在 ANP Go SDK 0.8.5+ 下仍可完成 DID WBA 签名。
 **internal/identity/client.go**: user-service RPC/REST 客户端。  
-**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。
+**internal/identity/service.go**: Phase 2/3 高层 identity + user 业务流，封装本地 store、handle lifecycle、`replace_did` DID 换绑能力，以及远端 API。邮箱注册 Handle 时会在 email-send/email-status 中携带完整 Handle，绑定邮箱时会用当前身份 JWT 查询状态，以匹配 user-service 的邮箱验证作用域。
 **internal/identity/did_test.go**: DID 文档和 proof 生成测试。  
 **internal/identity/store_test.go**: identity store 与 legacy import 测试。  
 **internal/store/types.go**: SQLite store 的核心类型、记录结构与导入报告类型。  

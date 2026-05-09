@@ -3,6 +3,8 @@ package config
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestUpdateRuntimeSettingsWritesConfigSchemaVersion(t *testing.T) {
@@ -54,6 +56,62 @@ func TestUpdateRuntimeListenerSettingsWritesBooleanPointers(t *testing.T) {
 	}
 	if fileConfig.Runtime.Listener.AutoStart == nil || !*fileConfig.Runtime.Listener.AutoStart {
 		t.Fatalf("listener.auto_start = %#v, want true", fileConfig.Runtime.Listener.AutoStart)
+	}
+}
+
+func TestUpdateDIDDomainCreatesConfigAndNormalizesValue(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	if err := UpdateDIDDomain(paths, " Tenant.Example. "); err != nil {
+		t.Fatalf("UpdateDIDDomain() error = %v", err)
+	}
+	fileConfig, exists, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("expected config file to exist")
+	}
+	if fileConfig.SchemaVersion != ConfigSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", fileConfig.SchemaVersion, ConfigSchemaVersion)
+	}
+	if fileConfig.Services.DIDDomain != "tenant.example" {
+		t.Fatalf("did_domain = %q, want tenant.example", fileConfig.Services.DIDDomain)
+	}
+}
+
+func TestUpdateDIDDomainPreservesExistingServiceSettings(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := Paths{ConfigFile: filepath.Join(root, "config.yaml")}
+	initial := FileConfig{}
+	initial.Services.ServiceBaseURL = testenv.SubdomainURL("platform")
+	initial.Services.ANPServiceEndpoint = testenv.SubdomainURL("rpc") + "/anp"
+	initial.Services.ANPServiceDID = "did:wba:" + testenv.Subdomain("rpc")
+	if err := WriteFileConfig(paths.ConfigFile, initial); err != nil {
+		t.Fatalf("WriteFileConfig() error = %v", err)
+	}
+	if err := UpdateDIDDomain(paths, "tenant.example"); err != nil {
+		t.Fatalf("UpdateDIDDomain() error = %v", err)
+	}
+	fileConfig, _, err := ReadFileConfig(paths.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFileConfig() error = %v", err)
+	}
+	if fileConfig.Services.ServiceBaseURL != initial.Services.ServiceBaseURL {
+		t.Fatalf("service_base_url = %q, want %q", fileConfig.Services.ServiceBaseURL, initial.Services.ServiceBaseURL)
+	}
+	if fileConfig.Services.ANPServiceEndpoint != initial.Services.ANPServiceEndpoint {
+		t.Fatalf("anp_service_endpoint = %q, want %q", fileConfig.Services.ANPServiceEndpoint, initial.Services.ANPServiceEndpoint)
+	}
+	if fileConfig.Services.ANPServiceDID != initial.Services.ANPServiceDID {
+		t.Fatalf("anp_service_did = %q, want %q", fileConfig.Services.ANPServiceDID, initial.Services.ANPServiceDID)
+	}
+	if fileConfig.Services.DIDDomain != "tenant.example" {
+		t.Fatalf("did_domain = %q, want tenant.example", fileConfig.Services.DIDDomain)
 	}
 }
 

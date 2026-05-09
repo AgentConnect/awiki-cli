@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestResolveHonorsExplicitFalseBoolFromConfigFile(t *testing.T) {
@@ -39,7 +41,7 @@ func TestResolveDerivesANPServiceDefaultsFromServiceBaseURL(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("services:\n  service_base_url: https://platform.awiki.test/\n  did_domain: tenant.example\n"),
+		[]byte("services:\n  service_base_url: "+testenv.SubdomainURL("platform")+"/\n  did_domain: tenant.example\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -51,17 +53,17 @@ func TestResolveDerivesANPServiceDefaultsFromServiceBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ServiceBaseURL != "https://platform.awiki.test" {
-		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://platform.awiki.test")
+	if resolved.ServiceBaseURL != testenv.SubdomainURL("platform") {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, testenv.SubdomainURL("platform"))
 	}
 	if resolved.DIDDomain != "tenant.example" {
 		t.Fatalf("resolved.DIDDomain = %q, want %q", resolved.DIDDomain, "tenant.example")
 	}
-	if resolved.ANPServiceEndpoint != "https://platform.awiki.test/anp-im/rpc" {
-		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, "https://platform.awiki.test/anp-im/rpc")
+	if resolved.ANPServiceEndpoint != testenv.SubdomainURL("platform")+"/anp-im/rpc" {
+		t.Fatalf("resolved.ANPServiceEndpoint = %q, want %q", resolved.ANPServiceEndpoint, testenv.SubdomainURL("platform")+"/anp-im/rpc")
 	}
-	if resolved.ANPServiceDID != "did:wba:platform.awiki.test" {
-		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:platform.awiki.test")
+	if resolved.ANPServiceDID != "did:wba:"+testenv.Subdomain("platform") {
+		t.Fatalf("resolved.ANPServiceDID = %q, want %q", resolved.ANPServiceDID, "did:wba:"+testenv.Subdomain("platform"))
 	}
 	if source := resolved.Sources["anp_service_endpoint"]; source.Source != "derived_default" || source.Key != "service_base_url" {
 		t.Fatalf("resolved.Sources[anp_service_endpoint] = %#v, want derived from service_base_url", source)
@@ -75,7 +77,7 @@ func TestResolveHonorsServiceBaseURLFromConfigFile(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("services:\n  service_base_url: https://awiki.test/\n"),
+		[]byte("services:\n  service_base_url: "+testenv.BaseURL()+"/\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -87,8 +89,8 @@ func TestResolveHonorsServiceBaseURLFromConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ServiceBaseURL != "https://awiki.test" {
-		t.Fatalf("resolved.ServiceBaseURL = %q, want https://awiki.test", resolved.ServiceBaseURL)
+	if resolved.ServiceBaseURL != testenv.BaseURL() {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, testenv.BaseURL())
 	}
 	if source := resolved.Sources["service_base_url"]; source.Source != "config_file" {
 		t.Fatalf("resolved.Sources[service_base_url].Source = %q, want config_file", source.Source)
@@ -169,7 +171,7 @@ func TestResolveIgnoresDeprecatedWorkspaceEnv(t *testing.T) {
 }
 
 func TestResolveIgnoresDeprecatedBusinessEnv(t *testing.T) {
-	t.Setenv("AWIKI_USER_SERVICE_URL", "https://awiki.test")
+	t.Setenv("AWIKI_USER_SERVICE_URL", testenv.BaseURL())
 
 	resolved, err := Resolve(Overrides{})
 	if err != nil {
@@ -203,7 +205,7 @@ func TestResolveRejectsDeprecatedServiceURLFieldsInConfigYAML(t *testing.T) {
 	workspaceHome := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(workspaceHome, "config.yaml"),
-		[]byte("services:\n  user_service_url: https://awiki.test\n"),
+		[]byte("services:\n  user_service_url: "+testenv.BaseURL()+"\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -389,8 +391,8 @@ func TestResolveMailServiceURLFromConfigFile(t *testing.T) {
 	configPath := filepath.Join(workspaceHome, "config.yaml")
 	configYAML := []byte(
 		"services:\n" +
-			"  service_base_url: https://api.awiki.test/\n" +
-			"  mail_service_url: https://mail.awiki.test/\n",
+			"  service_base_url: " + testenv.SubdomainURL("api") + "/\n" +
+			"  mail_service_url: " + testenv.SubdomainURL("mail") + "/\n",
 	)
 	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -402,18 +404,18 @@ func TestResolveMailServiceURLFromConfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ServiceBaseURL != "https://api.awiki.test" {
-		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://api.awiki.test")
+	if resolved.ServiceBaseURL != testenv.SubdomainURL("api") {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, testenv.SubdomainURL("api"))
 	}
-	if resolved.MailServiceURL != "https://mail.awiki.test" {
-		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://mail.awiki.test")
+	if resolved.MailServiceURL != testenv.SubdomainURL("mail") {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, testenv.SubdomainURL("mail"))
 	}
 	source := resolved.Sources["mail_service_url"]
 	if source.Source != "config_file" {
 		t.Fatalf("resolved.Sources[mail_service_url].Source = %q, want %q", source.Source, "config_file")
 	}
-	if source.Value != "https://mail.awiki.test" {
-		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://mail.awiki.test")
+	if source.Value != testenv.SubdomainURL("mail") {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, testenv.SubdomainURL("mail"))
 	}
 }
 
@@ -422,7 +424,7 @@ func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
 	configPath := filepath.Join(workspaceHome, "config.yaml")
 	configYAML := []byte(
 		"services:\n" +
-			"  service_base_url: https://awiki.test/\n",
+			"  service_base_url: " + testenv.BaseURL() + "/\n",
 	)
 	if err := os.WriteFile(configPath, configYAML, 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
@@ -434,11 +436,11 @@ func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if resolved.ServiceBaseURL != "https://awiki.test" {
-		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, "https://awiki.test")
+	if resolved.ServiceBaseURL != testenv.BaseURL() {
+		t.Fatalf("resolved.ServiceBaseURL = %q, want %q", resolved.ServiceBaseURL, testenv.BaseURL())
 	}
-	if resolved.MailServiceURL != "https://awiki.test" {
-		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, "https://awiki.test")
+	if resolved.MailServiceURL != testenv.BaseURL() {
+		t.Fatalf("resolved.MailServiceURL = %q, want %q", resolved.MailServiceURL, testenv.BaseURL())
 	}
 	source := resolved.Sources["mail_service_url"]
 	if source.Source != "derived_default" {
@@ -447,7 +449,7 @@ func TestResolveMailServiceURLDerivedFromServiceBaseURL(t *testing.T) {
 	if source.Key != "service_base_url" {
 		t.Fatalf("resolved.Sources[mail_service_url].Key = %q, want %q", source.Key, "service_base_url")
 	}
-	if source.Value != "https://awiki.test" {
-		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, "https://awiki.test")
+	if source.Value != testenv.BaseURL() {
+		t.Fatalf("resolved.Sources[mail_service_url].Value = %q, want %q", source.Value, testenv.BaseURL())
 	}
 }

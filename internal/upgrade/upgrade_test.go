@@ -16,6 +16,7 @@ import (
 	"github.com/agentconnect/awiki-cli/internal/identity"
 	runtimecfg "github.com/agentconnect/awiki-cli/internal/runtime"
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 type legacyIdentityFixture struct {
@@ -82,7 +83,7 @@ func TestUpgradeIfNeededMigratesLegacyConfigJSON(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(legacyConfigPath), 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	legacyConfig := `{"schema_version":1,"services":{"service_base_url":"https://legacy.awiki.test","did_domain":"legacy.awiki.test"},"runtime":{"mode":"http"}}`
+	legacyConfig := `{"schema_version":1,"services":{"service_base_url":"` + testenv.SubdomainURL("legacy") + `","did_domain":"` + testenv.Subdomain("legacy") + `"},"runtime":{"mode":"http"}}`
 	if err := os.WriteFile(legacyConfigPath, []byte(legacyConfig+"\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -100,10 +101,10 @@ func TestUpgradeIfNeededMigratesLegacyConfigJSON(t *testing.T) {
 	if !exists {
 		t.Fatalf("expected canonical config file to exist after migration")
 	}
-	if fileConfig.Services.ServiceBaseURL != "https://legacy.awiki.test" {
+	if fileConfig.Services.ServiceBaseURL != testenv.SubdomainURL("legacy") {
 		t.Fatalf("service base url = %q", fileConfig.Services.ServiceBaseURL)
 	}
-	if fileConfig.Services.DIDDomain != "legacy.awiki.test" {
+	if fileConfig.Services.DIDDomain != testenv.Subdomain("legacy") {
 		t.Fatalf("did domain = %q", fileConfig.Services.DIDDomain)
 	}
 }
@@ -112,7 +113,7 @@ func TestLoadLegacySettingsRejectsSplitServiceURLs(t *testing.T) {
 	t.Parallel()
 
 	legacyDataDir := t.TempDir()
-	writeLegacySettingsSplit(t, legacyDataDir, "https://auth.awiki.test", "https://msg.awiki.test", "awiki.test")
+	writeLegacySettingsSplit(t, legacyDataDir, testenv.SubdomainURL("auth"), testenv.SubdomainURL("msg"), testenv.Domain())
 	_, err := loadLegacySettings(filepath.Join(legacyDataDir, "config", "settings.json"))
 	if err == nil {
 		t.Fatal("loadLegacySettings() error = nil, want split-endpoint error")
@@ -145,12 +146,12 @@ func TestUpgradeIfNeededImportsLegacyWorkspace(t *testing.T) {
 		newDocument, _ := params["new_did_document"].(map[string]any)
 		newDID, _ := newDocument["id"].(string)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"legacy-old","did":"` + newDID + `","user_id":"user-legacy","handle":"legacy-alice","full_handle":"legacy-alice.awiki.test","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"old_did":"legacy-old","did":"` + newDID + `","user_id":"user-legacy","handle":"legacy-alice","full_handle":"` + testenv.FullHandle("legacy-alice") + `","access_token":"new-token","message":"DID replaced successfully"},"id":"req-1"}`))
 	}))
 	defer server.Close()
 
 	legacyIdentity := writeLegacyIdentity(t, resolved.Paths.LegacyCredentialsDir)
-	writeLegacySettings(t, resolved.Paths.LegacyDataDir, server.URL, "awiki.test")
+	writeLegacySettings(t, resolved.Paths.LegacyDataDir, server.URL, testenv.Domain())
 	writeLegacyDatabase(t, resolved.Paths.LegacyDataDir, legacyIdentity.DID)
 
 	if err := UpgradeIfNeeded(context.Background(), resolved, "2.0.0"); err != nil {
@@ -241,7 +242,7 @@ func TestUpgradeIfNeededReplacesAllImportedLegacyK1Handles(t *testing.T) {
 
 	replaceServer := startReplaceDIDTestServer(t, writeLegacyIdentityFixtures(t, resolved, legacyIdentities))
 
-	writeLegacySettings(t, resolved.Paths.LegacyDataDir, replaceServer.URL(), "awiki.test")
+	writeLegacySettings(t, resolved.Paths.LegacyDataDir, replaceServer.URL(), testenv.Domain())
 
 	if err := UpgradeIfNeeded(context.Background(), resolved, "2.0.0"); err != nil {
 		t.Fatalf("UpgradeIfNeeded() error = %v", err)
@@ -290,13 +291,13 @@ func TestUpgradeIfNeededReplacesExistingWorkspaceK1Handles(t *testing.T) {
 	replaceServer := startReplaceDIDTestServer(t, expectedHandleByAuth)
 
 	resolved.ServiceBaseURL = replaceServer.URL()
-	resolved.DIDDomain = "awiki.test"
-	resolved.ANPServiceEndpoint = identity.DefaultANPServiceEndpoint("awiki.test")
-	resolved.ANPServiceDID = identity.DefaultANPServiceDID("awiki.test")
+	resolved.DIDDomain = testenv.Domain()
+	resolved.ANPServiceEndpoint = identity.DefaultANPServiceEndpoint(testenv.Domain())
+	resolved.ANPServiceDID = identity.DefaultANPServiceDID(testenv.Domain())
 	fileConfig := appconfig.FileConfig{}
 	fileConfig.Runtime.Mode = runtimecfg.ModeWebSocket
 	fileConfig.Services.ServiceBaseURL = replaceServer.URL()
-	fileConfig.Services.DIDDomain = "awiki.test"
+	fileConfig.Services.DIDDomain = testenv.Domain()
 	if err := appconfig.WriteFileConfig(resolved.Paths.ConfigFile, fileConfig); err != nil {
 		t.Fatalf("WriteFileConfig() error = %v", err)
 	}
@@ -384,7 +385,7 @@ func startReplaceDIDTestServer(t *testing.T, expectedHandleByAuth map[string]str
 				"did":          newDID,
 				"user_id":      "user-" + handle,
 				"handle":       handle,
-				"full_handle":  handle + ".awiki.test",
+				"full_handle":  testenv.FullHandle(handle),
 				"access_token": "new-token-" + handle,
 				"message":      "DID replaced successfully",
 			},
@@ -573,8 +574,8 @@ func TestRefreshResolvedConfigSyncsMailServiceURLFromConfig(t *testing.T) {
 	}
 	configYAML := []byte(
 		"services:\n" +
-			"  service_base_url: https://api.awiki.test/\n" +
-			"  mail_service_url: https://mail.awiki.test/\n",
+			"  service_base_url: " + testenv.SubdomainURL("api") + "/\n" +
+			"  mail_service_url: " + testenv.SubdomainURL("mail") + "/\n",
 	)
 	if err := os.WriteFile(resolved.Paths.ConfigFile, configYAML, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -584,11 +585,11 @@ func TestRefreshResolvedConfigSyncsMailServiceURLFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refreshResolvedConfig() error = %v", err)
 	}
-	if refreshed.ServiceBaseURL != "https://api.awiki.test" {
-		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, "https://api.awiki.test")
+	if refreshed.ServiceBaseURL != testenv.SubdomainURL("api") {
+		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, testenv.SubdomainURL("api"))
 	}
-	if refreshed.MailServiceURL != "https://mail.awiki.test" {
-		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, "https://mail.awiki.test")
+	if refreshed.MailServiceURL != testenv.SubdomainURL("mail") {
+		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, testenv.SubdomainURL("mail"))
 	}
 }
 
@@ -601,7 +602,7 @@ func TestRefreshResolvedConfigDerivesMailServiceURLFromServiceBaseURL(t *testing
 	}
 	configYAML := []byte(
 		"services:\n" +
-			"  service_base_url: https://awiki.test/\n",
+			"  service_base_url: " + testenv.BaseURL() + "/\n",
 	)
 	if err := os.WriteFile(resolved.Paths.ConfigFile, configYAML, 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -611,11 +612,11 @@ func TestRefreshResolvedConfigDerivesMailServiceURLFromServiceBaseURL(t *testing
 	if err != nil {
 		t.Fatalf("refreshResolvedConfig() error = %v", err)
 	}
-	if refreshed.ServiceBaseURL != "https://awiki.test" {
-		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, "https://awiki.test")
+	if refreshed.ServiceBaseURL != testenv.BaseURL() {
+		t.Fatalf("refreshed.ServiceBaseURL = %q, want %q", refreshed.ServiceBaseURL, testenv.BaseURL())
 	}
-	if refreshed.MailServiceURL != "https://awiki.test" {
-		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, "https://awiki.test")
+	if refreshed.MailServiceURL != testenv.BaseURL() {
+		t.Fatalf("refreshed.MailServiceURL = %q, want %q", refreshed.MailServiceURL, testenv.BaseURL())
 	}
 }
 
@@ -628,13 +629,13 @@ func writeLegacyIdentityNamed(t *testing.T, legacyRoot string, credentialName st
 	if err := os.MkdirAll(legacyRoot, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	service, err := identity.BuildAgentANPMessageService("https://awiki.test/anp-im/rpc", "did:wba:awiki.test")
+	service, err := identity.BuildAgentANPMessageService(testenv.BaseURL()+"/anp-im/rpc", testenv.ServiceDID())
 	if err != nil {
 		t.Fatalf("BuildAgentANPMessageService() error = %v", err)
 	}
-	bundle, err := anpsdk.CreateDidWBADocument("awiki.test", anpsdk.DidDocumentOptions{
+	bundle, err := anpsdk.CreateDidWBADocument(testenv.Domain(), anpsdk.DidDocumentOptions{
 		PathSegments: []string{handle},
-		Domain:       "awiki.test",
+		Domain:       testenv.Domain(),
 		Challenge:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Services:     []map[string]any{service},
 		DidProfile:   anpsdk.DidProfileK1,

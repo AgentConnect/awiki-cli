@@ -42,6 +42,17 @@ func UpdateActiveIdentity(paths Paths, identityName string) error {
 	})
 }
 
+func UpdateDIDDomain(paths Paths, value string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		normalized, err := NormalizeDIDDomain(value)
+		if err != nil {
+			return err
+		}
+		fileConfig.Services.DIDDomain = normalized
+		return nil
+	})
+}
+
 func UpdateRuntimeListenerSettings(paths Paths, enabled *bool, autoInstall *bool, autoStart *bool) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		if enabled != nil {

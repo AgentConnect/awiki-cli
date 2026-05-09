@@ -10,6 +10,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func newRemoteClientTestServer(t *testing.T, handler http.HandlerFunc) *identity.RemoteClient {
@@ -153,7 +154,7 @@ func TestLookupHandleByDIDHandlesNotFoundEmptyAndSuccess(t *testing.T) {
 
 		client := newRemoteClientTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"handle":"alice","did":"did:peer","domain":"awiki.test","full_handle":"alice.awiki.test","status":"active"},"id":"req-1"}`))
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"handle":"alice","did":"did:peer","domain":"` + testenv.Domain() + `","full_handle":"` + testenv.FullHandle("alice") + `","status":"active"},"id":"req-1"}`))
 		})
 		result, err := client.LookupHandleByDID(context.Background(), "did:peer")
 		if err != nil {
@@ -162,8 +163,8 @@ func TestLookupHandleByDIDHandlesNotFoundEmptyAndSuccess(t *testing.T) {
 		if result == nil {
 			t.Fatal("client.LookupHandleByDID() result = nil, want non-nil")
 		}
-		if result.Handle != "alice" || result.FullHandle != "alice.awiki.test" {
-			t.Fatalf("client.LookupHandleByDID() result = %+v, want alice/alice.awiki.test", result)
+		if result.Handle != "alice" || result.FullHandle != testenv.FullHandle("alice") {
+			t.Fatalf("client.LookupHandleByDID() result = %+v, want alice/%s", result, testenv.FullHandle("alice"))
 		}
 	})
 }

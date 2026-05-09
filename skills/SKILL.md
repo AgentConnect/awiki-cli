@@ -39,7 +39,8 @@ Prefer opening only the minimal document set required by the current task:
 | Messaging | Direct messages, group messages, attachment send/receive, read state, secure contract | `msg`/`inbox`/`history`/`attachment`/`mark-read`/`secure` | `references/03-messaging.md` |
 | Groups | Group lifecycle, members, policies, and group message views | `group`/`member`/`join`/`leave`/`policy` | `references/04-groups.md` |
 | Runtime | Runtime mode, listener, host notify, transport recovery | `runtime`/`websocket`/`listener`/`host-notify` | `references/05-runtime.md` |
-| Pages | Content pages, slug, markdown publishing, visibility | `page`/`slug`/`markdown`/`visibility` | `references/06-pages.md` |
+| Pages | Handle-level content pages, slug, markdown publishing, visibility | `page`/`slug`/`markdown`/`visibility` | `references/06-pages.md` |
+| SitePages | Tenant bare-domain site pages and root/page management | `site`/`tenant`/`domain`/`root`/`pages` | `references/11-site-pages.md` |
 | Discovery | Group review, candidate review, manual introduction drafts | `discovery`/`intro`/`groupreview` | `references/07-discovery.md` |
 | Debug | SQLite, local import, last-resort troubleshooting | `debug`/`sqlite`/`import-v1` | `references/08-debug.md` |
 | PeoplePlanned | Future people/relationship contract | `people`/`follow`/`contacts` | `references/09-people-planned.md` |
@@ -94,6 +95,8 @@ When the task is exploratory, still unclear, or needs to enter a module, prefer 
 
 - `awiki-cli page list`: List pages.
 - `awiki-cli page get`: View a single page.
+- `awiki-cli site root get --domain <domain>`: Read the tenant bare-domain root page.
+- `awiki-cli site page list --domain <domain>`: List tenant bare-domain pages.
 
 ## Command Discovery
 
@@ -164,6 +167,7 @@ When the command surface is unclear, use these methods to explore:
 - Group write operations: `group create`, `group join`, `group add`, `group remove`, `group leave`, `group update`
 - Runtime write operations: `runtime apply`, `runtime setup`, `runtime mode set`, `runtime listener install`, `runtime listener start`, `runtime listener stop`, `runtime listener restart`, `runtime listener uninstall`, `runtime listener config set`, `runtime listener enable`, `runtime listener disable`, `runtime host-notify enable`, `runtime host-notify disable`, `runtime host-notify config set`, `runtime host-notify openclaw set`, `runtime host-notify openclaw set-token`, `runtime host-notify openclaw clear-token`
 - Page write operations: `page create`, `page update`, `page rename`, `page delete`
+- Site page write operations: `site root set`, `site page create`, `site page update`, `site page rename`, `site page delete`
 - Debug import path: `debug db import-v1`
 
 ### Must Not Be Run Automatically
@@ -196,6 +200,7 @@ When the command surface is unclear, use these methods to explore:
 - group: implemented
 - runtime: partially implemented
 - page: implemented
+- site pages: implemented
 - discovery workflow: partially implemented
 - people: planned
 - debug helpers: partially implemented

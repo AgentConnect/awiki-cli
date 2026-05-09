@@ -79,6 +79,22 @@ func TestNewRootCommandAddsHiddenListenerCommands(t *testing.T) {
 	}
 }
 
+func TestNewRootCommandExposesConfigSet(t *testing.T) {
+	app := &App{catalog: cmdmeta.NewCatalog(), docs: nil}
+	root := newRootCommand(app)
+
+	command, _, err := root.Find([]string{"config", "set"})
+	if err != nil {
+		t.Fatalf("Find(config set) error = %v", err)
+	}
+	if command == nil {
+		t.Fatal("config set command = nil")
+	}
+	if flag := command.Flags().Lookup("did-domain"); flag == nil {
+		t.Fatal("did-domain flag = nil, want configured flag")
+	}
+}
+
 func TestCommandResultMissingReturnsInternalExitError(t *testing.T) {
 	err := commandResultMissing("awiki-cli group add")
 	exitErr, ok := err.(*output.ExitError)
