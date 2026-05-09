@@ -1,39 +1,40 @@
-# 页面参考
+# Pages Reference
 
-## 目的
+## Purpose
 
-当你在 `awiki-cli` 中处理内容页生命周期任务时，使用本参考文档，包括：创建页面、列出页面、读取页面、更新页面、重命名 slug，以及删除页面。
+Use this reference when you are handling **handle-level content-page** lifecycle tasks in `awiki-cli`, including creating pages, listing pages, reading pages, updating pages, renaming slugs, and deleting pages.
 
-本文件是 **reference**，不是入口 skill。只有当任务明确涉及内容页、slug、markdown 发布或可见性变更时，才加载本文件。
+This file is a **reference**, not an entry skill. Load it only when the task clearly involves handle-level content pages, slugs, markdown publishing, or visibility changes. For tenant bare-domain pages, use `references/11-site-pages.md` instead.
 
-## 当前状态
+## Current Status
 
-- 状态：**已实现**
+- Status: **implemented**
 
-## 适用场景
+## When to Use
 
-- 创建内容页
-- 列出或读取页面
-- 更新 markdown 或可见性
-- 重命名或删除页面 slug
+- Create a content page
+- List or read pages
+- Update markdown or visibility
+- Rename or delete a page slug
 
-## 核心概念
+## Core Concepts
 
-- **slug**：CLI 契约中的页面标识符
-- **title**：页面显示标题
-- **markdown body**：来自 `--markdown` 或 `--markdown-file` 的页面内容
-- **visibility**：`public`、`draft` 或 `unlisted`
+- **slug**: the page identifier in the CLI contract
+- **title**: the display title of the page
+- **markdown body**: the page content provided by `--markdown` or `--markdown-file`
+- **visibility**: `public`, `draft`, or `unlisted`
+- **scope**: this reference only covers pages bound to one handle; it does not cover tenant bare-domain site pages
 
-## 决策规则
+## Decision Rules
 
-- 需要新建页面 -> `page create`
-- 需要列表视图 -> `page list`
-- 需要查看单页 -> `page get`
-- 需要修改正文或可见性 -> `page update`
-- 需要修改 slug -> `page rename`
-- 需要删除页面 -> `page delete`
+- Need to create a new page -> `page create`
+- Need a list view -> `page list`
+- Need to inspect one page -> `page get`
+- Need to modify the body or visibility -> `page update`
+- Need to change the slug -> `page rename`
+- Need to delete the page -> `page delete`
 
-## Canonical 命令
+## Canonical Commands
 
 - `awiki-cli page create --slug <slug> --title <title> [--markdown ... | --markdown-file ...] [--visibility public|draft|unlisted]`
 - `awiki-cli page list`
@@ -42,37 +43,43 @@
 - `awiki-cli page rename --slug <slug> --to <new_slug>`
 - `awiki-cli page delete --slug <slug>`
 
-## 常见模式
+## Boundary
 
-### 先 dry-run，再从文件创建
+- `page` = handle-level content page.
+- `site` = tenant bare-domain page with explicit `--domain`.
+- Do not route tenant root or `/pages/{slug}.md` tasks to `awiki-cli page ...`.
+
+## Common Patterns
+
+### Dry-Run First, Then Create from a File
 
 1. `awiki-cli page create --slug hiring --title "Hiring" --markdown-file ./hiring.md --dry-run`
 2. `awiki-cli page create --slug hiring --title "Hiring" --markdown-file ./hiring.md`
 
-### 只更新可见性
+### Update Only Visibility
 
 `awiki-cli page update --slug hiring --visibility draft`
 
-## 副作用与确认
+## Side Effects and Confirmation
 
-- 需要显式确认：
+- Require explicit confirmation:
   - `page create`
   - `page update`
   - `page rename`
   - `page delete`
 
-## 错误处理
+## Error Handling
 
-- slug 或正文不清楚 -> 检查 `awiki-cli schema page create` 或 `page update`
-- identity/auth 问题 -> 确认当前活动身份与注册状态
-- markdown 文件路径问题 -> 重试前先确认文件可读
+- The slug or body is unclear -> check `awiki-cli schema page create` or `page update`
+- identity/auth problem -> confirm the current active identity and registration state
+- markdown file-path problem -> confirm that the file is readable before retrying
 
-## 实现说明
+## Implementation Notes
 
-- 正文来源只能二选一：内联 markdown 或 markdown 文件
-- 示例保持 slug-first，避免使用服务内部标识符
+- The body source is mutually exclusive: either inline markdown or a markdown file
+- Keep examples slug-first and avoid using service-internal identifiers
 
-## 相关参考
+## Related References
 
 - `02-identity.md`
 - `08-debug.md`

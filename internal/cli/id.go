@@ -227,8 +227,16 @@ func (a *App) runIDRegister(cmd *cobra.Command, args []string) error {
 		PollIntervalSeconds: identity.DefaultEmailPollIntervalSecs,
 	}
 	if a.globals.DryRun {
+		target, err := identity.NormalizeHandleInput(handle, service.Config().DIDDomain)
+		if err != nil {
+			return a.identityExit(err, "Ensure the handle is valid.")
+		}
 		existing, _ := service.Manager().List()
-		alias := identity.PreviewNamedIdentity(a.globals.Identity, existing, handle)
+		aliasBase := target.LocalPart
+		if target.ExplicitDomain {
+			aliasBase = target.FullHandle
+		}
+		alias := identity.PreviewNamedIdentity(a.globals.Identity, existing, aliasBase)
 		action := "register_handle"
 		remoteCalls := []string{"did-auth.register"}
 		if phone != "" && strings.TrimSpace(otp) == "" {
@@ -247,7 +255,9 @@ func (a *App) runIDRegister(cmd *cobra.Command, args []string) error {
 				"plan": map[string]any{
 					"action":        action,
 					"identity_name": alias,
-					"handle":        handle,
+					"handle":        target.LocalPart,
+					"full_handle":   target.FullHandle,
+					"did_domain":    target.EffectiveDomain,
 					"phone":         phone,
 					"email":         email,
 					"remote_calls":  remoteCalls,
@@ -475,6 +485,7 @@ func (a *App) runIDRecover(cmd *cobra.Command, args []string) error {
 			"identity_name": promoted.IdentityName,
 			"did":           promoted.DID,
 			"handle":        promoted.Handle,
+			"full_handle":   promoted.FullHandle,
 			"created_at":    promoted.CreatedAt,
 		}
 	}

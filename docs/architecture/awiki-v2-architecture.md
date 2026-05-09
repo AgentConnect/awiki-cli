@@ -1082,9 +1082,17 @@ awiki-cli mail
 awiki-cli group
 awiki-cli people
 awiki-cli page
+awiki-cli site
 awiki-cli runtime
 awiki-cli debug
 ```
+
+## 附录 D：Handle Pages 与 Tenant Site Pages
+
+- `awiki-cli page ...` 保留为 **handle 级 content page** 能力，面向当前身份关联的 handle。
+- `awiki-cli site ...` 新增为 **tenant bare-domain site page** 能力，面向 `GET /` 和 `GET /pages/{slug}.md` 这类租户级公开页面。
+- `site` 命令必须显式传 `--domain`，不从当前 identity 的 DID 或 handle 反推租户域名。
+- 两套命令在架构上故意分离：CLI 契约、RPC 端点、权限来源和存储模型都不同。
 
 ## 附录 C：本架构文档对 CLI 基础资料的处理说明
 

@@ -249,6 +249,133 @@ func TestManagerSummaryShowsRegisteredUserState(t *testing.T) {
 	}
 }
 
+func TestManagerLoadBackfillsFullHandleFromDID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "tenant.example",
+		PathPrefix:  []string{"alice"},
+		ProofDomain: "tenant.example",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	record, err := manager.save(SaveInput{
+		IdentityName: "alice",
+		DID:          generated.DID,
+		UniqueID:     generated.UniqueID,
+		Handle:       "alice",
+	})
+	if err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	paths := manager.BuildPaths(record.DirName)
+	payload, err := readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity) error = %v", err)
+	}
+	delete(payload, "full_handle")
+	if err := writeSecureJSON(paths.IdentityPath, payload); err != nil {
+		t.Fatalf("writeSecureJSON(identity) error = %v", err)
+	}
+	index, err := manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex() error = %v", err)
+	}
+	entry := index.Credentials["alice"]
+	entry.FullHandle = ""
+	index.Credentials["alice"] = entry
+	if err := manager.SaveIndex(index); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+
+	loaded, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.FullHandle != "alice.tenant.example" {
+		t.Fatalf("loaded.FullHandle = %q, want alice.tenant.example", loaded.FullHandle)
+	}
+
+	payload, err = readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity after backfill) error = %v", err)
+	}
+	if got, _ := payload["full_handle"].(string); got != "alice.tenant.example" {
+		t.Fatalf("identity payload full_handle = %q, want alice.tenant.example", got)
+	}
+	index, err = manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex(after backfill) error = %v", err)
+	}
+	if got := index.Credentials["alice"].FullHandle; got != "alice.tenant.example" {
+		t.Fatalf("index full_handle = %q, want alice.tenant.example", got)
+	}
+}
+
+func TestManagerLoadDoesNotBackfillFullHandleForNonHandleDID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manager := NewManager(appconfig.Paths{
+		IdentityDir:          filepath.Join(root, "identities"),
+		LegacyCredentialsDir: filepath.Join(root, "legacy"),
+	})
+
+	generated, err := GenerateIdentity(GenerateOptions{
+		Hostname:    "tenant.example",
+		PathPrefix:  []string{"user"},
+		ProofDomain: "tenant.example",
+	})
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+	record, err := manager.save(SaveInput{
+		IdentityName: "alice",
+		DID:          generated.DID,
+		UniqueID:     generated.UniqueID,
+		Handle:       "alice",
+	})
+	if err != nil {
+		t.Fatalf("save() error = %v", err)
+	}
+
+	paths := manager.BuildPaths(record.DirName)
+	payload, err := readJSONMap(paths.IdentityPath)
+	if err != nil {
+		t.Fatalf("readJSONMap(identity) error = %v", err)
+	}
+	delete(payload, "full_handle")
+	if err := writeSecureJSON(paths.IdentityPath, payload); err != nil {
+		t.Fatalf("writeSecureJSON(identity) error = %v", err)
+	}
+	index, err := manager.LoadIndex()
+	if err != nil {
+		t.Fatalf("LoadIndex() error = %v", err)
+	}
+	entry := index.Credentials["alice"]
+	entry.FullHandle = ""
+	index.Credentials["alice"] = entry
+	if err := manager.SaveIndex(index); err != nil {
+		t.Fatalf("SaveIndex() error = %v", err)
+	}
+
+	loaded, err := manager.Load("alice")
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.FullHandle != "" {
+		t.Fatalf("loaded.FullHandle = %q, want empty for non-handle did", loaded.FullHandle)
+	}
+}
+
 func legacyANPPrivatePEM(t *testing.T, standardPEM string, label string) string {
 	t.Helper()
 	privateKey, err := anpsdk.PrivateKeyFromPEM(standardPEM)

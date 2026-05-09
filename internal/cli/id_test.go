@@ -11,6 +11,7 @@ import (
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +95,7 @@ func TestRunIDRecoverDryRunUsesHandleAndWarnsWhenIdentityFlagIsIgnored(t *testin
 		t.Fatalf("runIDRecover(--dry-run) error = %v", err)
 	}
 	for _, want := range []string{
-		`"target_handle": "zhuocheng"`,
+		`"target_handle": "zhuocheng.awiki.ai"`,
 		`"final_identity_name": "zhuocheng"`,
 		`"same_handle_candidates": []`,
 		`"excluded_identities": []`,
@@ -161,7 +162,7 @@ func TestRunIDRecoverWithoutOTPReturnsSendOTPSuccess(t *testing.T) {
 	configPath := filepath.Join(workspaceHome, "config.yaml")
 	fileConfig := appconfig.FileConfig{}
 	fileConfig.Services.ServiceBaseURL = server.URL
-	fileConfig.Services.DIDDomain = "awiki.test"
+	fileConfig.Services.DIDDomain = testenv.Domain()
 	if err := appconfig.WriteFileConfig(configPath, fileConfig); err != nil {
 		t.Fatalf("WriteFileConfig() error = %v", err)
 	}
@@ -192,7 +193,8 @@ func TestRunIDRecoverWithoutOTPReturnsSendOTPSuccess(t *testing.T) {
 		`"action": "send_recover_otp"`,
 		`"verification_state": "otp_sent"`,
 		`"identity_name": "zhuocheng"`,
-		`"summary": "OTP sent for handle zhuocheng recovery"`,
+		`"full_handle": "` + testenv.FullHandle("zhuocheng") + `"`,
+		`"summary": "OTP sent for handle ` + testenv.FullHandle("zhuocheng") + ` recovery"`,
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("recover send-otp output %q missing %q", rendered, want)

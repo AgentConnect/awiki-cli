@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appconfig "github.com/agentconnect/awiki-cli/internal/config"
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfig.Resolved, *identity.Manager) {
@@ -28,9 +30,9 @@ func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfi
 			LegacyDataDir:        filepath.Join(root, "legacy-data"),
 		},
 		ServiceBaseURL:     serviceBaseURL,
-		DIDDomain:          "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		DIDDomain:          testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 		OutputFormat:       "json",
 	}
 	return resolved, identity.NewManager(resolved.Paths)
@@ -39,11 +41,11 @@ func newIdentityServiceWorkspace(t *testing.T, serviceBaseURL string) (*appconfi
 func saveServiceTestIdentity(t *testing.T, manager *identity.Manager, identityName string, handle string, jwtToken string) *identity.StoredIdentity {
 	t.Helper()
 	generated, err := identity.GenerateIdentity(identity.GenerateOptions{
-		Hostname:           "awiki.test",
+		Hostname:           testenv.Domain(),
 		PathPrefix:         []string{handle},
-		ProofDomain:        "awiki.test",
-		ANPServiceEndpoint: "https://awiki.test/anp-im/rpc",
-		ANPServiceDID:      "did:wba:awiki.test",
+		ProofDomain:        testenv.Domain(),
+		ANPServiceEndpoint: testenv.BaseURL() + "/anp-im/rpc",
+		ANPServiceDID:      testenv.ServiceDID(),
 	})
 	if err != nil {
 		t.Fatalf("identity.GenerateIdentity() error = %v", err)
@@ -129,14 +131,16 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	t.Parallel()
 
 	var (
-		statusQueryEmail string
-		registerMethod   string
-		registerEmail    string
+		statusQueryEmail  string
+		statusQueryHandle string
+		registerMethod    string
+		registerEmail     string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/user-service/auth/email-status":
 			statusQueryEmail = r.URL.Query().Get("email")
+			statusQueryHandle = r.URL.Query().Get("handle")
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
 		case "/user-service/did-auth/rpc":
@@ -171,6 +175,9 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	if statusQueryEmail != "alice@example.com" {
 		t.Fatalf("email status query = %q, want alice@example.com", statusQueryEmail)
 	}
+	if statusQueryHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email status handle query = %q, want %s", statusQueryHandle, testenv.FullHandle("alice"))
+	}
 	if registerMethod != "register" {
 		t.Fatalf("register rpc method = %q, want register", registerMethod)
 	}
@@ -192,6 +199,134 @@ func TestServiceRegisterEmailVerifiedCreatesIdentity(t *testing.T) {
 	}
 	if stored.Handle != "alice" || stored.JWTToken != "jwt-1" {
 		t.Fatalf("stored identity = %#v, want handle alice and jwt-1", stored)
+	}
+}
+
+func TestServiceRegisterFullHandleUsesExplicitDomainForDID(t *testing.T) {
+	t.Parallel()
+
+	var (
+		statusQueryHandle string
+		registerMethod    string
+		registerHandle    string
+		registerDID       string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			statusQueryHandle = r.URL.Query().Get("handle")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
+		case "/user-service/did-auth/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			registerMethod, _ = payload["method"].(string)
+			params, _ := payload["params"].(map[string]any)
+			registerHandle, _ = params["handle"].(string)
+			document, _ := params["did_document"].(map[string]any)
+			registerDID, _ = document["id"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"user_id":"user-1","access_token":"jwt-1","handle":"alice","full_handle":"alice.partner.test"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, manager := newIdentityServiceWorkspace(t, server.URL)
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+
+	result, err := service.Register(context.Background(), identity.RegisterParams{
+		Handle: "alice.partner.test",
+		Email:  "alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Service.Register() error = %v", err)
+	}
+	if statusQueryHandle != "alice.partner.test" {
+		t.Fatalf("email status handle query = %q, want alice.partner.test", statusQueryHandle)
+	}
+	if registerMethod != "register" {
+		t.Fatalf("register rpc method = %q, want register", registerMethod)
+	}
+	if registerHandle != "alice" {
+		t.Fatalf("register handle = %q, want alice", registerHandle)
+	}
+	if want := "did:wba:partner.test:alice:"; !strings.HasPrefix(registerDID, want) {
+		t.Fatalf("register did = %q, want prefix %q", registerDID, want)
+	}
+
+	identityData, _ := result.Data["identity"].(*identity.IdentitySummary)
+	if identityData == nil || identityData.Handle != "alice" || identityData.FullHandle != "alice.partner.test" {
+		t.Fatalf("identity summary = %#v, want alice/alice.partner.test", identityData)
+	}
+	stored, err := manager.Load("alice.partner.test")
+	if err != nil {
+		t.Fatalf("manager.Load() error = %v", err)
+	}
+	if stored.Handle != "alice" || stored.FullHandle != "alice.partner.test" {
+		t.Fatalf("stored identity = %#v, want alice/alice.partner.test", stored)
+	}
+}
+
+func TestServiceRegisterEmailSendsScopedVerificationForHandle(t *testing.T) {
+	t.Parallel()
+
+	var (
+		statusQueryHandle string
+		sendEmail         string
+		sendHandle        string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			statusQueryHandle = r.URL.Query().Get("handle")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"verified":false}`))
+		case "/user-service/auth/email-send":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			sendEmail, _ = payload["email"].(string)
+			sendHandle, _ = payload["handle"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"message":"Activation email sent."}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, _ := newIdentityServiceWorkspace(t, server.URL)
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+
+	result, err := service.Register(context.Background(), identity.RegisterParams{
+		Handle: "alice",
+		Email:  "alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Service.Register() error = %v", err)
+	}
+	if statusQueryHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email status handle query = %q, want %s", statusQueryHandle, testenv.FullHandle("alice"))
+	}
+	if sendEmail != "alice@example.com" {
+		t.Fatalf("email send payload email = %q, want alice@example.com", sendEmail)
+	}
+	if sendHandle != testenv.FullHandle("alice") {
+		t.Fatalf("email send payload handle = %q, want %s", sendHandle, testenv.FullHandle("alice"))
+	}
+	if got := result.Data["verification_state"]; got != "email_sent" {
+		t.Fatalf("result.Data[verification_state] = %#v, want email_sent", got)
 	}
 }
 
@@ -248,6 +383,47 @@ func TestServiceBindPhoneUsesAuthenticatedRequestAndSanitizesOTP(t *testing.T) {
 	}
 }
 
+func TestServiceBindEmailStatusUsesAuthenticatedBearer(t *testing.T) {
+	t.Parallel()
+
+	var statusAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/auth/email-status":
+			statusAuth = r.Header.Get("Authorization")
+			if got := r.URL.Query().Get("handle"); got != "" {
+				t.Fatalf("email status handle query = %q, want empty for bind flow", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"email":"alice@example.com","verified":true,"verified_at":"2026-01-01T00:00:00Z"}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, manager := newIdentityServiceWorkspace(t, server.URL)
+	resolved.ActiveIdentity = "alice"
+	saveServiceTestIdentity(t, manager, "alice", "alice", "jwt-bind")
+
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+	result, err := service.Bind(context.Background(), identity.BindParams{
+		Email: "alice@example.com",
+	})
+	if err != nil {
+		t.Fatalf("Service.Bind() error = %v", err)
+	}
+	if statusAuth != "Bearer jwt-bind" {
+		t.Fatalf("email status Authorization = %q, want Bearer jwt-bind", statusAuth)
+	}
+	if got := result.Data["verification_state"]; got != "completed" {
+		t.Fatalf("result.Data[verification_state] = %#v, want completed", got)
+	}
+}
+
 func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.T) {
 	t.Parallel()
 
@@ -263,7 +439,7 @@ func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.
 			method, _ := payload["method"].(string)
 			if method == "resolve" {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"did:wba:awiki.test:user:alice"},"id":"req-1"}`))
+				_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("user", "alice") + `"},"id":"req-1"}`))
 				return
 			}
 			http.Error(w, "profile unavailable", http.StatusBadGateway)
@@ -279,7 +455,7 @@ func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.
 		t.Fatalf("identity.NewService() error = %v", err)
 	}
 
-	result, err := service.Resolve(context.Background(), "", "did:wba:awiki.test:user:alice")
+	result, err := service.Resolve(context.Background(), "", testenv.DID("user", "alice"))
 	if err != nil {
 		t.Fatalf("Service.Resolve() error = %v", err)
 	}
@@ -294,5 +470,117 @@ func TestServiceResolveByDIDReturnsWarningsForNonFatalLookupFailures(t *testing.
 	}
 	if _, ok := result.Data["public_profile"]; ok {
 		t.Fatalf("result.Data[public_profile] = %#v, want omitted on profile failure", result.Data["public_profile"])
+	}
+}
+
+func TestServiceResolveFullHandleUsesLookupThenProfileByDID(t *testing.T) {
+	t.Parallel()
+
+	var lookupHandle string
+	var profileDID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/handle/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			params, _ := payload["params"].(map[string]any)
+			lookupHandle, _ = params["handle"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"handle":"alice","full_handle":"alice.partner.test","did":"did:wba:partner.test:alice:e1_test"},"id":"req-1"}`))
+		case "/user-service/did/profile/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			params, _ := payload["params"].(map[string]any)
+			profileDID, _ = params["did"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"did:wba:partner.test:alice:e1_test","handle":"alice"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, _ := newIdentityServiceWorkspace(t, server.URL)
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+
+	if _, err := service.Resolve(context.Background(), "alice.partner.test", ""); err != nil {
+		t.Fatalf("Service.Resolve() error = %v", err)
+	}
+	if lookupHandle != "alice.partner.test" {
+		t.Fatalf("lookup handle = %q, want alice.partner.test", lookupHandle)
+	}
+	if profileDID != "did:wba:partner.test:alice:e1_test" {
+		t.Fatalf("profile did = %q, want did:wba:partner.test:alice:e1_test", profileDID)
+	}
+}
+
+func TestServiceGetProfileByHandleReturnsBareAndFullHandleSubject(t *testing.T) {
+	t.Parallel()
+
+	var (
+		lookupHandle string
+		profileDID   string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user-service/handle/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			params, _ := payload["params"].(map[string]any)
+			lookupHandle, _ = params["handle"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("alice", "e1_test") + `"},"id":"req-1"}`))
+		case "/user-service/did/profile/rpc":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("json.NewDecoder().Decode() error = %v", err)
+			}
+			params, _ := payload["params"].(map[string]any)
+			profileDID, _ = params["did"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","result":{"did":"` + testenv.DID("alice", "e1_test") + `","handle":"alice"},"id":"req-1"}`))
+		default:
+			t.Fatalf("unexpected request path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	resolved, _ := newIdentityServiceWorkspace(t, server.URL)
+	service, err := identity.NewService(resolved)
+	if err != nil {
+		t.Fatalf("identity.NewService() error = %v", err)
+	}
+
+	result, err := service.GetProfile(context.Background(), false, "alice", "")
+	if err != nil {
+		t.Fatalf("Service.GetProfile() error = %v", err)
+	}
+	if lookupHandle != testenv.FullHandle("alice") {
+		t.Fatalf("lookup handle = %q, want %q", lookupHandle, testenv.FullHandle("alice"))
+	}
+	if profileDID != testenv.DID("alice", "e1_test") {
+		t.Fatalf("profile did = %q, want %q", profileDID, testenv.DID("alice", "e1_test"))
+	}
+	subject, _ := result.Data["subject"].(map[string]any)
+	if got, _ := subject["handle"].(string); got != "alice" {
+		t.Fatalf("subject.handle = %q, want alice", got)
+	}
+	if got, _ := subject["full_handle"].(string); got != testenv.FullHandle("alice") {
+		t.Fatalf("subject.full_handle = %q, want %q", got, testenv.FullHandle("alice"))
+	}
+	if got, _ := subject["domain"].(string); got != testenv.Domain() {
+		t.Fatalf("subject.domain = %q, want %q", got, testenv.Domain())
+	}
+	if got, _ := subject["did"].(string); got != testenv.DID("alice", "e1_test") {
+		t.Fatalf("subject.did = %q, want %q", got, testenv.DID("alice", "e1_test"))
 	}
 }

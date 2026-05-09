@@ -114,6 +114,14 @@ func buildOpenClawEventText(event HostNotificationEvent) string {
 }
 
 func openClawEventTextParts(event HostNotificationEvent) (string, []string, string) {
+	if data, ok := extractMailLikeNotification(event); ok {
+		return "[Awiki New Mail]", openClawMailMetadataLines(
+			data.MailboxAddress,
+			data.FromAddr,
+			data.Subject,
+			data.HasAttachments,
+		), openClawMailContent(data.Subject, data.Preview, data.Text, data.HasAttachments)
+	}
 	switch data := event.Data.(type) {
 	case DirectMessageNotificationData:
 		lines := []string{}
@@ -166,22 +174,6 @@ func openClawEventTextParts(event HostNotificationEvent) (string, []string, stri
 			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
 		}, " "))
 		return "[Awiki Group State Changed]", lines, content
-	case MailNotificationData:
-		lines := []string{}
-		if strings.TrimSpace(data.FromAddr) != "" {
-			lines = append(lines, "from_addr: "+data.FromAddr)
-		}
-		if strings.TrimSpace(data.MailboxAddress) != "" {
-			lines = append(lines, "mailbox_address: "+data.MailboxAddress)
-		}
-		if strings.TrimSpace(data.Subject) != "" {
-			lines = append(lines, "subject: "+data.Subject)
-		}
-		if data.HasAttachments {
-			lines = append(lines, "has_attachments: true")
-		}
-		content := fallbackString(strings.TrimSpace(data.Preview), fmt.Sprintf("[%s]", fallbackString(data.Channel, "mail")))
-		return "[Awiki New Mail]", lines, content
 	default:
 		raw, _ := json.Marshal(event)
 		return "[Awiki Notification]", nil, string(raw)
@@ -189,6 +181,9 @@ func openClawEventTextParts(event HostNotificationEvent) (string, []string, stri
 }
 
 func openClawEventPromptParts(event HostNotificationEvent) (messageType string, groupID string, senderHandle string, senderDID string, receiverHandle string, receiverDID string, content string, summary string) {
+	if data, ok := extractMailLikeNotification(event); ok {
+		return "mail", "N/A", "", fallbackString(data.FromAddr, data.SenderDID), fallbackString(data.MailboxAddress, data.RecipientHandle), data.RecipientDID, openClawMailContent(data.Subject, data.Preview, data.Text, data.HasAttachments), "You received a new mail notification from awiki."
+	}
 	switch data := event.Data.(type) {
 	case DirectMessageNotificationData:
 		return "private", "N/A", data.SenderHandle, data.SenderDID, data.RecipientHandle, data.RecipientDID, fallbackString(data.Text, fmt.Sprintf("[%s]", fallbackString(data.ContentType, "message"))), "You received a new im message from awiki."
@@ -203,21 +198,65 @@ func openClawEventPromptParts(event HostNotificationEvent) (messageType string, 
 			"membership_status=" + fallbackString(data.MembershipStatus, "unknown"),
 		}, " "))
 		return "group", fallbackString(data.GroupDID, "N/A"), "", data.ActorDID, "", data.RecipientDID, content, "You received a new im message from awiki."
-	case MailNotificationData:
-		contentLines := []string{}
-		if strings.TrimSpace(data.Subject) != "" {
-			contentLines = append(contentLines, "Subject: "+data.Subject)
-		}
-		if strings.TrimSpace(data.Preview) != "" {
-			contentLines = append(contentLines, "", strings.TrimSpace(data.Preview))
-		}
-		if data.HasAttachments {
-			contentLines = append(contentLines, "", "(This message has attachments.)")
-		}
-		content = strings.TrimSpace(strings.Join(contentLines, "\n"))
-		return "mail", "N/A", "", data.FromAddr, data.MailboxAddress, data.RecipientDID, fallbackString(content, "[mail notification]"), "You received a new mail notification from awiki."
 	default:
 		raw, _ := json.Marshal(event)
 		return "notification", "N/A", "unknown", "unknown", "unknown", "unknown", string(raw), "You received a new notification from awiki."
 	}
+}
+
+func extractMailLikeNotification(event HostNotificationEvent) (DirectMessageNotificationData, bool) {
+	switch data := event.Data.(type) {
+	case DirectMessageNotificationData:
+		if isMailLikeDirectNotification(data) {
+			return data, true
+		}
+	}
+	return DirectMessageNotificationData{}, false
+}
+
+func isMailLikeDirectNotification(data DirectMessageNotificationData) bool {
+	if strings.TrimSpace(data.SourceKind) == "mail" {
+		return true
+	}
+	return strings.TrimSpace(data.MailboxAddress) != "" ||
+		strings.TrimSpace(data.FromAddr) != "" ||
+		strings.TrimSpace(data.Subject) != "" ||
+		strings.TrimSpace(data.Preview) != ""
+}
+
+func openClawMailMetadataLines(mailboxAddress string, fromAddr string, subject string, hasAttachments bool) []string {
+	lines := []string{}
+	if strings.TrimSpace(fromAddr) != "" {
+		lines = append(lines, "from_addr: "+fromAddr)
+	}
+	if strings.TrimSpace(mailboxAddress) != "" {
+		lines = append(lines, "mailbox_address: "+mailboxAddress)
+	}
+	if strings.TrimSpace(subject) != "" {
+		lines = append(lines, "subject: "+subject)
+	}
+	if hasAttachments {
+		lines = append(lines, "has_attachments: true")
+	}
+	return lines
+}
+
+func openClawMailContent(subject string, preview string, text string, hasAttachments bool) string {
+	contentLines := []string{}
+	if strings.TrimSpace(subject) != "" {
+		contentLines = append(contentLines, "Subject: "+strings.TrimSpace(subject))
+	}
+	if strings.TrimSpace(preview) != "" {
+		contentLines = append(contentLines, "", strings.TrimSpace(preview))
+	} else if strings.TrimSpace(text) != "" {
+		contentLines = append(contentLines, "", strings.TrimSpace(text))
+	}
+	if hasAttachments {
+		contentLines = append(contentLines, "", "(This message has attachments.)")
+	}
+	content := strings.TrimSpace(strings.Join(contentLines, "\n"))
+	if content != "" {
+		return content
+	}
+	return "[mail notification]"
 }

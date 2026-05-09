@@ -38,6 +38,18 @@ func TestMessageServiceHelperContracts(t *testing.T) {
 	if got := peerHandleOrDid("", "did:bob"); got != "did:bob" {
 		t.Fatalf("peerHandleOrDid(did) = %q", got)
 	}
+	if got := CompleteBareHandle("Alice", "Tenant.Example."); got != "alice.tenant.example" {
+		t.Fatalf("CompleteBareHandle(bare) = %q, want alice.tenant.example", got)
+	}
+	if got := CompleteBareHandle("alice.other.example", "tenant.example"); got != "alice.other.example" {
+		t.Fatalf("CompleteBareHandle(full) = %q, want unchanged full handle", got)
+	}
+	if got := CompleteBareHandle("wba://Alice", "tenant.example"); got != "alice.tenant.example" {
+		t.Fatalf("CompleteBareHandle(wba bare) = %q, want alice.tenant.example", got)
+	}
+	if got := CompleteBareHandle("did:wba:tenant.example:user:alice:e1", "tenant.example"); got != "did:wba:tenant.example:user:alice:e1" {
+		t.Fatalf("CompleteBareHandle(did) = %q, want unchanged did", got)
+	}
 	if got := sourceWithDefault(map[string]any{}, runtime.ModeWebSocket); got != "local_ws_cache" {
 		t.Fatalf("sourceWithDefault(ws) = %q", got)
 	}

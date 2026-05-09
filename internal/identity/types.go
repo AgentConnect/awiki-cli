@@ -38,6 +38,7 @@ type IndexEntry struct {
 	UserID         string `json:"user_id,omitempty"`
 	Name           string `json:"name,omitempty"`
 	Handle         string `json:"handle,omitempty"`
+	FullHandle     string `json:"full_handle,omitempty"`
 	CreatedAt      string `json:"created_at,omitempty"`
 	IsDefault      bool   `json:"is_default,omitempty"`
 }
@@ -70,6 +71,7 @@ type StoredIdentity struct {
 	UserID                  string         `json:"user_id,omitempty"`
 	DisplayName             string         `json:"display_name,omitempty"`
 	Handle                  string         `json:"handle,omitempty"`
+	FullHandle              string         `json:"full_handle,omitempty"`
 	CreatedAt               string         `json:"created_at,omitempty"`
 	JWTToken                string         `json:"jwt_token,omitempty"`
 	DIDDocument             map[string]any `json:"did_document,omitempty"`
@@ -87,6 +89,7 @@ type IdentitySummary struct {
 	UserID                  string    `json:"user_id,omitempty"`
 	DisplayName             string    `json:"display_name,omitempty"`
 	Handle                  string    `json:"handle,omitempty"`
+	FullHandle              string    `json:"full_handle,omitempty"`
 	CreatedAt               string    `json:"created_at,omitempty"`
 	DirName                 string    `json:"dir_name"`
 	IsDefault               bool      `json:"is_default"`
@@ -131,6 +134,7 @@ type SaveInput struct {
 	UserID                  string
 	DisplayName             string
 	Handle                  string
+	FullHandle              string
 	JWTToken                string
 	DIDDocument             map[string]any
 	Key1PrivatePEM          string

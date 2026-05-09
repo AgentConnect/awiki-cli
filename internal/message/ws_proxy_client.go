@@ -126,6 +126,10 @@ func (t *WSProxyTransport) GetGroup(ctx context.Context, request GroupGetRequest
 	return t.call(ctx, "group.get", map[string]any{"group": request.Group})
 }
 
+func (t *WSProxyTransport) ListGroups(ctx context.Context, request GroupListRequest) (map[string]any, error) {
+	return t.call(ctx, "group.list", map[string]any{"limit": request.Limit})
+}
+
 func (t *WSProxyTransport) ListGroupMembers(ctx context.Context, request GroupMembersRequest) (map[string]any, error) {
 	return t.call(ctx, "group.list_members", map[string]any{"group": request.Group, "limit": request.Limit})
 }

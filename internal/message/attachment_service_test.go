@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/store"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func writeTestAttachmentFile(t *testing.T, name string, payload []byte) string {
@@ -63,7 +64,7 @@ func TestServiceSendDirectAttachmentPersistsManifestAndDelivery(t *testing.T) {
 						"upload_headers": map[string]any{
 							"X-Test-Upload": "slot-1",
 						},
-						"object_uri":   "https://objects.awiki.test/object-1",
+						"object_uri":   testenv.SubdomainURL("objects") + "/object-1",
 						"commit_token": "commit-1",
 						"expires_at":   "2026-04-18T10:00:00Z",
 					},
@@ -79,7 +80,7 @@ func TestServiceSendDirectAttachmentPersistsManifestAndDelivery(t *testing.T) {
 					"result": map[string]any{
 						"committed":     true,
 						"attachment_id": "att-1",
-						"object_uri":    "https://objects.awiki.test/object-1",
+						"object_uri":    testenv.SubdomainURL("objects") + "/object-1",
 						"committed_at":  "2026-04-18T09:01:00Z",
 					},
 				})
@@ -212,7 +213,7 @@ func TestServiceSendDirectAttachmentUploadFailureReturnsServiceError(t *testing.
 					"attachment_id": "att-2",
 					"slot_id":       "slot-2",
 					"upload_uri":    server.URL + "/upload/object-2",
-					"object_uri":    "https://objects.awiki.test/object-2",
+					"object_uri":    testenv.SubdomainURL("objects") + "/object-2",
 					"commit_token":  "commit-2",
 				},
 			})
@@ -280,7 +281,7 @@ func TestServiceSendGroupAttachmentAddsHTTPWarningAndBackfillsMessageID(t *testi
 						"attachment_id": "att-group-1",
 						"slot_id":       "slot-group-1",
 						"upload_uri":    server.URL + "/upload/group-1",
-						"object_uri":    "https://objects.awiki.test/group-1",
+						"object_uri":    testenv.SubdomainURL("objects") + "/group-1",
 						"commit_token":  "commit-group-1",
 					},
 				})

@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"io"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/update"
+	"github.com/spf13/cobra"
 )
 
 func TestBuildUpgradeStatusWhenCheckUnavailable(t *testing.T) {
@@ -65,5 +70,115 @@ func TestBuildUpgradeStatusWhenNewerVersionAvailable(t *testing.T) {
 	}
 	if len(warnings) != 1 || warnings[0] != "Upgrading is recommended to stay on a supported version." {
 		t.Fatalf("warnings = %#v, want single upgrade recommendation", warnings)
+	}
+}
+
+func TestBuildUpgradeStatusIncludesNpmmirrorFallbackHint(t *testing.T) {
+	t.Parallel()
+
+	data, _, _ := buildUpgradeStatus(update.Decision{}, nil)
+
+	got, _ := data["upgrade_hint"].(string)
+	if !strings.Contains(got, directNpmInstallCommand()) {
+		t.Fatalf("upgrade_hint = %q, want direct install command %q", got, directNpmInstallCommand())
+	}
+	if !strings.Contains(got, mirrorNpmInstallCommand()) {
+		t.Fatalf("upgrade_hint = %q, want mirror install command %q", got, mirrorNpmInstallCommand())
+	}
+}
+
+func TestBuildUpgradeStatusWhenUsingStaleCache(t *testing.T) {
+	t.Parallel()
+
+	decision := update.Decision{
+		CurrentVersion:      "1.0.9",
+		LatestVersion:       "1.0.10",
+		MinSupportedVersion: "1.0.9",
+		MetadataSource:      "cache_stale",
+		HasNewerVersion:     true,
+	}
+	data, _, warnings := buildUpgradeStatus(decision, nil)
+
+	if got, _ := data["update_check_status"].(string); got != "stale_cache" {
+		t.Fatalf("data[update_check_status] = %q, want %q", got, "stale_cache")
+	}
+	if got, _ := data["update_metadata_source"].(string); got != "cache_stale" {
+		t.Fatalf("data[update_metadata_source] = %q, want %q", got, "cache_stale")
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("warnings = %#v, want 2 warnings", warnings)
+	}
+	if !strings.Contains(warnings[1], "cached update metadata") {
+		t.Fatalf("warnings[1] = %q, want cached-metadata warning", warnings[1])
+	}
+}
+
+func TestRunNpmGlobalInstallFallsBackToNpmmirror(t *testing.T) {
+	original := runNpmInstallAttempt
+	t.Cleanup(func() {
+		runNpmInstallAttempt = original
+	})
+
+	var attempts []string
+	runNpmInstallAttempt = func(ctx context.Context, stdout, stderr io.Writer, args []string) error {
+		attempts = append(attempts, formatNpmInstallCommand(args))
+		if len(attempts) == 1 {
+			return errors.New("dial tcp timeout")
+		}
+		return nil
+	}
+
+	cmd := &cobra.Command{Use: "upgrade"}
+	cmd.SetContext(context.Background())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	if err := runNpmGlobalInstall(cmd); err != nil {
+		t.Fatalf("runNpmGlobalInstall() error = %v", err)
+	}
+
+	wantAttempts := []string{
+		directNpmInstallCommand(),
+		mirrorNpmInstallCommand(),
+	}
+	if !reflect.DeepEqual(attempts, wantAttempts) {
+		t.Fatalf("attempts = %#v, want %#v", attempts, wantAttempts)
+	}
+	if !strings.Contains(stderr.String(), npmMirrorRegistryURL) {
+		t.Fatalf("stderr = %q, want retry message mentioning %s", stderr.String(), npmMirrorRegistryURL)
+	}
+}
+
+func TestRunNpmGlobalInstallReturnsCombinedError(t *testing.T) {
+	original := runNpmInstallAttempt
+	t.Cleanup(func() {
+		runNpmInstallAttempt = original
+	})
+
+	runNpmInstallAttempt = func(ctx context.Context, stdout, stderr io.Writer, args []string) error {
+		if strings.Contains(formatNpmInstallCommand(args), "--registry=") {
+			return errors.New("mirror registry timeout")
+		}
+		return errors.New("primary registry timeout")
+	}
+
+	cmd := &cobra.Command{Use: "upgrade"}
+	cmd.SetContext(context.Background())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+
+	err := runNpmGlobalInstall(cmd)
+	if err == nil {
+		t.Fatal("runNpmGlobalInstall() error = nil, want combined failure")
+	}
+	if !strings.Contains(err.Error(), directNpmInstallCommand()) {
+		t.Fatalf("error = %q, want direct install command %q", err.Error(), directNpmInstallCommand())
+	}
+	if !strings.Contains(err.Error(), mirrorNpmInstallCommand()) {
+		t.Fatalf("error = %q, want mirror install command %q", err.Error(), mirrorNpmInstallCommand())
 	}
 }

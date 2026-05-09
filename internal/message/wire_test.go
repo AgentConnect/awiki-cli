@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/agentconnect/awiki-cli/internal/identity"
+	"github.com/agentconnect/awiki-cli/internal/testenv"
 )
 
 func TestBuildDirectSendRPCParamsUsesOriginProofScheme(t *testing.T) {
@@ -128,7 +129,7 @@ func TestFindAttachmentSelectionMatchesVisibleOrRawMessageID(t *testing.T) {
 						"size":          "5",
 						"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest"},
 						"access_info": map[string]any{
-							"object_uri": "https://awiki.test/objects/obj-1",
+							"object_uri": testenv.BaseURL() + "/objects/obj-1",
 						},
 					},
 				},
@@ -179,7 +180,7 @@ func TestBuildAttachmentDownloadTicketRPCParamsIncludesSenderDID(t *testing.T) {
 		"",
 		&attachmentSelection{
 			AttachmentID: "att-1",
-			ObjectURI:    "https://awiki.test/objects/obj-1",
+			ObjectURI:    testenv.BaseURL() + "/objects/obj-1",
 		},
 	)
 	if err != nil {
@@ -212,7 +213,7 @@ func TestFindAttachmentSelectionWithPagingFetchesOlderPages(t *testing.T) {
 					"mime_type":     "text/plain",
 					"size":          "5",
 					"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest-newer"},
-					"access_info":   map[string]any{"object_uri": "https://awiki.test/objects/newer"},
+					"access_info":   map[string]any{"object_uri": testenv.BaseURL() + "/objects/newer"},
 				}},
 			},
 		}},
@@ -227,7 +228,7 @@ func TestFindAttachmentSelectionWithPagingFetchesOlderPages(t *testing.T) {
 					"mime_type":     "text/plain",
 					"size":          "5",
 					"digest":        map[string]any{"alg": "sha-256", "value_b64u": "digest-target"},
-					"access_info":   map[string]any{"object_uri": "https://awiki.test/objects/target"},
+					"access_info":   map[string]any{"object_uri": testenv.BaseURL() + "/objects/target"},
 				}},
 				"caption": "paged attachment",
 			},
@@ -298,6 +299,7 @@ func TestBuildHistoryRPCParamsValidatesTargetAndCursor(t *testing.T) {
 		With:   "did:wba:awiki.ai:user:bob:e1_bob",
 		Limit:  0,
 		Cursor: "42",
+		Skip:   3,
 	})
 	if err != nil {
 		t.Fatalf("BuildHistoryRPCParams() error = %v", err)
@@ -316,6 +318,9 @@ func TestBuildHistoryRPCParamsValidatesTargetAndCursor(t *testing.T) {
 	}
 	if got := stringFromAny(body["since_seq"]); got != "42" {
 		t.Fatalf("body.since_seq = %q, want 42", got)
+	}
+	if got := intValueFromAny(body["skip"], 0); got != 3 {
+		t.Fatalf("body.skip = %d, want 3", got)
 	}
 }
 

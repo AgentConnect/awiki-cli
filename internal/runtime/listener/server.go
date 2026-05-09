@@ -233,6 +233,7 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			With:   stringValue(request.Params["with"]),
 			Limit:  intValue(request.Params["limit"]),
 			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
 		})
 		if err != nil {
 			return nil, err
@@ -351,6 +352,12 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 			return nil, err
 		}
 		return client.SendRPC(context.Background(), "group.get", params)
+	case "group.list":
+		params, err := message.BuildGroupListRPCParams(record, message.GroupListRequest{Limit: intValue(request.Params["limit"])})
+		if err != nil {
+			return nil, err
+		}
+		return client.SendRPC(context.Background(), "group.list", params)
 	case "group.list_members":
 		params, err := message.BuildGroupMembersRPCParams(record, message.GroupMembersRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"])})
 		if err != nil {
@@ -358,7 +365,12 @@ func (s *Supervisor) handleBridgeRequest(request runtime.BridgeRequest) (map[str
 		}
 		return client.SendRPC(context.Background(), "group.list_members", params)
 	case "group.list_messages":
-		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{Group: stringValue(request.Params["group"]), Limit: intValue(request.Params["limit"]), Cursor: stringValue(request.Params["cursor"])})
+		params, err := message.BuildGroupMessagesRPCParams(record, message.GroupMessagesRequest{
+			Group:  stringValue(request.Params["group"]),
+			Limit:  intValue(request.Params["limit"]),
+			Cursor: stringValue(request.Params["cursor"]),
+			Skip:   intValue(request.Params["skip"]),
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -1015,10 +1027,11 @@ func messageRecordFromDirectIncoming(notification map[string]any, identityName s
 //	    "message_id": "uuid"
 //	}}
 //
-// We persist this as an inbound "system" message with:
+// We persist this as an inbound local message with:
 //   - owner_did = mailbox_did
 //   - thread_id = mail:<mailbox_address>
-//   - content_type = "mail.notification"
+//   - content_type = "text/plain"
+//   - metadata.source_kind = "mail"
 //   - content = human-readable summary text
 func messageRecordFromMailNotification(notification map[string]any, identityName string) (store.MessageRecord, bool) {
 	method, _ := notification["method"].(string)
@@ -1060,14 +1073,14 @@ func messageRecordFromMailNotification(notification map[string]any, identityName
 		Direction:      0,
 		SenderDID:      "",
 		ReceiverDID:    mailboxDID,
-		ContentType:    "mail.notification",
+		ContentType:    "text/plain",
 		Content:        content,
 		Title:          "[邮件] " + subject,
 		ServerSeq:      nil,
 		SentAt:         sentAt,
 		IsE2EE:         false,
 		IsRead:         false,
-		Metadata:       metadataValue(params),
+		Metadata:       metadataValue(mailNotificationMetadata(params)),
 		CredentialName: identityName,
 	}, true
 }
@@ -1089,6 +1102,19 @@ func buildMailNotificationContent(mailboxAddress string, fromAddr string, subjec
 		contentLines = append(contentLines, "", "(这封邮件包含附件)")
 	}
 	return strings.Join(contentLines, "\n")
+}
+
+func mailNotificationMetadata(params map[string]any) map[string]any {
+	metadata := mapValue(params)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	copied := make(map[string]any, len(metadata)+1)
+	for key, value := range metadata {
+		copied[key] = value
+	}
+	copied["source_kind"] = "mail"
+	return copied
 }
 
 func messageRecordFromGroupIncoming(notification map[string]any, identityName string) (store.MessageRecord, bool) {

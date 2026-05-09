@@ -49,6 +49,9 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				if request["Member"] != "bob" {
 					t.Fatalf("request.Member = %#v, want %q", request["Member"], "bob")
 				}
+				if plan["member_handle"] != "bob.awiki.ai" {
+					t.Fatalf("plan.member_handle = %#v, want bob.awiki.ai", plan["member_handle"])
+				}
 			},
 		},
 		{
@@ -64,6 +67,22 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 				}
 				if request["Cursor"] != "42" {
 					t.Fatalf("request.Cursor = %#v, want %q", request["Cursor"], "42")
+				}
+				if request["Limit"] != float64(25) {
+					t.Fatalf("request.Limit = %#v, want 25", request["Limit"])
+				}
+			},
+		},
+		{
+			name:        "group list includes limit",
+			spec:        "group.list",
+			setFlags:    map[string]string{"limit": "25"},
+			wantSummary: "Dry run: group list planned",
+			wantAction:  "group.list",
+			verifyPlan: func(t *testing.T, plan map[string]any) {
+				request, ok := plan["request"].(map[string]any)
+				if !ok {
+					t.Fatalf("plan.request type = %T, want map[string]any", plan["request"])
 				}
 				if request["Limit"] != float64(25) {
 					t.Fatalf("request.Limit = %#v, want 25", request["Limit"])
@@ -94,6 +113,8 @@ func TestGroupDryRunPlansRenderStableContracts(t *testing.T) {
 					return app.runGroupKick(cmd, nil)
 				case "group.messages":
 					return app.runGroupMessages(cmd, nil)
+				case "group.list":
+					return app.runGroupList(cmd, nil)
 				default:
 					t.Fatalf("unsupported spec %q", tc.spec)
 					return nil

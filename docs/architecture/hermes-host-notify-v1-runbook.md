@@ -47,7 +47,6 @@ platforms:
           secret: "${HERMES_ROUTE_SECRET}"
           events: []
           prompt: "{notify_payload}"
-          skills: ["notify"]
           deliver: "feishu"
 ```
 
@@ -56,6 +55,11 @@ Feishu 目标建议：
 - 优先设置 `FEISHU_HOME_CHANNEL`
 - 或在 Feishu 中给 Hermes 发送 `/sethome` 或 `/set-home`
 - 只有当你明确要把所有通知固定投递到某个会话时，才使用 `deliver_extra.chat_id`
+
+补充说明：
+
+- 邮件通知当前会沿用统一消息主 topic 进入 Hermes
+- route prompt 应优先根据 `data.source_kind=mail` 以及 `mailbox_address`、`from_addr`、`subject`、`preview` 等字段判断邮件通知
 
 ### 2.2 启动 adapter
 
@@ -179,6 +183,16 @@ curl -sS -X POST "http://<A_HOST>:8765/notify/host-event" \
 - 检查：Hermes route 是否使用 `deliver: "feishu"`。
 - 检查：`FEISHU_HOME_CHANNEL` 是否已设置，或是否已经在 Feishu 中执行过 `/sethome` / `/set-home`。
 - 检查：是否误把目标会话写死在旧的 `deliver_extra.chat_id` 上，导致消息发往了别的会话。
+
+6. 在沙箱、受限容器或 CI 里调试时出现 `exit status 1` / `service status unavailable` / `bridge could not be started`
+- 先怀疑执行环境限制，而不是立即判定为 awiki-cli 代码缺陷。
+- `runtime host-notify hermes setup` 与 `runtime host-notify hermes status` 在 Linux 上会依赖 `systemctl --user`、user dbus、`XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 等本机用户态服务能力。
+- 如果这些能力在沙箱里被拦截，CLI 可能报“bridge 启动失败”或“状态不可用”，但用户真实机器上的 Hermes bridge 实际是正常的。
+- 排查时优先以目标机器上直接执行的结果为准，再对照：
+  - `./awiki-cli-dev runtime host-notify hermes setup --deliver <platform>`
+  - `./awiki-cli-dev runtime host-notify hermes status`
+  - `systemctl --user status <bridge-service>`
+- 只有当问题能在真实环境里稳定复现时，才进入代码修复流程；如果只是沙箱里失败、但真实机器执行成功，应记录为环境差异。
 
 ---
 

@@ -130,7 +130,7 @@ func (a *App) runInit(cmd *cobra.Command, args []string) error {
 				"internal_error",
 				1,
 				err.Error(),
-				"Check write permissions for config.yaml under the awiki-cli workspace.",
+				refineWorkspaceWriteHint(err, "Check write permissions for config.yaml under the awiki-cli workspace."),
 			)
 		}
 		resolved.ConfigExists = true

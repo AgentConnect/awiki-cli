@@ -11,6 +11,8 @@ import (
 
 type recoverPlan struct {
 	TargetHandle         string
+	TargetLocalPart      string
+	EffectiveDomain      string
 	HandleKey            string
 	FinalIdentityName    string
 	TempIdentityName     string
@@ -81,24 +83,28 @@ func (p recoverPlan) OldOwnerDIDsInMergeOrder() []string {
 }
 
 func (s *Service) buildRecoverPlan(params RecoverParams) (recoverPlan, error) {
-	handle := strings.TrimSpace(params.Handle)
-	if handle == "" {
-		return recoverPlan{}, fmt.Errorf("%w: handle is required", ErrInvalidInput)
+	target, err := NormalizeHandleInput(params.Handle, s.config.DIDDomain)
+	if err != nil {
+		return recoverPlan{}, err
 	}
 	existing, err := s.manager.List()
 	if err != nil {
 		return recoverPlan{}, err
 	}
-	finalIdentityName := sanitizeIdentityName(handle)
+	identityBase := target.LocalPart
+	if target.ExplicitDomain {
+		identityBase = target.FullHandle
+	}
+	finalIdentityName := sanitizeIdentityName(identityBase)
 	if finalIdentityName == "" {
-		return recoverPlan{}, fmt.Errorf("%w: handle %q cannot be used as an identity name", ErrInvalidInput, handle)
+		return recoverPlan{}, fmt.Errorf("%w: handle %q cannot be used as an identity name", ErrInvalidInput, params.Handle)
 	}
 
-	handleKey := canonicalHandle(handle)
+	handleKey := canonicalHandle(target.FullHandle)
 	sameHandle := make([]IdentitySummary, 0)
 	excluded := make([]IdentitySummary, 0)
 	for _, summary := range existing {
-		if canonicalHandle(summary.Handle) == handleKey {
+		if canonicalHandle(defaultString(summary.FullHandle, deriveFullHandleFromDID(summary.Handle, summary.DID))) == handleKey {
 			sameHandle = append(sameHandle, summary)
 			continue
 		}
@@ -125,11 +131,13 @@ func (s *Service) buildRecoverPlan(params RecoverParams) (recoverPlan, error) {
 	tempBase := finalIdentityName + "-recover-tmp"
 	tempIdentityName := chooseNamedIdentity(tempBase, existing, tempBase)
 	return recoverPlan{
-		TargetHandle:         handle,
+		TargetHandle:         target.FullHandle,
+		TargetLocalPart:      target.LocalPart,
+		EffectiveDomain:      target.EffectiveDomain,
 		HandleKey:            handleKey,
 		FinalIdentityName:    finalIdentityName,
 		TempIdentityName:     tempIdentityName,
-		BackupPathPreview:    s.manager.PreviewRecoverHandleBackupPath(handle),
+		BackupPathPreview:    s.manager.PreviewRecoverHandleBackupPath(target.FullHandle),
 		SameHandleCandidates: sameHandle,
 		ExcludedIdentities:   excluded,
 	}, nil

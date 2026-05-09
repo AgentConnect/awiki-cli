@@ -40,13 +40,13 @@ func TestBuildHistoryRPCParamsValidatesTargetAndOptionalCursor(t *testing.T) {
 		t.Fatalf("body.since_seq = %#v, want absent", body["since_seq"])
 	}
 
-	params, err = BuildHistoryRPCParams(record, HistoryRequest{With: "did:bob", Cursor: "7", Limit: 3})
+	params, err = BuildHistoryRPCParams(record, HistoryRequest{With: "did:bob", Cursor: "7", Limit: 3, Skip: 4})
 	if err != nil {
 		t.Fatalf("BuildHistoryRPCParams(cursor) error = %v", err)
 	}
 	body = mustMapValue(t, params["body"], "params.body")
-	if body["since_seq"] != "7" || body["limit"] != 3 {
-		t.Fatalf("body = %#v, want cursor and explicit limit", body)
+	if body["since_seq"] != "7" || body["limit"] != 3 || body["skip"] != 4 {
+		t.Fatalf("body = %#v, want cursor, explicit limit, and skip", body)
 	}
 }
 

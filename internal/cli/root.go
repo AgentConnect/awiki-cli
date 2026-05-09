@@ -155,6 +155,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runVersion
 	case "config.show":
 		return a.runConfigShow
+	case "config.set":
+		return a.runConfigSet
 	case "id.status":
 		return a.runIDStatus
 	case "id.create":
@@ -237,6 +239,8 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runGroupLeave
 	case "group.update":
 		return a.runGroupUpdate
+	case "group.list":
+		return a.runGroupList
 	case "group.members":
 		return a.runGroupMembers
 	case "group.messages":
@@ -253,6 +257,22 @@ func (a *App) handlerFor(spec cmdmeta.CommandSpec) func(*cobra.Command, []string
 		return a.runPageRename
 	case "page.delete":
 		return a.runPageDelete
+	case "site.root.get":
+		return a.runSiteRootGet
+	case "site.root.set":
+		return a.runSiteRootSet
+	case "site.page.list":
+		return a.runSitePageList
+	case "site.page.get":
+		return a.runSitePageGet
+	case "site.page.create":
+		return a.runSitePageCreate
+	case "site.page.update":
+		return a.runSitePageUpdate
+	case "site.page.rename":
+		return a.runSitePageRename
+	case "site.page.delete":
+		return a.runSitePageDelete
 	case "runtime.status":
 		return a.runRuntimeStatus
 	case "runtime.apply":
@@ -541,7 +561,11 @@ func (a *App) maybeCheckForUpdates(cmd *cobra.Command) error {
 			decision.CurrentVersion,
 			decision.MinSupportedVersion,
 		)
-		hint := "Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade` or `npm install -g @awiki/cli@latest`."
+		hint := fmt.Sprintf(
+			"Please upgrade awiki-cli before running this command. Run `awiki-cli upgrade`, or install directly with `%s` (`%s` if registry.npmjs.org is unreachable).",
+			directNpmInstallCommand(),
+			mirrorNpmInstallCommand(),
+		)
 		return output.NewExitError("version_unsupported", 3, summary, hint)
 	}
 

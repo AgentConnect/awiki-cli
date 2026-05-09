@@ -117,8 +117,8 @@ awiki-cli 默认采用单根目录工作区模型，默认路径如下：
 | 缓存目录 | `~/.awiki-cli/cache/` | 无 |
 | 日志目录 | `~/.awiki-cli/logs/` | 无 |
 
-> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。  
-> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。  
+> 说明：`~/.awiki-cli/` 是跨平台固定的工作区目录（Windows 对应 `%USERPROFILE%\.awiki-cli\`），也是默认唯一入口。
+> `AWIKI_CLI_WORKSPACE_HOME_DIR` 只负责切换整个工作区根目录；`config / data / runtime / cache` 不再允许分别配置。
 > `AWIKI_CLI_WORKSPACE_HOME_DIR` 之外的旧 `AWIKI_* / AVIKI_* / E2E_*` 业务环境变量不再驱动 awiki-cli；若工作区仍保留上一版的 `config.json`，CLI 会在首次访问工作区时自动迁移到 `config.yaml`。
 >
 > 工作区内容包括：
@@ -200,17 +200,21 @@ services:
 flag > config.yaml > default
 ```
 
-> 该文件可选。未创建时所有配置使用默认值。  
+> 该文件可选。未创建时所有配置使用默认值。
 > `anp_service_endpoint` 和 `anp_service_did` 用于生成本地 DID 文档中的 `ANPMessageService`，同时 `anp_service_did` 也是 group/attachment 控制面默认使用的 service DID。它们和 `service_base_url` 的职责不同：
 >
 > - `service_base_url`：CLI 连接 user-service / content / group / message 的统一平台基础地址
 > - 域内 message RPC：`<service_base_url>/im/rpc`
 > - 域内 message WebSocket：`<service_base_url>/im/ws`
-> - `did_domain`：生成 DID 的 provider domain；多租户身份可与 `service_base_url` 不同
+> - `did_domain`：生成 bare-handle DID 的 provider domain；同时，CLI 在所有支持 handle 输入的 id/msg/group 入口里，如果用户只输入 bare handle（如 `alice`），都会先补全成 `alice.<did_domain>` 再做 lookup / register / recover。若用户显式输入 full handle（如 `alice.example.com`），则该次命令以显式 domain 为准，不会被 `did_domain` 覆盖；多租户身份可与 `service_base_url` 不同
 > - `anp_service_endpoint`：对外公开到 DID 文档里的 RPC 地址，默认从 `service_base_url` 推导
 > - `anp_service_did`：对外公开到 DID 文档里的 bare-domain service DID，默认从 `service_base_url` 推导
 >
 > 多租户示例：`service_base_url=https://awiki.ai`、`did_domain=a.com` 时，CLI 连接 awiki.ai 后端，但生成的 DID 使用 `a.com`。
+>
+> - `awiki-cli msg send --to alice --text "hi"` 会先把目标补成 `alice.a.com`
+> - `awiki-cli id recover --handle alice` 会按 `alice.a.com` 生成新 DID，并向服务端提交该 canonical full handle
+> - `awiki-cli id register --handle alice.partner.com` 会按 `partner.com` 生成 DID，但仍只把 local-part `alice` 发给 `did-auth.register`
 
 ### 3.3 本地开发配置
 
@@ -234,10 +238,10 @@ runtime:
     hermes:
       notify_url: http://127.0.0.1:8765/notify/host-event
 services:
-  service_base_url: https://awiki.test
-  did_domain: awiki.test
-  anp_service_endpoint: https://awiki.test/anp-im/rpc
-  anp_service_did: did:wba:awiki.test
+  service_base_url: https://xxx.xxx
+  did_domain: xxx.xxx
+  anp_service_endpoint: https://xxx.xxx/anp-im/rpc
+  anp_service_did: did:wba:xxx.xxx
   ca_bundle: ""
 ```
 
@@ -324,6 +328,9 @@ CGO_ENABLED=0 go build -o awiki-cli ./cmd/awiki-cli/
 
 # 查看当前配置
 ./awiki-cli config show
+
+# 更新 did_domain（修改后不需要重启 listener）
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### 4.4 运行测试
@@ -532,6 +539,7 @@ rm ~/.awiki-cli/data/awiki-cli.db
 
 ```bash
 ./awiki-cli config show | jq '.data.service_base_url, .data.anp_service_endpoint'
+./awiki-cli config set --did-domain tenant.example
 ```
 
 ### Q: v1 身份迁移

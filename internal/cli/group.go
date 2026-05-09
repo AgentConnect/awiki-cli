@@ -106,7 +106,11 @@ func (a *App) runGroupMemberMutation(cmd *cobra.Command, publicAction string, me
 	}
 	request := message.GroupMemberRequest{IdentityName: a.globals.Identity, Group: group, Member: member, Role: role, ReasonText: reason}
 	if a.globals.DryRun {
-		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group membership change planned", nil, a.identityMeta())
+		plan := map[string]any{"action": "group." + publicAction, "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}
+		if completed := message.CompleteBareHandle(member, service.Config().DIDDomain); completed != strings.TrimSpace(member) {
+			plan["member_handle"] = completed
+		}
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": plan}, "Dry run: group membership change planned", nil, a.identityMeta())
 	}
 	var result *message.CommandResult
 	if memberAction == "add" {
@@ -188,6 +192,23 @@ func (a *App) runGroupUpdate(cmd *cobra.Command, args []string) error {
 	result, err := service.UpdateGroup(cmd.Context(), request)
 	if err != nil {
 		return a.messageExit(err, "Make sure the active identity has permission to update the target group.")
+	}
+	return a.renderMessageResult(cmd, format, result)
+}
+
+func (a *App) runGroupList(cmd *cobra.Command, args []string) error {
+	limit, _ := cmd.Flags().GetInt("limit")
+	service, format, err := a.messageService()
+	if err != nil {
+		return a.messageExit(err, "Run `awiki-cli doctor` to inspect configuration and identity state.")
+	}
+	request := message.GroupListRequest{IdentityName: a.globals.Identity, Limit: limit}
+	if a.globals.DryRun {
+		return a.renderSuccess(cmd.CommandPath(), format, a.globals.JQ, map[string]any{"plan": map[string]any{"action": "group.list", "identity": a.globals.Identity, "runtime_mode": service.Config().RuntimeMode, "request": request}}, "Dry run: group list planned", nil, a.identityMeta())
+	}
+	result, err := service.ListGroups(cmd.Context(), request)
+	if err != nil {
+		return a.messageExit(err, "Make sure the active identity is registered and the message service is reachable.")
 	}
 	return a.renderMessageResult(cmd, format, result)
 }

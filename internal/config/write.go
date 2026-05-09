@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/agentconnect/awiki-cli/internal/durablefs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,6 +38,17 @@ func UpdateRuntimeSettings(paths Paths, mode string, socketPath string) error {
 func UpdateActiveIdentity(paths Paths, identityName string) error {
 	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
 		fileConfig.Identity.Active = strings.TrimSpace(identityName)
+		return nil
+	})
+}
+
+func UpdateDIDDomain(paths Paths, value string) error {
+	return updateFileConfig(paths.ConfigFile, func(fileConfig *FileConfig) error {
+		normalized, err := NormalizeDIDDomain(value)
+		if err != nil {
+			return err
+		}
+		fileConfig.Services.DIDDomain = normalized
 		return nil
 	})
 }
@@ -206,12 +218,7 @@ func writeAtomicFile(path string, content []byte, mode os.FileMode) error {
 	}
 	cleanup = false
 
-	dir, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return fmt.Errorf("open config dir: %w", err)
-	}
-	defer dir.Close()
-	if err := dir.Sync(); err != nil {
+	if err := durablefs.SyncDirectory(filepath.Dir(path)); err != nil {
 		return fmt.Errorf("sync config dir: %w", err)
 	}
 	return nil

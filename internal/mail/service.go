@@ -41,11 +41,13 @@ func (s *Service) Config() *appconfig.Resolved {
 	return s.resolved
 }
 
-// Notifications returns recent mail.notification records from the local websocket cache.
+// Notifications returns recent local mail-notification records from the local websocket cache.
 //
 // This does not call the remote mail-service. Instead, it reads from the same
 // sqlite database used by the runtime listener for direct/group messages and
-// surfaces entries where content_type = "mail.notification".
+// surfaces rows recognized as local mail notifications, including both:
+// - legacy rows with content_type = "mail.notification"
+// - current rows with metadata.source_kind = "mail"
 func (s *Service) Notifications(ctx context.Context, identityName string, limit int) (*CommandResult, error) {
 	if limit <= 0 {
 		limit = 20
@@ -123,7 +125,7 @@ func normalizeNotificationRows(rows []map[string]any) []map[string]any {
 }
 
 func normalizeNotificationRow(row map[string]any) map[string]any {
-	if strings.TrimSpace(stringFromAny(row["content_type"])) != "mail.notification" {
+	if !isLocalMailNotificationRow(row) {
 		return row
 	}
 	metadata := parseNotificationMetadata(row["metadata"])
@@ -146,9 +148,21 @@ func normalizeNotificationRow(row map[string]any) map[string]any {
 	for key, value := range row {
 		normalized[key] = value
 	}
+	normalized["source_kind"] = "mail"
 	normalized["title"] = "[邮件] " + subject
 	normalized["content"] = buildNotificationContent(mailboxAddress, fromAddr, subject, preview, hasAttachments)
 	return normalized
+}
+
+func isLocalMailNotificationRow(row map[string]any) bool {
+	if row == nil {
+		return false
+	}
+	if strings.TrimSpace(stringFromAny(row["content_type"])) == "mail.notification" {
+		return true
+	}
+	metadata := parseNotificationMetadata(row["metadata"])
+	return strings.TrimSpace(stringFromAny(metadata["source_kind"])) == "mail"
 }
 
 func parseNotificationMetadata(value any) map[string]any {
