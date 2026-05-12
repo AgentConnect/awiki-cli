@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/agentconnect/awiki-cli/internal/identity"
 )
 
 type recordingMLSRunner struct {
@@ -191,6 +193,33 @@ func TestMLSExecProviderCandidateDeviceIDsScansAgentScopedState(t *testing.T) {
 	}
 	if got[0] != "default" {
 		t.Fatalf("candidateDeviceIDs()[0] = %q, want default first", got[0])
+	}
+}
+
+func TestGroupDecryptSkipsOwnCipherMessages(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingMLSRunner{}
+	provider := MLSExecProvider{BinaryPath: "anp-mls", DataDir: t.TempDir(), Runner: runner}
+	agentDID := "did:wba:awiki.ai:user:alice"
+	groupDID := "did:wba:awiki.ai:groups:e2ee"
+	warnings, raw := (&Service{mlsProvider: &provider}).maybeDecryptGroupMessages(context.Background(), &identity.StoredIdentity{DID: agentDID}, groupDID, map[string]any{
+		"messages": []map[string]any{{
+			"id":         "group-msg-1",
+			"sender_did": agentDID,
+			"content": map[string]any{
+				"private_message_b64u": "ciphertext",
+			},
+		}},
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v, want none", warnings)
+	}
+	if raw == nil {
+		t.Fatal("raw result = nil")
+	}
+	if len(runner.args) != 0 {
+		t.Fatalf("runner args = %#v, want no decrypt call for own message", runner.args)
 	}
 }
 

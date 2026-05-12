@@ -63,14 +63,14 @@ DO UPDATE SET
     group_id = excluded.group_id,
     group_did = excluded.group_did,
     content_type = CASE
-        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
-             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
         THEN messages.content_type
         ELSE excluded.content_type
     END,
     content = CASE
-        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
-             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
         THEN messages.content
         ELSE excluded.content
     END,
@@ -81,8 +81,8 @@ DO UPDATE SET
     is_read = CASE WHEN excluded.is_read = 1 OR messages.is_read = 1 THEN 1 ELSE 0 END,
     sender_name = COALESCE(excluded.sender_name, messages.sender_name),
     metadata = CASE
-        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
-             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json')
+        WHEN excluded.content_type IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
+             AND messages.content_type NOT IN ('application/anp-direct-init+json', 'application/anp-direct-cipher+json', 'application/anp-group-cipher+json')
         THEN messages.metadata
         ELSE COALESCE(excluded.metadata, messages.metadata)
     END,

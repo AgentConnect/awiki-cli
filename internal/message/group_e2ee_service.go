@@ -412,13 +412,17 @@ func (s *Service) UpdateGroupE2EEKey(ctx context.Context, request GroupE2EEUpdat
 			return nil, fmt.Errorf("group E2EE update-key requires the actor to be the active owner before public discovery; actor status=%s", actorStatus)
 		}
 	}
+	groupStateRef, refWarnings, err := s.freshLocalGroupStateRef(ctx, record, request.Group, "update-key")
+	warnings = append(warnings, refWarnings...)
+	if err != nil {
+		return nil, err
+	}
 	leasedPackage, err := transport.GetGroupE2EEUpdateKeyPackage(ctx, request.Group, memberDID, deviceID)
 	if err != nil {
 		return nil, err
 	}
 	provider := s.groupMLSProvider()
 	operationID := "op-" + generateOperationID()
-	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	prepared, err := provider.UpdateMemberPrepare(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-update-key-prepare-" + generateOperationID(),
@@ -516,13 +520,17 @@ func (s *Service) RecoverGroupE2EEMember(ctx context.Context, request GroupE2EER
 	} else if !boolFromAny(serviceHead["actor_recovery_eligible"]) {
 		return nil, fmt.Errorf("group E2EE recovery requires the actor to be the active owner before public discovery; role=%s status=%s", stringFromAny(serviceHead["actor_membership_role"]), stringFromAny(serviceHead["actor_membership_status"]))
 	}
+	groupStateRef, refWarnings, err := s.freshLocalGroupStateRef(ctx, record, request.Group, "recover-member")
+	warnings = append(warnings, refWarnings...)
+	if err != nil {
+		return nil, err
+	}
 	leasedPackage, err := transport.GetGroupE2EERecoveryKeyPackage(ctx, request.Group, memberDID, deviceID)
 	if err != nil {
 		return nil, err
 	}
 	provider := s.groupMLSProvider()
 	operationID := "op-" + generateOperationID()
-	groupStateRef := s.localGroupStateRef(ctx, record, request.Group)
 	prepared, err := provider.RecoverMemberPrepare(ctx, MLSRequest{
 		APIVersion: "anp-mls/v1",
 		RequestID:  "group-e2ee-recover-member-prepare-" + generateOperationID(),
@@ -928,6 +936,9 @@ func (s *Service) maybeDecryptGroupMessages(ctx context.Context, record *identit
 	deviceIDs := provider.candidateDeviceIDs(record.DID)
 	warnings := make([]string, 0)
 	for _, item := range messages {
+		if stringFromAny(item["sender_did"]) == record.DID {
+			continue
+		}
 		cipher := groupCipherObjectFromMessage(item)
 		if len(cipher) == 0 {
 			continue
@@ -1813,6 +1824,27 @@ func (s *Service) localGroupStateRef(ctx context.Context, record *identity.Store
 	return groupStateRefFromSnapshot(groupDID, snapshot)
 }
 
+func (s *Service) freshLocalGroupStateRef(ctx context.Context, record *identity.StoredIdentity, groupDID string, operation string) (map[string]any, []string, error) {
+	transport, _, err := s.httpTransport(record)
+	if err != nil {
+		return nil, nil, fmt.Errorf("group E2EE %s requires current group_state_ref.group_state_version; failed to prepare group snapshot refresh: %w", operation, err)
+	}
+	groupResult, err := transport.GetGroup(ctx, GroupGetRequest{Group: groupDID})
+	if err != nil {
+		return nil, nil, fmt.Errorf("group E2EE %s requires current group_state_ref.group_state_version; failed to refresh group snapshot for %s: %w", operation, groupDID, err)
+	}
+	warnings := s.persistGroupSnapshot(ctx, record, groupResult)
+	snapshot := normalizeGroupSnapshot(groupResult)
+	if len(snapshot) == 0 {
+		snapshot = groupResult
+	}
+	ref := groupStateRefFromSnapshot(groupDID, snapshot)
+	if stringFromAny(ref["group_state_version"]) == "" {
+		return ref, warnings, fmt.Errorf("group E2EE %s requires current group_state_ref.group_state_version; refreshed group snapshot for %s did not include group_state_version", operation, groupDID)
+	}
+	return ref, warnings, nil
+}
+
 func attachGroupStateRef(input map[string]any, groupDID string, groupStateRef map[string]any) map[string]any {
 	output := cloneStringAnyMap(input)
 	ref := cloneStringAnyMap(groupStateRef)
@@ -1854,15 +1886,7 @@ func (s *Service) groupHasLocalE2EEState(ctx context.Context, record *identity.S
 		return false
 	}
 	provider := s.groupMLSProvider()
-	resp, err := provider.Status(ctx, MLSRequest{
-		APIVersion: "anp-mls/v1",
-		RequestID:  "group-e2ee-send-detect-" + generateOperationID(),
-		AgentDID:   record.DID,
-		Params: map[string]any{
-			"agent_did": record.DID,
-			"group_did": groupDID,
-		},
-	})
+	resp, _, err := groupE2EEStatusForRecovery(ctx, provider, record.DID, groupDID, "")
 	if err != nil || len(resp) == 0 {
 		return false
 	}

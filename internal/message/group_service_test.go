@@ -232,6 +232,94 @@ func TestShouldUseCachedGroupFallbackRejectsInactiveViewerErrors(t *testing.T) {
 	}
 }
 
+func TestGroupMessagesUsesHTTPBeforeLocalCacheWhenWebSocketUnavailable(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:http-before-cache:e1_group"
+	methods := []string(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envelope := decodeRPCRequest(t, r)
+		methods = append(methods, envelope.Method)
+		switch envelope.Method {
+		case "group.list_messages":
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": map[string]any{
+				"messages": []map[string]any{{
+					"id":            "remote-new",
+					"message_id":    "remote-new",
+					"sender_did":    "did:remote",
+					"group_did":     groupDID,
+					"content_type":  "text/plain",
+					"content":       "fresh remote message",
+					"server_seq":    "2",
+					"sent_at":       "2026-05-11T12:00:00Z",
+					"security_type": "none",
+				}},
+				"total":          1,
+				"next_since_seq": "2",
+				"source":         "remote_http",
+			}})
+		default:
+			t.Fatalf("unexpected RPC method %q", envelope.Method)
+		}
+	}))
+	defer server.Close()
+
+	service, resolved, record := newMessageServiceForTest(t, server.URL)
+	resolved.RuntimeMode = "websocket"
+	resolved.RuntimeSocketPath = filepath.Join(t.TempDir(), "missing.sock")
+
+	db, err := store.Open(resolved.Paths)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	defer db.Close()
+	if err := store.EnsureSchema(context.Background(), db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	oldSeq := int64(1)
+	if err := store.StoreMessage(context.Background(), db, store.MessageRecord{
+		MsgID:          "cached-old",
+		OwnerDID:       record.DID,
+		ThreadID:       store.MakeThreadID(record.DID, "", groupDID),
+		Direction:      0,
+		SenderDID:      "did:cached",
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		ContentType:    "text/plain",
+		Content:        "stale cached message",
+		ServerSeq:      &oldSeq,
+		SentAt:         "2026-05-11T11:00:00Z",
+		CredentialName: record.IdentityName,
+	}); err != nil {
+		t.Fatalf("StoreMessage(cached-old) error = %v", err)
+	}
+
+	result, err := service.GroupMessages(context.Background(), GroupMessagesRequest{
+		IdentityName: record.IdentityName,
+		Group:        groupDID,
+		Limit:        20,
+	})
+	if err != nil {
+		t.Fatalf("GroupMessages() error = %v", err)
+	}
+	if !stringSliceContains(methods, "group.list_messages") {
+		t.Fatalf("RPC methods = %#v, want group.list_messages HTTP fallback", methods)
+	}
+	if got := stringFromAny(result.Data["source"]); got != "remote_http" {
+		t.Fatalf("result source = %q, want remote_http", got)
+	}
+	messages := messagesFromResult(result.Data["messages"])
+	if len(messages) == 0 {
+		t.Fatalf("messages = %#v, want remote message", result.Data["messages"])
+	}
+	if got := defaultString(stringFromAny(messages[0]["msg_id"]), stringFromAny(messages[0]["message_id"])); got != "remote-new" {
+		t.Fatalf("first message id = %q, want remote-new; messages = %#v", got, messages)
+	}
+	if !warningContains(result.Warnings, "used HTTP fallback") {
+		t.Fatalf("warnings = %#v, want HTTP fallback warning", result.Warnings)
+	}
+}
+
 func TestGroupMemberMutationUsesPreMutationE2EESnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -249,6 +337,80 @@ func TestGroupMemberMutationUsesPreMutationE2EESnapshot(t *testing.T) {
 	}
 	if groupMemberMutationUsesE2EE(GroupMemberRequest{}, nil, postMutation) {
 		t.Fatal("groupMemberMutationUsesE2EE() = true, want false for non-E2EE snapshots")
+	}
+}
+
+func TestSecureGroupSendUsesLocalMLSStateWhenSnapshotLacksE2EEMarker(t *testing.T) {
+	t.Parallel()
+
+	groupDID := "did:wba:awiki.ai:groups:local-mls-send:e1_group"
+	methods := []string(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		envelope := decodeRPCRequest(t, r)
+		methods = append(methods, envelope.Method)
+		switch envelope.Method {
+		case "group.get":
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": map[string]any{
+				"group_did":           groupDID,
+				"group_state_version": "2",
+				"member_status":       "active",
+				"member_role":         "member",
+			}})
+		case "group.e2ee.send":
+			meta := mustMapValue(t, envelope.Params["meta"], "send.meta")
+			if got := stringFromAny(meta["security_profile"]); got != GroupE2EESecurityProfile {
+				t.Fatalf("security_profile = %q, want group-e2ee", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": envelope.ID, "result": map[string]any{
+				"accepted":            true,
+				"group_did":           groupDID,
+				"group_event_seq":     "5",
+				"group_state_version": "2",
+				"message_id":          stringFromAny(meta["message_id"]),
+				"operation_id":        stringFromAny(meta["operation_id"]),
+				"accepted_at":         "2026-05-11T00:00:00Z",
+				"final_acceptance":    true,
+			}})
+		default:
+			t.Fatalf("unexpected RPC method %q", envelope.Method)
+		}
+	}))
+	defer server.Close()
+
+	service, resolved, record := newMessageServiceForTest(t, server.URL)
+	writeCachedGroupState(t, resolved, record, store.GroupRecord{
+		OwnerDID:         record.DID,
+		GroupID:          groupDID,
+		GroupDID:         groupDID,
+		MyRole:           "member",
+		MembershipStatus: "active",
+		Metadata:         `{"group_state_version":"2"}`,
+		CredentialName:   record.IdentityName,
+	}, nil)
+	service.mlsProvider = &MLSExecProvider{
+		BinaryPath: "anp-mls",
+		DataDir:    dataDirWithMLSDevice(t, record.DID, "member-main"),
+		Runner: &groupE2EESendMLSRunner{statusByDevice: map[string]map[string]any{
+			"default":     {"status": "empty"},
+			"member-main": {"status": "active", "epoch": "1", "crypto_group_id_b64u": "crypto-1"},
+		}},
+	}
+
+	result, err := service.Send(context.Background(), SendRequest{
+		IdentityName: record.IdentityName,
+		Group:        groupDID,
+		Text:         "hello",
+		MessageType:  "text",
+		SecureMode:   "on",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if got := stringFromAny(mustMapValue(t, result.Data["message"], "message")["security_profile"]); got != GroupE2EESecurityProfile {
+		t.Fatalf("message.security_profile = %q, want group-e2ee", got)
+	}
+	if !stringSliceContains(methods, "group.e2ee.send") {
+		t.Fatalf("RPC methods = %#v, want group.e2ee.send", methods)
 	}
 }
 
@@ -713,6 +875,16 @@ func TestRecoverGroupE2EEMemberUsesRecoverMemberWithoutGroupAdd(t *testing.T) {
 				"actor_membership_status": "active",
 				"actor_recovery_eligible": true,
 			}
+		case "group.get":
+			result = map[string]any{
+				"group_did":                groupDID,
+				"group_state_version":      "9",
+				"group_event_seq":          "21",
+				"member_status":            "active",
+				"member_role":              "owner",
+				"message_security_profile": GroupE2EESecurityProfile,
+				"group_profile":            map[string]any{"display_name": "recover group"},
+			}
 		case "group.e2ee.get_key_package":
 			body := mustMapValue(t, envelope.Params["body"], "get_key_package.body")
 			if got := stringFromAny(body["purpose"]); got != "recovery" {
@@ -731,6 +903,10 @@ func TestRecoverGroupE2EEMemberUsesRecoverMemberWithoutGroupAdd(t *testing.T) {
 			body := mustMapValue(t, envelope.Params["body"], "recover_member.body")
 			if _, ok := body["member_did"]; ok {
 				t.Fatalf("recover_member body must not include P4 member_did: %#v", body)
+			}
+			ref := mustMapValue(t, body["group_state_ref"], "recover_member.group_state_ref")
+			if got := stringFromAny(ref["group_state_version"]); got != "9" {
+				t.Fatalf("recover_member group_state_version = %q, want refreshed P4 version", got)
 			}
 			target := mustMapValue(t, body["target"], "recover_member.target")
 			if got := stringFromAny(target["agent_did"]); got != bobDID {
@@ -789,6 +965,16 @@ func TestUpdateGroupE2EEKeyUsesUpdateMethodWithoutGroupAdd(t *testing.T) {
 				"epoch":                   "5",
 				"actor_membership_status": "active",
 			}
+		case "group.get":
+			result = map[string]any{
+				"group_did":                groupDID,
+				"group_state_version":      "10",
+				"group_event_seq":          "22",
+				"member_status":            "active",
+				"member_role":              "owner",
+				"message_security_profile": GroupE2EESecurityProfile,
+				"group_profile":            map[string]any{"display_name": "update group"},
+			}
 		case "group.e2ee.get_key_package":
 			body := mustMapValue(t, envelope.Params["body"], "get_key_package.body")
 			if got := stringFromAny(body["purpose"]); got != "update" {
@@ -807,6 +993,10 @@ func TestUpdateGroupE2EEKeyUsesUpdateMethodWithoutGroupAdd(t *testing.T) {
 			body := mustMapValue(t, envelope.Params["body"], "update.body")
 			if _, ok := body["member_did"]; ok {
 				t.Fatalf("update body must not include P4 member_did: %#v", body)
+			}
+			ref := mustMapValue(t, body["group_state_ref"], "update.group_state_ref")
+			if got := stringFromAny(ref["group_state_version"]); got != "10" {
+				t.Fatalf("update group_state_version = %q, want refreshed P4 version", got)
 			}
 			if got := stringFromAny(body["update_key_package_id"]); got != "kp-update-1" {
 				t.Fatalf("update_key_package_id = %q, want kp-update-1", got)
@@ -990,4 +1180,50 @@ func (r *groupE2EEUpdateMLSRunner) Run(_ context.Context, _ string, args []strin
 		"request_id":  req.RequestID,
 		"result":      result,
 	})), nil, nil
+}
+
+type groupE2EESendMLSRunner struct {
+	status         map[string]any
+	statusByDevice map[string]map[string]any
+}
+
+func (r *groupE2EESendMLSRunner) Run(_ context.Context, _ string, args []string, stdin []byte) ([]byte, []byte, error) {
+	var req MLSRequest
+	_ = json.Unmarshal(stdin, &req)
+	command := strings.Join(args, " ")
+	deviceID := defaultString(req.DeviceID, stringFromAny(req.Params["device_id"]))
+	result := r.statusByDevice[deviceID]
+	if result == nil {
+		result = r.status
+	}
+	if strings.Contains(command, "message encrypt") {
+		result = map[string]any{
+			"group_cipher_object": map[string]any{
+				"crypto_group_id_b64u": "crypto-1",
+				"epoch":                "1",
+				"private_message_b64u": "ciphertext",
+				"group_state_ref":      req.Params["group_state_ref"],
+				"epoch_authenticator":  "auth-1",
+			},
+		}
+	}
+	if result == nil {
+		result = map[string]any{"status": "active", "epoch": "1", "crypto_group_id_b64u": "crypto-1"}
+	}
+	return []byte(mustJSONForTest(map[string]any{
+		"ok":          true,
+		"api_version": "anp-mls/v1",
+		"request_id":  req.RequestID,
+		"result":      result,
+	})), nil, nil
+}
+
+func dataDirWithMLSDevice(t *testing.T, agentDID string, deviceID string) string {
+	t.Helper()
+
+	dataDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dataDir, "agents", mlsAgentKey(agentDID), deviceID), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	return dataDir
 }

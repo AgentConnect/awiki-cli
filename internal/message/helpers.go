@@ -45,6 +45,8 @@ func int64PtrFromAny(value any) *int64 {
 	case float64:
 		value := int64(typed)
 		return &value
+	case string:
+		return parseInt64Ptr(typed)
 	default:
 		return nil
 	}

@@ -316,16 +316,19 @@ func (s *Service) GroupMessages(ctx context.Context, request GroupMessagesReques
 	result, err := transport.ListGroupMessages(ctx, request)
 	if err != nil {
 		wsErr := err
-		cached, cacheErr := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
-		if cacheErr == nil && len(cached) > 0 {
-			return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{websocketCacheFallbackWarning(wsErr)}}, nil
-		}
 		httpTransport, httpWarnings, httpErr := s.httpTransport(record)
 		if httpErr != nil {
 			return nil, err
 		}
 		result, err = httpTransport.ListGroupMessages(ctx, request)
 		if err != nil {
+			if !shouldUseCachedGroupFallback(err) {
+				return nil, err
+			}
+			cached, cacheErr := s.readCachedGroupMessages(ctx, record, request.Group, request.Limit, request.Cursor)
+			if cacheErr == nil && len(cached) > 0 {
+				return &CommandResult{Data: map[string]any{"group": request.Group, "messages": cached, "total": len(cached), "source": "local_ws_cache_fallback"}, Summary: "Loaded group messages from local cache", Warnings: []string{websocketCacheFallbackWarning(wsErr)}}, nil
+			}
 			return nil, err
 		}
 		sourceMode = runtime.ModeHTTP
@@ -356,13 +359,14 @@ func (s *Service) sendGroup(ctx context.Context, request SendRequest) (*CommandR
 	}
 	if request.SecureMode == "on" {
 		// For groups, --secure on selects the explicit group E2EE path when the
-		// cached group summary indicates group-e2ee.
+		// cached group summary indicates group-e2ee or local MLS state has already
+		// been restored from a welcome/commit notice.
 		record, err := s.requireActiveIdentity(request.IdentityName)
 		if err != nil {
 			return nil, err
 		}
 		snapshot, _ := s.readCachedGroupSnapshot(ctx, record, request.Group)
-		if !groupSnapshotUsesE2EE(snapshot) {
+		if !groupSnapshotUsesE2EE(snapshot) && !s.groupHasLocalE2EEState(ctx, record, request.Group) {
 			return nil, ErrSecureNotSupported
 		}
 		return s.sendGroupE2EE(ctx, record, request)

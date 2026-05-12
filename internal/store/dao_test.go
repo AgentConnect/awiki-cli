@@ -169,6 +169,68 @@ func TestStoreMessagePreservesDecryptedContentWhenRawWireArrivesLater(t *testing
 	}
 }
 
+func TestStoreMessagePreservesGroupPlaintextWhenRawWireArrivesLater(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t)
+	ctx := context.Background()
+	if err := EnsureSchema(ctx, db); err != nil {
+		t.Fatalf("EnsureSchema() error = %v", err)
+	}
+	ownerDID := "did:wba:awiki.ai:user:alice"
+	groupDID := "did:wba:awiki.ai:groups:e2ee"
+	threadID := MakeThreadID(ownerDID, "", groupDID)
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "group-e2ee-1",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      1,
+		SenderDID:      ownerDID,
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		ContentType:    "text/plain",
+		Content:        "already plaintext",
+		ServerSeq:      int64Ptr(7),
+		IsE2EE:         true,
+		Metadata:       `{"security_profile":"group-e2ee"}`,
+		CredentialName: "alice",
+	}); err != nil {
+		t.Fatalf("StoreMessage(plaintext) error = %v", err)
+	}
+	if err := StoreMessage(ctx, db, MessageRecord{
+		MsgID:          "group-e2ee-1",
+		OwnerDID:       ownerDID,
+		ThreadID:       threadID,
+		Direction:      1,
+		SenderDID:      ownerDID,
+		GroupID:        groupDID,
+		GroupDID:       groupDID,
+		ContentType:    "application/anp-group-cipher+json",
+		Content:        `{"private_message_b64u":"raw"}`,
+		ServerSeq:      int64Ptr(8),
+		Metadata:       `{"content_type":"application/anp-group-cipher+json"}`,
+		CredentialName: "alice",
+	}); err != nil {
+		t.Fatalf("StoreMessage(raw group cipher) error = %v", err)
+	}
+	got, err := GetMessageByID(ctx, db, "group-e2ee-1", ownerDID, "")
+	if err != nil {
+		t.Fatalf("GetMessageByID() error = %v", err)
+	}
+	if got["content_type"] != "text/plain" {
+		t.Fatalf("content_type = %#v, want text/plain", got["content_type"])
+	}
+	if got["content"] != "already plaintext" {
+		t.Fatalf("content = %#v, want already plaintext", got["content"])
+	}
+	if got["metadata"] != `{"security_profile":"group-e2ee"}` {
+		t.Fatalf("metadata = %#v, want plaintext metadata preserved", got["metadata"])
+	}
+	if got["server_seq"] != int64(8) {
+		t.Fatalf("server_seq = %#v, want newest server seq", got["server_seq"])
+	}
+}
+
 func TestRebindOwnerDIDAndClearE2EEData(t *testing.T) {
 	t.Parallel()
 
